@@ -1,0 +1,326 @@
+/**
+ * Searce Header Styles
+ * Professional navigation and branding
+ */
+
+.searce-header {
+  background: var(--searce-white);
+  box-shadow: var(--shadow-md);
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  border-bottom: 3px solid var(--searce-blue-primary);
+}
+
+.header-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: var(--spacing-lg) var(--spacing-xl);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-xl);
+}
+
+/* ============================================
+   BRAND SECTION
+   ============================================ */
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.brand-logo {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform var(--transition-base);
+}
+
+.brand-logo:hover {
+  transform: scale(1.05);
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.brand-name {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--searce-blue-dark);
+  margin: 0;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.brand-tagline {
+  font-size: var(--font-size-xs);
+  color: var(--searce-gray-600);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-top: 2px;
+}
+
+/* ============================================
+   PROJECT NAME SECTION
+   ============================================ */
+
+.header-project {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-grow: 1;
+  max-width: 400px;
+}
+
+.project-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--searce-gray-600);
+  white-space: nowrap;
+}
+
+.project-name-input {
+  flex-grow: 1;
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-family: var(--font-primary);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  color: var(--searce-blue-dark);
+  background: var(--searce-gray-100);
+  border: 2px solid transparent;
+  border-radius: var(--radius-md);
+  transition: all var(--transition-base);
+}
+
+.project-name-input:hover {
+  background: var(--searce-white);
+  border-color: var(--searce-gray-400);
+}
+
+.project-name-input:focus {
+  outline: none;
+  background: var(--searce-white);
+  border-color: var(--searce-blue-primary);
+  box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.1);
+}
+
+/* ============================================
+   USER SECTION
+   ============================================ */
+
+.header-user {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--searce-blue-lighter);
+  border-radius: var(--radius-lg);
+  transition: all var(--transition-base);
+}
+
+.user-info:hover {
+  background: var(--searce-blue-light);
+}
+
+.user-avatar {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gradient-primary);
+  color: var(--searce-white);
+  border-radius: 50%;
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.user-details {
+  display: flex;
+  flex-direction: column;
+}
+
+.user-name {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--searce-blue-dark);
+  line-height: 1.3;
+}
+
+.user-role {
+  font-size: var(--font-size-xs);
+  color: var(--searce-gray-600);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.btn-logout {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  background: var(--searce-white);
+  border: 2px solid var(--searce-gray-400);
+  border-radius: 50%;
+  color: var(--searce-gray-700);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.btn-logout:hover {
+  background: var(--searce-error);
+  border-color: var(--searce-error);
+  color: var(--searce-white);
+  transform: rotate(5deg);
+}
+
+/* ============================================
+   STATUS BAR
+   ============================================ */
+
+.header-status-bar {
+  background: var(--gradient-light);
+  border-top: 1px solid var(--searce-gray-300);
+}
+
+.status-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: var(--spacing-sm) var(--spacing-xl);
+  display: flex;
+  gap: var(--spacing-xl);
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-md);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-base);
+}
+
+.status-item:hover {
+  background: var(--searce-white);
+}
+
+.status-icon {
+  font-size: var(--font-size-lg);
+  line-height: 1;
+}
+
+.status-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--searce-gray-700);
+}
+
+.status-check {
+  font-size: var(--font-size-sm);
+  color: var(--searce-success);
+  font-weight: var(--font-weight-bold);
+  margin-left: var(--spacing-xs);
+}
+
+.status-spinner {
+  margin-left: var(--spacing-xs);
+}
+
+/* Status Variants */
+.status-completed {
+  border-left: 3px solid var(--searce-success);
+}
+
+.status-in-progress {
+  border-left: 3px solid var(--searce-blue-primary);
+}
+
+.status-pending {
+  border-left: 3px solid var(--searce-gray-400);
+  opacity: 0.6;
+}
+
+/* ============================================
+   SPINNER
+   ============================================ */
+
+.spinner-small {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--searce-blue-lighter);
+  border-top-color: var(--searce-blue-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ============================================
+   RESPONSIVE DESIGN
+   ============================================ */
+
+@media (max-width: 1024px) {
+  .header-project {
+    max-width: 300px;
+  }
+
+  .status-container {
+    gap: var(--spacing-md);
+  }
+}
+
+@media (max-width: 768px) {
+  .header-container {
+    flex-wrap: wrap;
+    padding: var(--spacing-md);
+  }
+
+  .header-brand {
+    flex: 1 1 auto;
+  }
+
+  .header-project {
+    order: 3;
+    flex: 1 1 100%;
+    max-width: 100%;
+    margin-top: var(--spacing-sm);
+  }
+
+  .brand-tagline {
+    display: none;
+  }
+
+  .user-details {
+    display: none;
+  }
+
+  .status-container {
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+  }
+
+  .status-label {
+    font-size: var(--font-size-xs);
+  }
+}

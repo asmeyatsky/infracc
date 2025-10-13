@@ -1,0 +1,276 @@
+/* Import Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+
+/* CSS Custom Properties for the Searce Design System */
+:root {
+  /* Searce Blue Colors */
+  --searce-blue-primary: #0066CC;
+  --searce-blue-dark: #004C99;
+  --searce-blue-light: #3399FF;
+  --searce-blue-lighter: #E6F2FF;
+  --searce-blue-accent: #0052A3;
+
+  /* Neutral Colors */
+  --searce-black: #1A1A1A;
+  --searce-gray-900: #2D2D2D;
+  --searce-gray-800: #3D3D3D;
+  --searce-gray-700: #5C5C5C;
+  --searce-gray-600: #757575;
+  --searce-gray-500: #9E9E9E;
+  --searce-gray-400: #BDBDBD;
+  --searce-gray-300: #E0E0E0;
+  --searce-gray-200: #EEEEEE;
+  --searce-gray-100: #F5F5F5;
+  --searce-white: #FFFFFF;
+
+  /* Semantic Colors */
+  --searce-success: #00C853;
+  --searce-warning: #FFB300;
+  --searce-error: #D32F2F;
+  --searce-info: #0288D1;
+
+  /* Gradients */
+  --gradient-primary: linear-gradient(135deg, #0066CC 0%, #004C99 100%);
+  --gradient-light: linear-gradient(135deg, #E6F2FF 0%, #FFFFFF 100%);
+  --gradient-overlay: linear-gradient(180deg, rgba(0,102,204,0.05) 0%, rgba(255,255,255,0) 100%);
+
+  /* Typography */
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.25rem;
+  --font-size-2xl: 1.5rem;
+  --font-size-3xl: 1.875rem;
+  --font-size-4xl: 2.25rem;
+  --font-size-5xl: 3rem;
+
+  --font-weight-light: 300;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --font-weight-extrabold: 800;
+
+  /* Spacing */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+  --spacing-2xl: 2.5rem;
+  --spacing-3xl: 3rem;
+  --spacing-4xl: 4rem;
+
+  /* Radius */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.5rem;
+  --radius-3xl: 2rem;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgba(26,26,26,0.05);
+  --shadow-sm: 0 2px 4px rgba(26,26,26,0.06);
+  --shadow-md: 0 4px 6px rgba(26,26,26,0.08);
+  --shadow-lg: 0 10px 15px rgba(26,26,26,0.08);
+  --shadow-xl: 0 20px 25px rgba(26,26,26,0.08);
+  --shadow-2xl: 0 25px 50px rgba(26,26,26,0.12);
+  --shadow-blue: 0 8px 16px rgba(0,102,204,0.15);
+
+  /* Transitions */
+  --transition-fast: 150ms;
+  --transition-base: 250ms;
+  --transition-slow: 350ms;
+}
+
+/* Global Styles */
+body {
+  font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--searce-gray-100);
+}
+
+/* Container Styles */
+.container-fluid {
+  padding-left: var(--spacing-xl);
+  padding-right: var(--spacing-xl);
+}
+
+/* Navigation Styles */
+.nav-pills .nav-link {
+  color: var(--searce-gray-700);
+  font-weight: var(--font-weight-semibold);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md) var(--spacing-lg);
+  transition: all var(--transition-base);
+}
+
+.nav-pills .nav-link:hover {
+  color: var(--searce-blue-dark);
+  background-color: var(--searce-gray-200);
+}
+
+.nav-pills .nav-link.active {
+  background: var(--gradient-primary);
+  color: var(--searce-white);
+  box-shadow: var(--shadow-blue);
+}
+
+/* Card Styles */
+.card {
+  border: none;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition-base);
+}
+
+.card:hover {
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-2px);
+}
+
+.card-header {
+  background: var(--searce-white);
+  border-bottom: 2px solid var(--searce-gray-200);
+  font-weight: var(--font-weight-semibold);
+  color: var(--searce-blue-dark);
+  border-radius: calc(var(--radius-lg) - 2px) calc(var(--radius-lg) - 2px) 0 0 !important;
+}
+
+/* Button Styles */
+.btn {
+  font-weight: var(--font-weight-semibold);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  transition: all var(--transition-base);
+}
+
+.btn-primary {
+  background: var(--gradient-primary);
+  border: none;
+  box-shadow: var(--shadow-blue);
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(0, 102, 204, 0.3);
+}
+
+.btn-outline-primary {
+  color: var(--searce-blue-primary);
+  border-color: var(--searce-blue-primary);
+}
+
+.btn-outline-primary:hover {
+  background: var(--searce-blue-primary);
+  color: var(--searce-white);
+}
+
+/* Form Styles */
+.form-control {
+  border: 2px solid var(--searce-gray-400);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  transition: all var(--transition-base);
+}
+
+.form-control:focus {
+  border-color: var(--searce-blue-primary);
+  box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.15);
+}
+
+.form-select {
+  border: 2px solid var(--searce-gray-400);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  transition: all var(--transition-base);
+}
+
+.form-select:focus {
+  border-color: var(--searce-blue-primary);
+  box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.15);
+}
+
+/* Table Styles */
+.table {
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.table th {
+  background-color: var(--searce-gray-100);
+  font-weight: var(--font-weight-semibold);
+  color: var(--searce-gray-800);
+  border: none;
+}
+
+.table th:first-child {
+  border-top-left-radius: var(--radius-md);
+}
+
+.table th:last-child {
+  border-top-right-radius: var(--radius-md);
+}
+
+/* Badge Styles */
+.badge {
+  font-weight: var(--font-weight-semibold);
+  border-radius: var(--radius-full);
+}
+
+/* Alert Styles */
+.alert {
+  border-radius: var(--radius-md);
+  border: none;
+}
+
+/* Chart Container */
+.chart-container {
+  position: relative;
+  height: 400px;
+  width: 100%;
+}
+
+/* Loading Spinner */
+.spinner-border {
+  vertical-align: text-bottom;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+  .container-fluid {
+    padding-left: var(--spacing-md);
+    padding-right: var(--spacing-md);
+  }
+  
+  .nav-pills .nav-link {
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-size: var(--font-size-sm);
+  }
+  
+  .chart-container {
+    height: 300px;
+  }
+}
+
+@media (max-width: 576px) {
+  .nav-pills {
+    flex-direction: column;
+  }
+  
+  .nav-pills .nav-link {
+    border-radius: var(--radius-md);
+    margin-bottom: var(--spacing-xs);
+  }
+}
+
+/* Import additional styles */
+@import url('./styles/enhanced-tco-calculator.css');
+@import url('./styles/executive-dashboard.css');
+@import url('./styles/comprehensive-styles.css');
