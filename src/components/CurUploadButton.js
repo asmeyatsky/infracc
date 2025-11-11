@@ -223,8 +223,9 @@ function CurUploadButton({ onUploadComplete }) {
     setUploadProgress({ current: 0, total: files.length, currentFile: '' });
 
     try {
-      let allImportedData = [];
+      let totalWorkloadsSaved = 0;
       let processedCount = 0;
+      const batchSize = 50; // Process 50 workloads at a time
 
       for (const file of files) {
         setUploadProgress({
@@ -246,15 +247,58 @@ function CurUploadButton({ onUploadComplete }) {
             continue;
           }
 
-          allImportedData.push(...fileData);
+          // Save workloads immediately after processing each file to avoid stack overflow
+          // Process in batches to prevent memory issues
+          setUploadProgress({ 
+            current: processedCount + 1, 
+            total: files.length, 
+            currentFile: file.name,
+            status: `Saving ${fileData.length} workloads from ${file.name}...`
+          });
+
+          for (let i = 0; i < fileData.length; i += batchSize) {
+            const batch = fileData.slice(i, i + batchSize);
+            
+            // Save batch
+            const batchResults = await Promise.all(
+              batch.map(async (data) => {
+                try {
+                  const workload = new Workload({
+                    ...data,
+                    sourceProvider: 'aws', // CUR files are AWS-specific
+                    dependencies: data.dependencies 
+                      ? (Array.isArray(data.dependencies) ? data.dependencies : data.dependencies.split(',').map(d => d.trim()))
+                      : []
+                  });
+                  
+                  // Save to repository
+                  await workloadRepository.save(workload);
+                  return workload;
+                } catch (error) {
+                  console.warn('Failed to create workload from CSV:', error);
+                  return null;
+                }
+              })
+            );
+            
+            const validBatch = batchResults.filter(w => w !== null);
+            totalWorkloadsSaved += validBatch.length;
+            
+            // Log progress for large batches
+            if (fileData.length > 100 && i % (batchSize * 10) === 0) {
+              console.log(`Saved ${totalWorkloadsSaved} workloads so far...`);
+            }
+          }
+
           processedCount++;
+          console.log(`Completed ${file.name}: ${fileData.length} workloads saved`);
         } catch (error) {
           console.error(`Error processing ${file.name}:`, error);
           toast.error(`Error processing ${file.name}: ${error.message}`);
         }
       }
 
-      if (allImportedData.length === 0) {
+      if (totalWorkloadsSaved === 0) {
         toast.error('No valid data found in uploaded files');
         setUploading(false);
         setUploadProgress(null);
@@ -262,56 +306,14 @@ function CurUploadButton({ onUploadComplete }) {
         return;
       }
 
-      // Convert to domain entities and save in batches to avoid stack overflow
-      setUploadProgress({ ...uploadProgress, status: 'Saving workloads...' });
+      // Get all saved workloads for callback
+      const validWorkloads = await workloadRepository.findAll();
       
-      const batchSize = 50; // Process 50 workloads at a time
-      const importedWorkloads = [];
-      
-      // Process workloads in batches
-      for (let i = 0; i < allImportedData.length; i += batchSize) {
-        const batch = allImportedData.slice(i, i + batchSize);
-        const batchNumber = Math.floor(i / batchSize) + 1;
-        const totalBatches = Math.ceil(allImportedData.length / batchSize);
-        
-        console.log(`Saving batch ${batchNumber}/${totalBatches} (${batch.length} workloads)...`);
-        
-        const batchResults = await Promise.all(
-          batch.map(async (data) => {
-            try {
-              const workload = new Workload({
-                ...data,
-                sourceProvider: 'aws', // CUR files are AWS-specific
-                dependencies: data.dependencies 
-                  ? (Array.isArray(data.dependencies) ? data.dependencies : data.dependencies.split(',').map(d => d.trim()))
-                  : []
-              });
-              
-              // Save to repository
-              await workloadRepository.save(workload);
-              return workload;
-            } catch (error) {
-              console.warn('Failed to create workload from CSV:', error);
-              return null;
-            }
-          })
-        );
-        
-        importedWorkloads.push(...batchResults);
-        
-        // Update progress
-        const savedCount = importedWorkloads.filter(w => w !== null).length;
-        if (i + batchSize < allImportedData.length) {
-          console.log(`Saved ${savedCount}/${allImportedData.length} workloads...`);
-        }
-      }
-
-      const validWorkloads = importedWorkloads.filter(w => w !== null);
-      
-      toast.success(`Successfully imported ${validWorkloads.length} workloads from ${processedCount} file(s)!`);
+      toast.success(`Successfully imported ${totalWorkloadsSaved} workloads from ${processedCount} file(s)!`);
       
       if (onUploadComplete) {
-        onUploadComplete(validWorkloads);
+        // Pass the count instead of the full array to avoid stack issues
+        onUploadComplete(validWorkloads.slice(-totalWorkloadsSaved)); // Get recently saved workloads
       }
     } catch (error) {
       toast.error('Error importing files: ' + error.message);
