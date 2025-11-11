@@ -15,7 +15,7 @@ import AgentStatusDashboard from './presentation/components/AgentStatusDashboard
 import AgentActivityLog from './presentation/components/AgentActivityLog';
 import CurUploadButton from './components/CurUploadButton';
 import { getAgenticContainer } from './agentic/dependency_injection/AgenticContainer.js';
-import { loadTestProject } from './test-data/index.js';
+// Test data loading removed - start with 0 workloads until upload completes
 import './styles/unified.css';
 
 function AppUnified() {
@@ -97,26 +97,28 @@ function AppUnified() {
         return (
           <div className="dashboard-view">
             <h1>Migration Dashboard</h1>
-            {projectData && (
-              <div className="dashboard-stats">
-                <div className="stat-card">
-                  <div className="stat-value">{projectData.workloads.length}</div>
-                  <div className="stat-label">Workloads</div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-value">{projectData.assessments.length}</div>
-                  <div className="stat-label">Assessments</div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-value">{projectData.strategies.length}</div>
-                  <div className="stat-label">Strategies</div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-value">{projectData.wavePlan.totalWaves}</div>
-                  <div className="stat-label">Migration Waves</div>
-                </div>
+            <div className="dashboard-stats">
+              <div className="stat-card">
+                <div className="stat-value">0</div>
+                <div className="stat-label">Workloads</div>
+                <small className="text-muted">Upload CUR files to discover workloads</small>
               </div>
-            )}
+              <div className="stat-card">
+                <div className="stat-value">0</div>
+                <div className="stat-label">Assessments</div>
+                <small className="text-muted">Assessments will appear after discovery</small>
+              </div>
+              <div className="stat-card">
+                <div className="stat-value">0</div>
+                <div className="stat-label">Strategies</div>
+                <small className="text-muted">Strategies will appear after assessment</small>
+              </div>
+              <div className="stat-card">
+                <div className="stat-value">0</div>
+                <div className="stat-label">Migration Waves</div>
+                <small className="text-muted">Waves will appear after planning</small>
+              </div>
+            </div>
           </div>
         );
       case 'agents':

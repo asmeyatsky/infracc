@@ -84,7 +84,17 @@ function AgentStatusDashboard() {
     return date.toLocaleTimeString();
   };
 
-  const agentEntries = Array.from(agentStates.entries());
+  // Sort agents so DiscoveryAgent appears first, then by name
+  const agentEntries = Array.from(agentStates.entries()).sort(([idA, statusA], [idB, statusB]) => {
+    // DiscoveryAgent always first
+    if (idA === 'DiscoveryAgent') return -1;
+    if (idB === 'DiscoveryAgent') return 1;
+    
+    // Then sort by agent name
+    const nameA = statusA.agentName || idA;
+    const nameB = statusB.agentName || idB;
+    return nameA.localeCompare(nameB);
+  });
 
   return (
     <div className="agent-status-dashboard">

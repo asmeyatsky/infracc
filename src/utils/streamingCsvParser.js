@@ -130,6 +130,8 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
       }
       
       // Aggregate costs across different dates
+      // Note: This sums costs for the same resource across different dates
+      // For daily CUR files, this gives monthly total. For monthly files, this aggregates them.
       const workload = workloadMap.get(dedupeKey);
       workload.monthlyCost += cost;
       

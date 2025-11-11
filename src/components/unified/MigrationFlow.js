@@ -12,7 +12,7 @@ import { agentStatusManager } from '../../agentic/core/AgentStatusManager.js';
 import { agentEventEmitter } from '../../agentic/core/AgentEventEmitter.js';
 import AgentStatusDashboard from '../../presentation/components/AgentStatusDashboard.js';
 import AgentActivityLog from '../../presentation/components/AgentActivityLog.js';
-import { loadTestProject } from '../../test-data/index.js';
+// Test data loading removed - start with 0 workloads until upload completes
 import { Workload } from '../../domain/entities/Workload.js';
 import { generateModularMainTf, generateTfvars, generateVariablesTf, generateOutputsTf, generateBackendTf, generateVersionsTf, generateTerraformReadme } from '../../utils/terraformEnhanced.js';
 import './MigrationFlow.css';
@@ -238,7 +238,7 @@ function MigrationFlow() {
             console.warn('Execution requires Discovery, Assessment, and Strategy to be completed first.');
             return false;
           }
-          const costInputs = projectData?.costInputs || {
+          const costInputs = {
             onPremise: { hardware: 5000, software: 2000, maintenance: 1500, labor: 8000, power: 1200, cooling: 800, datacenter: 2500 },
             aws: { ec2: 3500, s3: 800, rds: 2200, vpc: 400, cloudwatch: 300 },
             azure: { virtualMachines: 3200, blobStorage: 700, sqlDatabase: 2000, networking: 450, monitoring: 250 },

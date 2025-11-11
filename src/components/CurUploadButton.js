@@ -291,6 +291,8 @@ function CurUploadButton({ onUploadComplete }) {
         
         if (dedupeMap.has(dedupeKey)) {
           // Aggregate cost with existing workload (same resource across different dates)
+          // Note: For CUR files with daily costs, we sum costs across dates to get monthly total
+          // For files with monthly costs already, this aggregates them (user should upload one file per month)
           const existing = dedupeMap.get(dedupeKey);
           existing.monthlyCost += (data.monthlyCost || 0);
           // Update storage if it's a storage service (take maximum)
