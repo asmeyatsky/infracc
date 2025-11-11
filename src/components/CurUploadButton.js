@@ -422,14 +422,6 @@ function CurUploadButton({ onUploadComplete }) {
       const deduplicatedCount = dedupeMap.size;
       console.log(`Deduplication complete: ${totalRowsProcessed} rows across ${files.length} file(s) -> ${deduplicatedCount} unique workloads (${totalDuplicatesRemoved} duplicates merged)`);
 
-      if (totalWorkloadsSaved === 0) {
-        toast.error('No valid data found in uploaded files');
-        setUploading(false);
-        setUploadProgress(null);
-        event.target.value = null;
-        return;
-      }
-
       // Force final persistence to ensure all workloads are saved
       try {
         // Give debounced persistence a moment to complete
