@@ -347,13 +347,16 @@ function CurUploadButton({ onUploadComplete }) {
             continue;
           }
           
+          let newWorkloadsCount = 0;
+          let updatedWorkloadsCount = 0;
+          
           for (let i = 0; i < dedupeEntries.length; i += batchSize) {
             const batch = dedupeEntries.slice(i, i + batchSize);
             
             // Process batch sequentially to avoid stack overflow
             for (const [dedupeKey, data] of batch) {
               try {
-                // Check if workload already exists in repository
+                // Always check repository first (it might have been saved from a previous file)
                 const existingWorkload = await workloadRepository.findByDedupeKey(
                   data.id,
                   data.service,
@@ -365,30 +368,33 @@ function CurUploadButton({ onUploadComplete }) {
                   const currentCost = existingWorkload.monthlyCost.value || 0;
                   const newCost = currentCost + (data.monthlyCost || 0);
                   
-                  // Create updated workload with aggregated cost
-                  const updatedWorkload = new Workload({
-                    id: existingWorkload.id, // Keep same ID
-                    name: existingWorkload.name,
-                    service: existingWorkload.service,
-                    type: existingWorkload.type.value,
-                    sourceProvider: existingWorkload.sourceProvider.type,
-                    cpu: existingWorkload.cpu,
-                    memory: existingWorkload.memory,
-                    storage: Math.max(existingWorkload.storage, data.storage || 0),
-                    monthlyCost: newCost, // Aggregated cost
-                    region: existingWorkload.region,
-                    os: existingWorkload.os,
-                    monthlyTraffic: existingWorkload.monthlyTraffic,
-                    dependencies: existingWorkload.dependencies,
-                    awsInstanceType: existingWorkload.awsInstanceType || data.awsInstanceType,
-                    awsProductCode: existingWorkload.awsProductCode || data.awsProductCode,
-                  });
-                  
-                  // Update in repository (delete old, save new)
-                  await workloadRepository.delete(existingWorkload.id);
-                  await workloadRepository.save(updatedWorkload);
-                  savedDedupeKeys.add(dedupeKey); // Mark as saved
-                  totalWorkloadsSaved++;
+                  // Only update if cost actually changed (avoid unnecessary updates)
+                  if (Math.abs(newCost - currentCost) > 0.01) {
+                    const updatedWorkload = new Workload({
+                      id: existingWorkload.id, // Keep same ID
+                      name: existingWorkload.name,
+                      service: existingWorkload.service,
+                      type: existingWorkload.type.value,
+                      sourceProvider: existingWorkload.sourceProvider.type,
+                      cpu: existingWorkload.cpu,
+                      memory: existingWorkload.memory,
+                      storage: Math.max(existingWorkload.storage, data.storage || 0),
+                      monthlyCost: newCost, // Aggregated cost
+                      region: existingWorkload.region,
+                      os: existingWorkload.os,
+                      monthlyTraffic: existingWorkload.monthlyTraffic,
+                      dependencies: existingWorkload.dependencies,
+                      awsInstanceType: existingWorkload.awsInstanceType || data.awsInstanceType,
+                      awsProductCode: existingWorkload.awsProductCode || data.awsProductCode,
+                    });
+                    
+                    // Update in repository (delete old, save new)
+                    await workloadRepository.delete(existingWorkload.id);
+                    await workloadRepository.save(updatedWorkload);
+                    updatedWorkloadsCount++;
+                  }
+                  // Mark as saved even if we didn't update (it already exists)
+                  savedDedupeKeys.add(dedupeKey);
                 } else {
                   // New workload - create and save
                   const workload = new Workload({
@@ -401,7 +407,7 @@ function CurUploadButton({ onUploadComplete }) {
                   
                   await workloadRepository.save(workload);
                   savedDedupeKeys.add(dedupeKey); // Mark as saved
-                  totalWorkloadsSaved++;
+                  newWorkloadsCount++;
                 }
               } catch (error) {
                 console.warn(`Failed to process workload ${data.id}:`, error);
@@ -414,7 +420,8 @@ function CurUploadButton({ onUploadComplete }) {
             }
           }
           
-          console.log(`Saved ${dedupeEntries.length} workloads from ${file.name} (${dedupeMap.size - savedDedupeKeys.size} duplicates merged)`);
+          totalWorkloadsSaved += newWorkloadsCount; // Only count NEW workloads, not updates
+          console.log(`File ${file.name}: ${newWorkloadsCount} new workloads saved, ${updatedWorkloadsCount} updated, ${dedupeMap.size - savedDedupeKeys.size} duplicates skipped`);
 
           processedCount++;
         } catch (error) {

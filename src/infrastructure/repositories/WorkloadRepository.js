@@ -145,9 +145,15 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
     const dedupeKey = `${resourceId}_${service}_${region}`.toLowerCase();
     
     // Search for workload with matching resource ID, service, and region
+    // Normalize all values for comparison
     for (const workload of this._cache.values()) {
-      const workloadKey = `${workload.id}_${workload.service}_${workload.region}`.toLowerCase();
-      if (workloadKey === dedupeKey) {
+      const workloadResourceId = String(workload.id || '').trim();
+      const workloadService = String(workload.service || '').trim();
+      const workloadRegion = String(workload.region || '').trim();
+      
+      const workloadKey = `${workloadResourceId}_${workloadService}_${workloadRegion}`.toLowerCase();
+      
+      if (workloadKey === dedupeKey && workloadKey.length > 0) {
         return workload;
       }
     }
