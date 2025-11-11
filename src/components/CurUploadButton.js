@@ -262,28 +262,49 @@ function CurUploadButton({ onUploadComplete }) {
         return;
       }
 
-      // Convert to domain entities and save
+      // Convert to domain entities and save in batches to avoid stack overflow
       setUploadProgress({ ...uploadProgress, status: 'Saving workloads...' });
-      const importedWorkloads = await Promise.all(
-        allImportedData.map(async (data) => {
-          try {
-            const workload = new Workload({
-              ...data,
-              sourceProvider: 'aws', // CUR files are AWS-specific
-              dependencies: data.dependencies 
-                ? (Array.isArray(data.dependencies) ? data.dependencies : data.dependencies.split(',').map(d => d.trim()))
-                : []
-            });
-            
-            // Save to repository
-            await workloadRepository.save(workload);
-            return workload;
-          } catch (error) {
-            console.warn('Failed to create workload from CSV:', error);
-            return null;
-          }
-        })
-      );
+      
+      const batchSize = 50; // Process 50 workloads at a time
+      const importedWorkloads = [];
+      
+      // Process workloads in batches
+      for (let i = 0; i < allImportedData.length; i += batchSize) {
+        const batch = allImportedData.slice(i, i + batchSize);
+        const batchNumber = Math.floor(i / batchSize) + 1;
+        const totalBatches = Math.ceil(allImportedData.length / batchSize);
+        
+        console.log(`Saving batch ${batchNumber}/${totalBatches} (${batch.length} workloads)...`);
+        
+        const batchResults = await Promise.all(
+          batch.map(async (data) => {
+            try {
+              const workload = new Workload({
+                ...data,
+                sourceProvider: 'aws', // CUR files are AWS-specific
+                dependencies: data.dependencies 
+                  ? (Array.isArray(data.dependencies) ? data.dependencies : data.dependencies.split(',').map(d => d.trim()))
+                  : []
+              });
+              
+              // Save to repository
+              await workloadRepository.save(workload);
+              return workload;
+            } catch (error) {
+              console.warn('Failed to create workload from CSV:', error);
+              return null;
+            }
+          })
+        );
+        
+        importedWorkloads.push(...batchResults);
+        
+        // Update progress
+        const savedCount = importedWorkloads.filter(w => w !== null).length;
+        if (i + batchSize < allImportedData.length) {
+          console.log(`Saved ${savedCount}/${allImportedData.length} workloads...`);
+        }
+      }
 
       const validWorkloads = importedWorkloads.filter(w => w !== null);
       
