@@ -367,6 +367,10 @@ function CurUploadButton({ onUploadComplete }) {
           
           let newWorkloadsCount = 0;
           let updatedWorkloadsCount = 0;
+          let alreadyExistsCount = 0;
+          let skippedCount = 0;
+          
+          console.log(`Processing ${dedupeEntries.length} new entries from ${file.name} (${dedupeMap.size} total in dedupeMap, ${savedDedupeKeys.size} already saved)`);
           
           for (let i = 0; i < dedupeEntries.length; i += batchSize) {
             const batch = dedupeEntries.slice(i, i + batchSize);
@@ -374,22 +378,30 @@ function CurUploadButton({ onUploadComplete }) {
             // Process batch sequentially to avoid stack overflow
             for (const [dedupeKey, data] of batch) {
               try {
+                // Normalize values for lookup
+                const lookupResourceId = String(data.id || '').trim();
+                const lookupService = String(data.service || '').trim();
+                const lookupRegion = String(data.region || '').trim();
+                
                 // Always check repository first (it might have been saved from a previous file)
                 const existingWorkload = await workloadRepository.findByDedupeKey(
-                  data.id,
-                  data.service,
-                  data.region
+                  lookupResourceId,
+                  lookupService,
+                  lookupRegion
                 );
 
                 if (existingWorkload) {
-                  // Update existing workload: aggregate costs
+                  // Workload already exists in repository - don't create duplicate
+                  alreadyExistsCount++;
+                  savedDedupeKeys.add(dedupeKey); // Mark as saved
+                  
+                  // Optionally update cost if needed (but don't count as new)
                   const currentCost = existingWorkload.monthlyCost.value || 0;
                   const newCost = currentCost + (data.monthlyCost || 0);
                   
-                  // Only update if cost actually changed (avoid unnecessary updates)
                   if (Math.abs(newCost - currentCost) > 0.01) {
                     const updatedWorkload = new Workload({
-                      id: existingWorkload.id, // Keep same ID
+                      id: existingWorkload.id,
                       name: existingWorkload.name,
                       service: existingWorkload.service,
                       type: existingWorkload.type.value,
@@ -397,7 +409,7 @@ function CurUploadButton({ onUploadComplete }) {
                       cpu: existingWorkload.cpu,
                       memory: existingWorkload.memory,
                       storage: Math.max(existingWorkload.storage, data.storage || 0),
-                      monthlyCost: newCost, // Aggregated cost
+                      monthlyCost: newCost,
                       region: existingWorkload.region,
                       os: existingWorkload.os,
                       monthlyTraffic: existingWorkload.monthlyTraffic,
@@ -406,29 +418,27 @@ function CurUploadButton({ onUploadComplete }) {
                       awsProductCode: existingWorkload.awsProductCode || data.awsProductCode,
                     });
                     
-                    // Update in repository (delete old, save new)
                     await workloadRepository.delete(existingWorkload.id);
                     await workloadRepository.save(updatedWorkload);
                     updatedWorkloadsCount++;
                   }
-                  // Mark as saved even if we didn't update (it already exists)
-                  savedDedupeKeys.add(dedupeKey);
                 } else {
                   // New workload - create and save
                   const workload = new Workload({
                     ...data,
-                    sourceProvider: 'aws', // CUR files are AWS-specific
+                    sourceProvider: 'aws',
                     dependencies: data.dependencies 
                       ? (Array.isArray(data.dependencies) ? data.dependencies : data.dependencies.split(',').map(d => d.trim()))
                       : []
                   });
                   
                   await workloadRepository.save(workload);
-                  savedDedupeKeys.add(dedupeKey); // Mark as saved
+                  savedDedupeKeys.add(dedupeKey);
                   newWorkloadsCount++;
                 }
               } catch (error) {
                 console.warn(`Failed to process workload ${data.id}:`, error);
+                skippedCount++;
               }
             }
             
@@ -439,7 +449,13 @@ function CurUploadButton({ onUploadComplete }) {
           }
           
           totalWorkloadsSaved += newWorkloadsCount; // Only count NEW workloads, not updates
-          console.log(`File ${file.name}: ${newWorkloadsCount} new workloads saved, ${updatedWorkloadsCount} updated, ${dedupeMap.size - savedDedupeKeys.size} duplicates skipped`);
+          console.log(`File ${file.name} summary:`);
+          console.log(`  - New workloads saved: ${newWorkloadsCount}`);
+          console.log(`  - Existing workloads updated: ${updatedWorkloadsCount}`);
+          console.log(`  - Already existed (skipped): ${alreadyExistsCount}`);
+          console.log(`  - Failed/skipped: ${skippedCount}`);
+          console.log(`  - Total unique in dedupeMap: ${dedupeMap.size}`);
+          console.log(`  - Total saved so far: ${savedDedupeKeys.size}`);
 
           processedCount++;
         } catch (error) {
@@ -456,8 +472,24 @@ function CurUploadButton({ onUploadComplete }) {
         return;
       }
 
+      // Final verification - check actual repository count
+      const allWorkloadsInRepo = await workloadRepository.findAll();
+      const actualUniqueCount = allWorkloadsInRepo.length;
       const deduplicatedCount = dedupeMap.size;
-      console.log(`Deduplication complete: ${totalRowsProcessed} rows across ${files.length} file(s) -> ${deduplicatedCount} unique workloads (${totalDuplicatesRemoved} duplicates merged)`);
+      
+      console.log(`\n=== FINAL DEDUPLICATION SUMMARY ===`);
+      console.log(`Total rows processed: ${totalRowsProcessed}`);
+      console.log(`Total files processed: ${files.length}`);
+      console.log(`Unique workloads in dedupeMap: ${deduplicatedCount}`);
+      console.log(`Duplicates merged: ${totalDuplicatesRemoved}`);
+      console.log(`Workloads saved to repository: ${totalWorkloadsSaved}`);
+      console.log(`Actual workloads in repository: ${actualUniqueCount}`);
+      console.log(`=====================================\n`);
+      
+      if (actualUniqueCount !== deduplicatedCount) {
+        console.warn(`⚠️ WARNING: Repository count (${actualUniqueCount}) doesn't match dedupeMap count (${deduplicatedCount})`);
+        console.warn(`This suggests some workloads may not have been saved or were duplicated`);
+      }
 
       // Force final persistence to ensure all workloads are saved
       try {
