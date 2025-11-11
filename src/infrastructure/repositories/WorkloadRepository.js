@@ -141,8 +141,20 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
    * @returns {Promise<Workload|null>}
    */
   async findByDedupeKey(resourceId, service, region) {
-    await this._loadFromStorage();
-    const dedupeKey = `${resourceId}_${service}_${region}`.toLowerCase();
+    // Ensure cache is loaded (but don't reload if already loaded to avoid performance issues)
+    if (this._cache.size === 0) {
+      await this._loadFromStorage();
+    }
+    
+    // Normalize input values
+    const normalizedResourceId = String(resourceId || '').trim();
+    const normalizedService = String(service || '').trim();
+    const normalizedRegion = String(region || '').trim();
+    const dedupeKey = `${normalizedResourceId}_${normalizedService}_${normalizedRegion}`.toLowerCase();
+    
+    if (!dedupeKey || dedupeKey === '__') {
+      return null;
+    }
     
     // Search for workload with matching resource ID, service, and region
     // Normalize all values for comparison

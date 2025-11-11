@@ -265,6 +265,9 @@ function CurUploadButton({ onUploadComplete }) {
             status: `Deduplicating ${fileData.length} workloads from ${file.name}...`
           });
 
+          // Track which dedupe keys are NEW from this file (before deduplication)
+          const newKeysThisFile = new Set();
+          
           // Process file data in chunks to prevent stack overflow
           const chunkSize = 1000;
           for (let chunkStart = 0; chunkStart < fileData.length; chunkStart += chunkSize) {
@@ -272,7 +275,15 @@ function CurUploadButton({ onUploadComplete }) {
             
             // Deduplicate chunk against existing dedupeMap
             for (const data of chunk) {
-              const dedupeKey = `${data.id}_${data.service}_${data.region}`.toLowerCase();
+              // Normalize dedupe key
+              const resourceId = String(data.id || '').trim();
+              const service = String(data.service || '').trim();
+              const region = String(data.region || '').trim();
+              const dedupeKey = `${resourceId}_${service}_${region}`.toLowerCase();
+              
+              if (!dedupeKey || dedupeKey === '__') {
+                continue; // Skip invalid entries
+              }
               
               if (dedupeMap.has(dedupeKey)) {
                 // Aggregate cost with existing workload (same resource across different dates)
@@ -313,11 +324,15 @@ function CurUploadButton({ onUploadComplete }) {
                 }
                 totalDuplicatesRemoved++;
               } else {
-                // New workload
+                // New workload - track that this is new from this file
                 dedupeMap.set(dedupeKey, { 
                   ...data,
+                  id: resourceId, // Ensure ID is normalized
+                  service: service, // Ensure service is normalized
+                  region: region, // Ensure region is normalized
                   sourceFiles: file.name ? [file.name] : []
                 });
+                newKeysThisFile.add(dedupeKey);
               }
             }
             
@@ -326,6 +341,8 @@ function CurUploadButton({ onUploadComplete }) {
               await new Promise(resolve => setTimeout(resolve, 0));
             }
           }
+          
+          console.log(`File ${file.name}: ${fileData.length} rows -> ${newKeysThisFile.size} new unique workloads, ${fileData.length - newKeysThisFile.size} duplicates`);
 
           console.log(`Processed ${file.name}: ${fileData.length} rows -> ${dedupeMap.size} unique workloads so far`);
 
@@ -337,12 +354,13 @@ function CurUploadButton({ onUploadComplete }) {
             status: `Saving workloads from ${file.name}...`
           });
 
-          // Process only NEW entries from dedupeMap (ones we haven't saved yet)
+          // Process only NEW entries from THIS FILE that we haven't saved yet
+          // This ensures we don't reprocess workloads from previous files
           const dedupeEntries = Array.from(dedupeMap.entries())
-            .filter(([dedupeKey]) => !savedDedupeKeys.has(dedupeKey));
+            .filter(([dedupeKey]) => newKeysThisFile.has(dedupeKey) && !savedDedupeKeys.has(dedupeKey));
           
           if (dedupeEntries.length === 0) {
-            console.log(`No new workloads to save from ${file.name} (all duplicates)`);
+            console.log(`No new workloads to save from ${file.name} (all duplicates or already saved)`);
             processedCount++;
             continue;
           }
