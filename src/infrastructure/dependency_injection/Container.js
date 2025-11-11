@@ -41,9 +41,7 @@ import { PlanMigrationWavesUseCase } from '../../application/use_cases/PlanMigra
 export class Container {
   constructor(config = {}) {
     this.config = {
-      useCodeMod: config.useCodeMod !== false,
       useMockPricing: config.useMockPricing !== false,
-      codeModApiKey: config.codeModApiKey || process.env.REACT_APP_CODEMOD_API_KEY,
       ...config
     };
 
@@ -57,11 +55,6 @@ export class Container {
    */
   _initializeDependencies() {
     // Infrastructure layer (adapters and repositories)
-    this._codeModPort = new CodeModAdapter({
-      apiKey: this.config.codeModApiKey,
-      useMock: !this.config.useCodeMod || !this.config.codeModApiKey
-    });
-
     this._serviceMappingPort = new ServiceMappingRepository({
       useOfficialDocs: true // Use official Google Cloud documentation
     });
@@ -78,14 +71,12 @@ export class Container {
     // Application use cases
     this._assessWorkloadUseCase = new AssessWorkloadUseCase({
       assessmentService: this._workloadAssessmentService,
-      codeModPort: this._codeModPort,
       workloadRepository: this._workloadRepository
     });
 
     this._generateMigrationPlanUseCase = new GenerateMigrationPlanUseCase({
       serviceMappingPort: this._serviceMappingPort,
-      workloadRepository: this._workloadRepository,
-      codeModPort: this._codeModPort
+      workloadRepository: this._workloadRepository
     });
 
     this._calculateTCOUseCase = new CalculateTCOUseCase({
@@ -162,10 +153,6 @@ export class Container {
   }
 
   // Getters for dependencies
-  get codeModPort() {
-    return this._codeModPort;
-  }
-
   get serviceMappingPort() {
     return this._serviceMappingPort;
   }

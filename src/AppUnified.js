@@ -22,6 +22,7 @@ function AppUnified() {
   const [view, setView] = useState('flow'); // 'flow' | 'dashboard' | 'agents'
   const [testDataLoaded, setTestDataLoaded] = useState(false);
   const [projectData, setProjectData] = useState(null);
+  const [uploadSummary, setUploadSummary] = useState(null);
 
   useEffect(() => {
     // Don't load test data automatically - start with 0 workloads
@@ -34,6 +35,11 @@ function AppUnified() {
     // MigrationFlow component polls repository every second, so new workloads will appear automatically
     const count = result?.count || (Array.isArray(result) ? result.length : 0);
     console.log(`CUR upload complete: ${count} workloads imported`);
+    
+    // Store upload summary for display in MigrationFlow
+    if (result?.summary) {
+      setUploadSummary(result.summary);
+    }
     
     // Switch to Migration Flow view to show the imported workloads
     setView('flow');
@@ -89,9 +95,13 @@ function AppUnified() {
   );
 
   const renderContent = () => {
+    console.log('AppUnified renderContent - view:', view, 'uploadSummary:', uploadSummary);
     switch (view) {
       case 'flow':
-        return <MigrationFlow />;
+        return <MigrationFlow uploadSummary={uploadSummary} onSummaryDismiss={() => {
+          console.log('Dismissing summary');
+          setUploadSummary(null);
+        }} />;
       case 'dashboard':
         return (
           <div className="dashboard-view">

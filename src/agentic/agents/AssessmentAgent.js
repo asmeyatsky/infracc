@@ -40,11 +40,10 @@ export class AssessmentAgent extends BaseAgent {
    * @param {Object} input
    * @param {string} input.workloadId - Workload ID
    * @param {boolean} input.useAIEnhancement - Use AI for enhanced analysis
-   * @param {boolean} input.includeCodeMod - Include CodeMod analysis
    * @returns {Promise<Object>} Enhanced assessment with AI insights
    */
   async execute(input) {
-    const { workloadId, useAIEnhancement = true, includeCodeMod = false } = input;
+    const { workloadId, useAIEnhancement = true } = input;
 
     try {
       // Step 1: Analyze workload structure
@@ -109,8 +108,7 @@ export class AssessmentAgent extends BaseAgent {
           
           return this.execute({ 
             workloadId, 
-            useAIEnhancement: true, 
-            includeCodeMod: true 
+            useAIEnhancement: true
           })
             .then(result => {
               completed++;

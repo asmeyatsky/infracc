@@ -26,6 +26,7 @@ export const parseAwsCur = (csvText) => {
   const headers = lines[0].split(',').map(h => h.trim());
   const workloads = [];
   const workloadMap = new Map(); // Group by resource ID
+  let totalRawCost = 0; // Track sum of ALL raw costs from ALL rows (before aggregation)
 
   // Find column indices
   const getColumnIndex = (patterns) => {
@@ -69,6 +70,11 @@ export const parseAwsCur = (csvText) => {
     const usageType = values[usageTypeIdx] || '';
     const usageStartDate = usageStartDateIdx !== -1 ? values[usageStartDateIdx] : null;
     const usageEndDate = usageEndDateIdx !== -1 ? values[usageEndDateIdx] : null;
+
+    // Track raw cost from EVERY row (before any filtering or aggregation)
+    if (!isNaN(cost) && cost > 0) {
+      totalRawCost += cost;
+    }
 
     // Skip if not a billable service
     if (!productCode || productCode === 'TAX' || cost === 0) continue;

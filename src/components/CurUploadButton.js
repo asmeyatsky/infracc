@@ -16,6 +16,7 @@ import { toast } from 'react-toastify';
 function CurUploadButton({ onUploadComplete }) {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
+  const [uploadSummary, setUploadSummary] = useState(null);
   const fileInputRef = useRef(null);
   const container = getContainer();
   const workloadRepository = container.workloadRepository;
@@ -66,10 +67,22 @@ function CurUploadButton({ onUploadComplete }) {
             } else {
               importedData = parseAwsBillSimple(csvText);
             }
+            // Metadata with raw cost is already attached by parser
           } catch (awsError) {
             // Fall back to standard CSV parsing
             console.warn('AWS BOM parsing failed, trying standard CSV:', awsError);
             importedData = parseCSV(csvText);
+            // Standard CSV parser doesn't have metadata, so we'll need to calculate manually
+            if (!importedData._metadata) {
+              let rawCost = 0;
+              for (const data of importedData) {
+                const cost = parseFloat(data.monthlyCost || data.cost || 0);
+                if (!isNaN(cost)) {
+                  rawCost += cost;
+                }
+              }
+              importedData._metadata = { totalRawCost: rawCost, totalRows: importedData.length };
+            }
           }
 
           resolve(importedData);
@@ -107,6 +120,7 @@ function CurUploadButton({ onUploadComplete }) {
 
       // Process each CSV file
       const allData = [];
+      let zipTotalRawCost = 0; // Track sum of raw costs from ALL CSV files in ZIP
       const largeFileThreshold = 50 * 1024 * 1024; // 50MB - use streaming parser above this
       
       for (const csvFile of csvFiles) {
@@ -188,6 +202,22 @@ function CurUploadButton({ onUploadComplete }) {
             }
           }
 
+          // Extract raw cost from parser metadata for this CSV file
+          const csvMetadata = importedData._metadata;
+          if (csvMetadata && csvMetadata.totalRawCost !== undefined) {
+            zipTotalRawCost += csvMetadata.totalRawCost;
+            console.log(`CSV ${csvFile.name}: Raw cost $${csvMetadata.totalRawCost.toFixed(2)} (${csvMetadata.totalRows} rows)`);
+          } else {
+            // Fallback: sum aggregated costs (not ideal, but better than 0)
+            console.warn(`No metadata for ${csvFile.name}, using aggregated costs`);
+            for (const data of importedData) {
+              const cost = parseFloat(data.monthlyCost || 0);
+              if (!isNaN(cost)) {
+                zipTotalRawCost += cost;
+              }
+            }
+          }
+
           allData.push(...importedData);
         } catch (error) {
           // Handle errors gracefully
@@ -197,6 +227,14 @@ function CurUploadButton({ onUploadComplete }) {
             try {
               const blob = await csvFile.entry.async('blob');
               const importedData = await parseAwsCurStreaming(blob);
+              
+              // Extract raw cost from parser metadata
+              const csvMetadata = importedData._metadata;
+              if (csvMetadata && csvMetadata.totalRawCost !== undefined) {
+                zipTotalRawCost += csvMetadata.totalRawCost;
+                console.log(`CSV ${csvFile.name}: Raw cost $${csvMetadata.totalRawCost.toFixed(2)} (${csvMetadata.totalRows} rows)`);
+              }
+              
               allData.push(...importedData);
               toast.success(`Processed ${csvFile.name} using streaming parser: ${importedData.length} workloads`);
             } catch (streamError) {
@@ -210,6 +248,15 @@ function CurUploadButton({ onUploadComplete }) {
         }
       }
 
+      // Attach total raw cost metadata to combined result (sum of ALL CSV files in ZIP)
+      allData._metadata = {
+        totalRawCost: zipTotalRawCost,
+        totalRows: allData.length,
+        uniqueWorkloads: allData.length,
+        csvFilesProcessed: csvFiles.length
+      };
+
+      console.log(`ZIP file ${file.name}: Total raw cost from ${csvFiles.length} CSV files: $${zipTotalRawCost.toFixed(2)}`);
       return allData;
     } catch (error) {
       if (error.message.includes('Cannot find module')) {
@@ -234,6 +281,10 @@ function CurUploadButton({ onUploadComplete }) {
       let processedCount = 0;
       let totalRowsProcessed = 0;
       let totalDuplicatesRemoved = 0;
+      let totalAggregatedCost = 0;
+      
+      // Track per-file statistics
+      const fileStats = [];
       
       // Shared deduplication map across all files
       const dedupeMap = new Map(); // Track deduplication keys across all files
@@ -249,9 +300,19 @@ function CurUploadButton({ onUploadComplete }) {
           status: `Processing ${file.name}...`
         });
 
+        // Initialize file-level variables outside try block so they're accessible in finally
+        let fileData = [];
+        const fileStartRows = totalRowsProcessed;
+        const fileStartUnique = dedupeMap.size;
+        let fileRows = 0;
+        let fileRawCost = 0; // Track raw cost sum from ALL rows (before deduplication)
+        let fileCost = 0;
+        let newWorkloadsCount = 0;
+        let updatedWorkloadsCount = 0;
+        let uniqueAddedThisFile = 0;
+        let duplicatesInThisFile = 0;
+        
         try {
-          let fileData = [];
-
           // Check if it's a ZIP file
           if (file.name.toLowerCase().endsWith('.zip')) {
             fileData = await processZipFile(file, 'cur'); // Default to CUR format
@@ -262,7 +323,24 @@ function CurUploadButton({ onUploadComplete }) {
             continue;
           }
 
+          // Extract raw cost from parser metadata (sum of ALL rows before aggregation)
+          const parserMetadata = fileData._metadata;
+          if (parserMetadata && parserMetadata.totalRawCost !== undefined) {
+            fileRawCost = parserMetadata.totalRawCost;
+            console.log(`File ${file.name}: Raw cost from parser metadata: $${fileRawCost.toFixed(2)} (${parserMetadata.totalRows} rows)`);
+          } else {
+            // Fallback: sum costs from parsed data (already aggregated, but better than nothing)
+            console.warn(`No metadata found for ${file.name}, falling back to aggregated costs`);
+            for (const data of fileData) {
+              const cost = parseFloat(data.monthlyCost || 0);
+              if (!isNaN(cost)) {
+                fileRawCost += cost;
+              }
+            }
+          }
+
           totalRowsProcessed += fileData.length;
+          fileRows = fileData.length;
           
           // Deduplicate this file's data incrementally
           setUploadProgress({
@@ -274,6 +352,8 @@ function CurUploadButton({ onUploadComplete }) {
 
           // Track which dedupe keys are NEW from this file (before deduplication)
           const newKeysThisFile = new Set();
+          let fileDuplicates = 0;
+          let fileNewUnique = 0;
           
           // Process file data in chunks to prevent stack overflow
           const chunkSize = 1000;
@@ -292,10 +372,15 @@ function CurUploadButton({ onUploadComplete }) {
                 continue; // Skip invalid entries
               }
               
+              const cost = parseFloat(data.monthlyCost || 0);
+              fileRawCost += cost; // Sum ALL raw costs from file (before deduplication)
+              fileCost += cost; // Also track deduplicated cost for reference
+              
               if (dedupeMap.has(dedupeKey)) {
                 // Aggregate cost with existing workload (same resource across different dates)
                 const existing = dedupeMap.get(dedupeKey);
-                existing.monthlyCost += (data.monthlyCost || 0);
+                existing.monthlyCost += cost;
+                fileDuplicates++;
                 // Update storage if it's a storage service (take maximum)
                 if (data.storage) {
                   existing.storage = Math.max(existing.storage || 0, data.storage);
@@ -368,12 +453,29 @@ function CurUploadButton({ onUploadComplete }) {
           
           if (dedupeEntries.length === 0) {
             console.log(`No new workloads to save from ${file.name} (all duplicates or already saved)`);
+            
+            // Calculate file statistics even if no new entries
+            const fileEndUnique = dedupeMap.size;
+            const uniqueAddedThisFile = fileEndUnique - fileStartUnique;
+            const duplicatesInThisFile = fileRows - uniqueAddedThisFile;
+            
+            // Store file statistics
+            fileStats.push({
+              fileName: file.name,
+              rowsProcessed: fileRows,
+              uniqueWorkloads: uniqueAddedThisFile,
+              duplicates: duplicatesInThisFile,
+              newWorkloadsSaved: 0,
+              existingWorkloadsUpdated: 0,
+              totalCost: fileRawCost // Use raw cost sum (all rows)
+            });
+            
             processedCount++;
             continue;
           }
           
-          let newWorkloadsCount = 0;
-          let updatedWorkloadsCount = 0;
+          newWorkloadsCount = 0;
+          updatedWorkloadsCount = 0;
           let alreadyExistsCount = 0;
           let skippedCount = 0;
           
@@ -466,18 +568,43 @@ function CurUploadButton({ onUploadComplete }) {
           }
           
           totalWorkloadsSaved += newWorkloadsCount; // Only count NEW workloads, not updates
-          console.log(`File ${file.name} summary:`);
-          console.log(`  - New workloads saved: ${newWorkloadsCount}`);
-          console.log(`  - Existing workloads updated: ${updatedWorkloadsCount}`);
-          console.log(`  - Already existed (skipped): ${alreadyExistsCount}`);
-          console.log(`  - Failed/skipped: ${skippedCount}`);
-          console.log(`  - Total unique in dedupeMap: ${dedupeMap.size}`);
-          console.log(`  - Total saved so far: ${savedDedupeKeys.size}`);
-
+          
+          // Calculate file statistics
+          const fileEndUnique = dedupeMap.size;
+          uniqueAddedThisFile = fileEndUnique - fileStartUnique;
+          duplicatesInThisFile = fileRows - uniqueAddedThisFile;
+          
           processedCount++;
         } catch (error) {
           console.error(`Error processing ${file.name}:`, error);
           toast.error(`Error processing ${file.name}: ${error.message}`);
+          // Calculate file statistics even on error (with whatever data we have)
+          const fileEndUnique = dedupeMap.size;
+          uniqueAddedThisFile = fileEndUnique - fileStartUnique;
+          duplicatesInThisFile = fileRows > 0 ? fileRows - uniqueAddedThisFile : 0;
+          newWorkloadsCount = 0;
+          updatedWorkloadsCount = 0;
+        } finally {
+          // Always store file statistics, even if there was an error
+          fileStats.push({
+            fileName: file.name,
+            rowsProcessed: fileRows,
+            uniqueWorkloads: uniqueAddedThisFile,
+            duplicates: duplicatesInThisFile,
+            newWorkloadsSaved: newWorkloadsCount,
+            existingWorkloadsUpdated: updatedWorkloadsCount,
+            totalCost: fileRawCost // Use raw cost sum (all rows)
+          });
+          
+          console.log(`File ${file.name} summary:`);
+          console.log(`  - Rows processed: ${fileRows}`);
+          console.log(`  - Unique workloads added: ${uniqueAddedThisFile}`);
+          console.log(`  - Duplicates merged: ${duplicatesInThisFile}`);
+          console.log(`  - New workloads saved: ${newWorkloadsCount}`);
+          console.log(`  - Existing workloads updated: ${updatedWorkloadsCount}`);
+          console.log(`  - Total cost in file: $${fileRawCost.toFixed(2)}`);
+          console.log(`  - Total unique in dedupeMap: ${dedupeMap.size}`);
+          console.log(`  - Total saved so far: ${savedDedupeKeys.size}`);
         }
       }
 
@@ -489,6 +616,30 @@ function CurUploadButton({ onUploadComplete }) {
         return;
       }
 
+      // Calculate total aggregated cost from all unique workloads (deduplicated)
+      for (const workload of dedupeMap.values()) {
+        const cost = parseFloat(workload.monthlyCost || 0);
+        if (!isNaN(cost)) {
+          totalAggregatedCost += cost;
+        }
+      }
+      
+      // Calculate raw total cost from all file stats (sum of all bills)
+      let totalRawCost = 0;
+      try {
+        for (const fileStat of fileStats) {
+          const cost = parseFloat(fileStat?.totalCost || 0);
+          if (!isNaN(cost)) {
+            totalRawCost += cost;
+          }
+        }
+        console.log(`Calculated totalRawCost from ${fileStats.length} file stats: $${totalRawCost.toFixed(2)}`);
+      } catch (error) {
+        console.error('Error calculating totalRawCost:', error);
+        console.error('fileStats:', fileStats);
+        totalRawCost = 0;
+      }
+      
       // Final verification - check actual repository count
       const allWorkloadsInRepo = await workloadRepository.findAll();
       const actualUniqueCount = allWorkloadsInRepo.length;
@@ -501,6 +652,9 @@ function CurUploadButton({ onUploadComplete }) {
       console.log(`Duplicates merged: ${totalDuplicatesRemoved}`);
       console.log(`Workloads saved to repository: ${totalWorkloadsSaved}`);
       console.log(`Actual workloads in repository: ${actualUniqueCount}`);
+      console.log(`Total aggregated monthly cost (deduplicated): $${totalAggregatedCost.toFixed(2)}`);
+      console.log(`Total raw cost (sum of all bills): $${totalRawCost.toFixed(2)}`);
+      console.log(`fileStats length: ${fileStats.length}`);
       console.log(`=====================================\n`);
       
       if (actualUniqueCount !== deduplicatedCount) {
@@ -527,9 +681,41 @@ function CurUploadButton({ onUploadComplete }) {
       console.log(`Upload complete: ${totalWorkloadsSaved} workloads saved`);
       
       if (onUploadComplete) {
-        // Pass a minimal object to avoid loading all workloads into memory
-        // The MigrationFlow component will load workloads from repository automatically
-        onUploadComplete({ count: totalWorkloadsSaved });
+        try {
+          // Pass summary data to parent component
+          const summaryData = {
+            totalFiles: files.length,
+            totalRows: totalRowsProcessed,
+            uniqueWorkloads: deduplicatedCount,
+            duplicatesMerged: totalDuplicatesRemoved,
+            workloadsSaved: actualUniqueCount,
+            totalMonthlyCost: totalRawCost || 0, // Use raw cost sum (sum of all bills), default to 0 if undefined
+            totalAggregatedCost: totalAggregatedCost || 0, // Deduplicated cost for reference
+            fileStats: fileStats || [] // Ensure fileStats is an array
+          };
+          
+          console.log('Passing summary to onUploadComplete:', summaryData);
+          console.log('Summary data validation:', {
+            totalFiles: typeof summaryData.totalFiles,
+            totalRows: typeof summaryData.totalRows,
+            totalMonthlyCost: typeof summaryData.totalMonthlyCost,
+            fileStatsIsArray: Array.isArray(summaryData.fileStats),
+            fileStatsLength: summaryData.fileStats.length
+          });
+          
+          onUploadComplete({ 
+            count: totalWorkloadsSaved,
+            summary: summaryData
+          });
+        } catch (error) {
+          console.error('Error passing summary to onUploadComplete:', error);
+          toast.error('Error creating upload summary: ' + error.message);
+          // Still call onUploadComplete with minimal data
+          onUploadComplete({ 
+            count: totalWorkloadsSaved,
+            summary: null
+          });
+        }
       }
     } catch (error) {
       toast.error('Error importing files: ' + error.message);

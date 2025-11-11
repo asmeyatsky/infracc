@@ -42,10 +42,23 @@ export class CostAnalysisAgent extends BaseAgent {
    */
   async execute(input) {
     try {
+      // Convert plain object to TCOInput instance if needed
+      const tcoInput = input instanceof TCOInput 
+        ? input 
+        : new TCOInput({
+            onPremise: input.onPremise || {},
+            aws: input.aws || {},
+            azure: input.azure || {},
+            gcp: input.gcp || {},
+            migration: input.migration || {},
+            timeframe: input.timeframe || 36,
+            region: input.region || 'us-east-1'
+          });
+
       // Step 1: Calculate TCO (use case)
       const tcoResult = await this.executeStep('Calculating TCO', async () => {
         this.think('Computing total cost of ownership across all cloud providers');
-        return await this.calculateTCOUseCase.execute(input);
+        return await this.calculateTCOUseCase.execute(tcoInput);
       }, 40);
 
       // Step 2: Generate AI insights

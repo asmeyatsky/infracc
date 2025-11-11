@@ -11,7 +11,6 @@
 import { Workload } from '../../domain/entities/Workload.js';
 import { Assessment } from '../../domain/entities/Assessment.js';
 import { WorkloadAssessmentService } from '../../domain/services/WorkloadAssessmentService.js';
-import { CodeModPort } from '../../domain/ports/CodeModPort.js';
 import { WorkloadRepositoryPort } from '../../domain/ports/WorkloadRepositoryPort.js';
 import { validateAssessmentInput } from '../../utils/validation.js';
 
@@ -28,12 +27,10 @@ export class AssessWorkloadUseCase {
   /**
    * @param {Object} dependencies
    * @param {WorkloadAssessmentService} dependencies.assessmentService
-   * @param {CodeModPort} dependencies.codeModPort
    * @param {WorkloadRepositoryPort} dependencies.workloadRepository
    */
   constructor(dependencies) {
     this.assessmentService = dependencies.assessmentService;
-    this.codeModPort = dependencies.codeModPort;
     this.workloadRepository = dependencies.workloadRepository;
   }
 
@@ -41,14 +38,13 @@ export class AssessWorkloadUseCase {
    * Execute workload assessment
    * @param {Object} input
    * @param {string} input.workloadId - Workload ID to assess
-   * @param {boolean} input.includeCodeMod - Whether to include CodeMod analysis
    * @returns {Promise<Assessment>} Assessment result
    */
   async execute(input) {
     // Validate input
     validateAssessmentInput(input);
     
-    const { workloadId, includeCodeMod = false } = input;
+    const { workloadId } = input;
 
     // Load workload
     const workload = await this.workloadRepository.findById(workloadId);
@@ -59,37 +55,12 @@ export class AssessWorkloadUseCase {
     // Perform infrastructure assessment
     const infrastructureAssessment = this.assessmentService.performInfrastructureAssessment(workload);
 
-    // Perform application assessment with CodeMod if requested
-    let applicationAssessment = null;
-    let codeModResults = null;
-
-    if (includeCodeMod) {
-      try {
-        const isCodeModAvailable = await this.codeModPort.isAvailable();
-        if (isCodeModAvailable && workload.service) {
-          // In a real implementation, we'd need source code
-          // For now, we'll use service-based analysis
-          codeModResults = await this._analyzeWithCodeMod(workload);
-          
-          applicationAssessment = {
-            serviceType: workload.service,
-            codeModAnalysis: true,
-            detectedServices: codeModResults.serviceMappings || {},
-            complexity: codeModResults.complexityScore || infrastructureAssessment.complexityScore
-          };
-        }
-      } catch (error) {
-        console.warn('CodeMod analysis failed:', error);
-        // Continue without CodeMod results
-      }
-    }
-
     // Create comprehensive assessment
     const assessment = this.assessmentService.createAssessment(
       workload,
       infrastructureAssessment,
-      applicationAssessment,
-      codeModResults
+      null,
+      null
     );
 
     // Assign assessment to workload

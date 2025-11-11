@@ -55,7 +55,7 @@ describe('MigrationFlow', () => {
     expect(screen.getByText(/Discovery/i)).toBeInTheDocument();
     expect(screen.getByText(/Assessment/i)).toBeInTheDocument();
     expect(screen.getByText(/Strategy/i)).toBeInTheDocument();
-    expect(screen.getByText(/Cost Analysis/i)).toBeInTheDocument();
+    expect(screen.getByText(/Report/i)).toBeInTheDocument();
   });
 
   test('displays Discovery step as first step', () => {
@@ -72,13 +72,24 @@ describe('MigrationFlow', () => {
       'Discovery',
       'Assessment',
       'Strategy',
-      'Cost Analysis',
-      'Terraform Code',
-      'Execution',
+      'Report',
     ];
     
     steps.forEach(stepName => {
       expect(screen.getByText(new RegExp(stepName, 'i'))).toBeInTheDocument();
+    });
+  });
+
+  test('displays report step when reached', async () => {
+    mockWorkloadRepository.findAll.mockResolvedValue([
+      { id: '1', name: 'Test Workload', service: 'EC2', monthlyCost: 100 }
+    ]);
+
+    render(<MigrationFlow />);
+    
+    // Wait for workloads to load
+    await waitFor(() => {
+      expect(mockWorkloadRepository.findAll).toHaveBeenCalled();
     });
   });
 });

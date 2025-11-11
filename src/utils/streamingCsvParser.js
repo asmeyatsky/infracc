@@ -13,6 +13,7 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
   return new Promise((resolve, reject) => {
     const workloads = [];
     const workloadMap = new Map(); // Group by resource ID
+    let totalRawCost = 0; // Track sum of ALL raw costs from ALL rows (before aggregation)
     
     let headers = null;
     let headerIndices = null;
@@ -74,7 +75,12 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
       const usageType = values[headerIndices.usageType] || '';
       const usageStartDate = headerIndices.usageStartDate !== -1 ? values[headerIndices.usageStartDate] : null;
       const usageEndDate = headerIndices.usageEndDate !== -1 ? values[headerIndices.usageEndDate] : null;
-      
+
+      // Track raw cost from EVERY row (before any filtering or aggregation)
+      if (!isNaN(cost) && cost > 0) {
+        totalRawCost += cost;
+      }
+
       // Skip if not a billable service
       if (!productCode || productCode === 'TAX' || cost === 0) return;
       
@@ -335,7 +341,16 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
               if (buffer.trim()) {
                 processLine(buffer);
               }
-              resolve(Array.from(workloadMap.values()));
+              
+              const result = Array.from(workloadMap.values());
+              // Attach metadata with raw total cost (sum of ALL rows before aggregation)
+              result._metadata = {
+                totalRawCost: totalRawCost,
+                totalRows: lineNumber - 1, // Exclude header
+                uniqueWorkloads: result.length
+              };
+              
+              resolve(result);
               return;
             }
             
@@ -364,7 +379,15 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
         processLine(buffer);
       }
       
-      resolve(Array.from(workloadMap.values()));
+      const result = Array.from(workloadMap.values());
+      // Attach metadata with raw total cost (sum of ALL rows before aggregation)
+      result._metadata = {
+        totalRawCost: totalRawCost,
+        totalRows: lineNumber - 1, // Exclude header
+        uniqueWorkloads: result.length
+      };
+      
+      resolve(result);
     }
   });
 };
