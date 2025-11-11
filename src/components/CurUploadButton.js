@@ -225,13 +225,17 @@ function CurUploadButton({ onUploadComplete }) {
     try {
       let totalWorkloadsSaved = 0;
       let processedCount = 0;
-      const batchSize = 50; // Process 50 workloads at a time
-
+      
+      // Step 1: Parse all files and collect workloads
+      const allFileData = [];
+      const fileMetadata = [];
+      
       for (const file of files) {
         setUploadProgress({
           current: processedCount + 1,
           total: files.length,
-          currentFile: file.name
+          currentFile: file.name,
+          status: `Parsing ${file.name}...`
         });
 
         try {
@@ -247,54 +251,172 @@ function CurUploadButton({ onUploadComplete }) {
             continue;
           }
 
-          // Save workloads immediately after processing each file to avoid stack overflow
-          // Process in batches to prevent memory issues
-          setUploadProgress({ 
-            current: processedCount + 1, 
-            total: files.length, 
-            currentFile: file.name,
-            status: `Saving ${fileData.length} workloads from ${file.name}...`
+          // Add metadata about which file this data came from
+          fileData.forEach(data => {
+            data.sourceFile = file.name;
           });
-
-          for (let i = 0; i < fileData.length; i += batchSize) {
-            const batch = fileData.slice(i, i + batchSize);
-            
-            // Save batch
-            const batchResults = await Promise.all(
-              batch.map(async (data) => {
-                try {
-                  const workload = new Workload({
-                    ...data,
-                    sourceProvider: 'aws', // CUR files are AWS-specific
-                    dependencies: data.dependencies 
-                      ? (Array.isArray(data.dependencies) ? data.dependencies : data.dependencies.split(',').map(d => d.trim()))
-                      : []
-                  });
-                  
-                  // Save to repository
-                  await workloadRepository.save(workload);
-                  return workload;
-                } catch (error) {
-                  console.warn('Failed to create workload from CSV:', error);
-                  return null;
-                }
-              })
-            );
-            
-            const validBatch = batchResults.filter(w => w !== null);
-            totalWorkloadsSaved += validBatch.length;
-            
-            // Log progress for large batches
-            if (fileData.length > 100 && i % (batchSize * 10) === 0) {
-              console.log(`Saved ${totalWorkloadsSaved} workloads so far...`);
-            }
-          }
-
+          
+          allFileData.push(...fileData);
+          fileMetadata.push({ fileName: file.name, workloadCount: fileData.length });
           processedCount++;
-          console.log(`Completed ${file.name}: ${fileData.length} workloads saved`);
+          
+          console.log(`Parsed ${file.name}: ${fileData.length} workloads`);
         } catch (error) {
           console.error(`Error processing ${file.name}:`, error);
           toast.error(`Error processing ${file.name}: ${error.message}`);
+        }
+      }
+
+      if (allFileData.length === 0) {
+        toast.error('No valid data found in uploaded files');
+        setUploading(false);
+        setUploadProgress(null);
+        event.target.value = null;
+        return;
+      }
+
+      // Step 2: Deduplicate across ALL files
+      // Group by resource ID + service + region to prevent double-counting across different dates
+      setUploadProgress({ 
+        current: files.length, 
+        total: files.length, 
+        currentFile: '',
+        status: `Deduplicating ${allFileData.length} workloads across ${files.length} file(s)...`
+      });
+
+      const dedupeMap = new Map(); // Track deduplication keys across all files
+      
+      for (const data of allFileData) {
+        const dedupeKey = `${data.id}_${data.service}_${data.region}`.toLowerCase();
+        
+        if (dedupeMap.has(dedupeKey)) {
+          // Aggregate cost with existing workload (same resource across different dates)
+          const existing = dedupeMap.get(dedupeKey);
+          existing.monthlyCost += (data.monthlyCost || 0);
+          // Update storage if it's a storage service (take maximum)
+          if (data.storage) {
+            existing.storage = Math.max(existing.storage || 0, data.storage);
+          }
+          // Track date range if available
+          if (data.dateRange) {
+            if (!existing.dateRange) {
+              existing.dateRange = data.dateRange;
+            } else {
+              // Expand date range
+              if (data.dateRange.start < existing.dateRange.start) {
+                existing.dateRange.start = data.dateRange.start;
+              }
+              if (data.dateRange.end > existing.dateRange.end) {
+                existing.dateRange.end = data.dateRange.end;
+              }
+            }
+          }
+          if (data.seenDates) {
+            existing.seenDates = [...(existing.seenDates || []), ...(data.seenDates || [])];
+            // Remove duplicates
+            existing.seenDates = [...new Set(existing.seenDates)];
+          }
+          // Track source files
+          if (!existing.sourceFiles) {
+            existing.sourceFiles = [];
+          }
+          if (data.sourceFile && !existing.sourceFiles.includes(data.sourceFile)) {
+            existing.sourceFiles.push(data.sourceFile);
+          }
+        } else {
+          // New workload
+          dedupeMap.set(dedupeKey, { 
+            ...data,
+            sourceFiles: data.sourceFile ? [data.sourceFile] : []
+          });
+        }
+      }
+
+      const deduplicatedCount = dedupeMap.size;
+      const duplicatesRemoved = allFileData.length - deduplicatedCount;
+      
+      console.log(`Deduplication: ${allFileData.length} rows across ${files.length} file(s) -> ${deduplicatedCount} unique workloads (${duplicatesRemoved} duplicates merged)`);
+
+      // Step 3: Check against repository and save/update workloads
+      setUploadProgress({ 
+        current: files.length, 
+        total: files.length, 
+        currentFile: '',
+        status: `Saving ${deduplicatedCount} unique workloads...`
+      });
+
+      const batchSize = 50; // Process 50 workloads at a time
+      const deduplicatedArray = Array.from(dedupeMap.values());
+      
+      for (let i = 0; i < deduplicatedArray.length; i += batchSize) {
+        const batch = deduplicatedArray.slice(i, i + batchSize);
+        
+        const batchResults = await Promise.all(
+          batch.map(async (data) => {
+            try {
+              // Check if workload already exists in repository
+              const existingWorkload = await workloadRepository.findByDedupeKey(
+                data.id,
+                data.service,
+                data.region
+              );
+
+              if (existingWorkload) {
+                // Update existing workload: aggregate costs
+                const currentCost = existingWorkload.monthlyCost.value || 0;
+                const newCost = currentCost + (data.monthlyCost || 0);
+                
+                // Create updated workload with aggregated cost
+                const updatedWorkload = new Workload({
+                  id: existingWorkload.id, // Keep same ID
+                  name: existingWorkload.name,
+                  service: existingWorkload.service,
+                  type: existingWorkload.type.value,
+                  sourceProvider: existingWorkload.sourceProvider.type,
+                  cpu: existingWorkload.cpu,
+                  memory: existingWorkload.memory,
+                  storage: Math.max(existingWorkload.storage, data.storage || 0),
+                  monthlyCost: newCost, // Aggregated cost
+                  region: existingWorkload.region,
+                  os: existingWorkload.os,
+                  monthlyTraffic: existingWorkload.monthlyTraffic,
+                  dependencies: existingWorkload.dependencies,
+                  awsInstanceType: existingWorkload.awsInstanceType || data.awsInstanceType,
+                  awsProductCode: existingWorkload.awsProductCode || data.awsProductCode,
+                });
+                
+                // Update in repository (delete old, save new)
+                await workloadRepository.delete(existingWorkload.id);
+                await workloadRepository.save(updatedWorkload);
+                return { workload: updatedWorkload, isUpdate: true };
+              } else {
+                // New workload - create and save
+                const workload = new Workload({
+                  ...data,
+                  sourceProvider: 'aws', // CUR files are AWS-specific
+                  dependencies: data.dependencies 
+                    ? (Array.isArray(data.dependencies) ? data.dependencies : data.dependencies.split(',').map(d => d.trim()))
+                    : []
+                });
+                
+                await workloadRepository.save(workload);
+                return { workload, isUpdate: false };
+              }
+            } catch (error) {
+              console.warn(`Failed to process workload ${data.id}:`, error);
+              return null;
+            }
+          })
+        );
+        
+        const validBatch = batchResults.filter(r => r !== null);
+        const newWorkloads = validBatch.filter(r => !r.isUpdate).length;
+        const updatedWorkloads = validBatch.filter(r => r.isUpdate).length;
+        totalWorkloadsSaved += validBatch.length;
+        
+        // Log progress for large batches
+        if (deduplicatedArray.length > 100 && i % (batchSize * 10) === 0) {
+          console.log(`Saved ${totalWorkloadsSaved}/${deduplicatedArray.length} workloads (${newWorkloads} new, ${updatedWorkloads} updated)...`);
         }
       }
 
@@ -316,7 +438,13 @@ function CurUploadButton({ onUploadComplete }) {
         console.warn('Final persistence had issues, but workloads are saved in cache:', error);
       }
 
-      toast.success(`Successfully imported ${totalWorkloadsSaved} workloads from ${processedCount} file(s)!`);
+      // Summary message
+      const summaryMessage = duplicatesRemoved > 0
+        ? `Successfully imported ${totalWorkloadsSaved} unique workloads from ${files.length} file(s) (${duplicatesRemoved} duplicates merged across dates)`
+        : `Successfully imported ${totalWorkloadsSaved} workloads from ${files.length} file(s)!`;
+      
+      toast.success(summaryMessage);
+      console.log(`Upload complete: ${totalWorkloadsSaved} workloads saved`);
       
       if (onUploadComplete) {
         // Pass a minimal object to avoid loading all workloads into memory

@@ -50,6 +50,8 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
           os: getColumnIndex(['operatingsystem', 'os', 'operating_system'], headers),
           region: getColumnIndex(['location', 'region', 'availabilityzone'], headers),
           usageAmount: getColumnIndex(['usageamount', 'usage_amount', 'quantity'], headers),
+          usageStartDate: getColumnIndex(['usagestartdate', 'usage_start_date', 'billingperiodstartdate'], headers),
+          usageEndDate: getColumnIndex(['usageenddate', 'usage_end_date', 'billingperiodenddate'], headers),
         };
         
         if (headerIndices.productCode === -1) {
@@ -69,6 +71,8 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
       const os = (values[headerIndices.os] || 'linux').toLowerCase();
       const region = (values[headerIndices.region] || 'us-east-1').split('-').slice(0, 2).join('-');
       const usageType = values[headerIndices.usageType] || '';
+      const usageStartDate = headerIndices.usageStartDate !== -1 ? values[headerIndices.usageStartDate] : null;
+      const usageEndDate = headerIndices.usageEndDate !== -1 ? values[headerIndices.usageEndDate] : null;
       
       // Skip if not a billable service
       if (!productCode || productCode === 'TAX' || cost === 0) return;
@@ -95,10 +99,14 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
       // Extract instance specs
       const instanceSpecs = parseInstanceType(instanceType);
       
-      // Group by resource ID to aggregate costs
-      if (!workloadMap.has(resourceId)) {
-        workloadMap.set(resourceId, {
-          id: resourceId,
+      // Create deduplication key: resource ID + service + region
+      // This ensures same resource across different dates is treated as one workload
+      const dedupeKey = `${resourceId}_${mapping.service}_${region}`.toLowerCase();
+      
+      // Group by deduplication key to aggregate costs across different dates
+      if (!workloadMap.has(dedupeKey)) {
+        workloadMap.set(dedupeKey, {
+          id: resourceId, // Use original resource ID as the workload ID
           name: resourceId.split('/').pop() || resourceId,
           service: mapping.service,
           type: mapping.type,
@@ -112,12 +120,38 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
           dependencies: [],
           awsInstanceType: instanceType,
           awsProductCode: productCode,
+          // Track date range for reference
+          dateRange: usageStartDate && usageEndDate 
+            ? { start: usageStartDate, end: usageEndDate }
+            : null,
+          // Track all dates seen for this workload
+          seenDates: usageStartDate ? [usageStartDate] : [],
         });
       }
       
-      // Aggregate costs
-      const workload = workloadMap.get(resourceId);
+      // Aggregate costs across different dates
+      const workload = workloadMap.get(dedupeKey);
       workload.monthlyCost += cost;
+      
+      // Track date range (expand if needed)
+      if (usageStartDate) {
+        if (!workload.seenDates.includes(usageStartDate)) {
+          workload.seenDates.push(usageStartDate);
+        }
+        if (usageStartDate && usageEndDate) {
+          if (!workload.dateRange) {
+            workload.dateRange = { start: usageStartDate, end: usageEndDate };
+          } else {
+            // Expand date range if this date is outside current range
+            if (usageStartDate < workload.dateRange.start) {
+              workload.dateRange.start = usageStartDate;
+            }
+            if (usageEndDate > workload.dateRange.end) {
+              workload.dateRange.end = usageEndDate;
+            }
+          }
+        }
+      }
       
       // Update storage if it's a storage service
       if (mapping.type === 'storage' && headerIndices.usageAmount !== -1) {

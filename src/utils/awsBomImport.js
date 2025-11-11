@@ -46,6 +46,8 @@ export const parseAwsCur = (csvText) => {
   const osIdx = getColumnIndex(['operatingsystem', 'os', 'operating_system']);
   const regionIdx = getColumnIndex(['location', 'region', 'availabilityzone']);
   const usageAmountIdx = getColumnIndex(['usageamount', 'usage_amount', 'quantity']);
+  const usageStartDateIdx = getColumnIndex(['usagestartdate', 'usage_start_date', 'billingperiodstartdate']);
+  const usageEndDateIdx = getColumnIndex(['usageenddate', 'usage_end_date', 'billingperiodenddate']);
 
   if (productCodeIdx === -1) {
     throw new Error('Could not find ProductCode/Service column in AWS CUR');
@@ -64,6 +66,8 @@ export const parseAwsCur = (csvText) => {
     const os = values[osIdx]?.toLowerCase() || 'linux';
     const region = values[regionIdx]?.split('-').slice(0, 2).join('-') || 'us-east-1';
     const usageType = values[usageTypeIdx] || '';
+    const usageStartDate = usageStartDateIdx !== -1 ? values[usageStartDateIdx] : null;
+    const usageEndDate = usageEndDateIdx !== -1 ? values[usageEndDateIdx] : null;
 
     // Skip if not a billable service
     if (!productCode || productCode === 'TAX' || cost === 0) continue;
@@ -90,10 +94,14 @@ export const parseAwsCur = (csvText) => {
     // Extract instance specs from instance type (e.g., m5.large -> 2 vCPU, 8GB RAM)
     const instanceSpecs = parseInstanceType(instanceType);
 
-    // Group by resource ID to aggregate costs
-    if (!workloadMap.has(resourceId)) {
-      workloadMap.set(resourceId, {
-        id: resourceId,
+    // Create deduplication key: resource ID + service + region
+    // This ensures same resource across different dates is treated as one workload
+    const dedupeKey = `${resourceId}_${mapping.service}_${region}`.toLowerCase();
+    
+    // Group by deduplication key to aggregate costs across different dates
+    if (!workloadMap.has(dedupeKey)) {
+      workloadMap.set(dedupeKey, {
+        id: resourceId, // Use original resource ID as the workload ID
         name: resourceId.split('/').pop() || resourceId,
         service: mapping.service,
         type: mapping.type,
@@ -107,12 +115,38 @@ export const parseAwsCur = (csvText) => {
         dependencies: [],
         awsInstanceType: instanceType,
         awsProductCode: productCode,
+        // Track date range for reference
+        dateRange: usageStartDate && usageEndDate 
+          ? { start: usageStartDate, end: usageEndDate }
+          : null,
+        // Track all dates seen for this workload
+        seenDates: usageStartDate ? [usageStartDate] : [],
       });
     }
 
-    // Aggregate costs
-    const workload = workloadMap.get(resourceId);
+    // Aggregate costs across different dates
+    const workload = workloadMap.get(dedupeKey);
     workload.monthlyCost += cost;
+    
+    // Track date range (expand if needed)
+    if (usageStartDate) {
+      if (!workload.seenDates.includes(usageStartDate)) {
+        workload.seenDates.push(usageStartDate);
+      }
+      if (usageStartDate && usageEndDate) {
+        if (!workload.dateRange) {
+          workload.dateRange = { start: usageStartDate, end: usageEndDate };
+        } else {
+          // Expand date range if this date is outside current range
+          if (usageStartDate < workload.dateRange.start) {
+            workload.dateRange.start = usageStartDate;
+          }
+          if (usageEndDate > workload.dateRange.end) {
+            workload.dateRange.end = usageEndDate;
+          }
+        }
+      }
+    }
     
     // Update storage if it's a storage service
     if (mapping.type === 'storage' && usageAmountIdx !== -1) {

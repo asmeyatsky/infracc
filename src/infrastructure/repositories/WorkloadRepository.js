@@ -133,6 +133,29 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
   }
 
   /**
+   * Find workload by deduplication key (resource ID + service + region)
+   * Used to prevent duplicate workloads when uploading multiple CUR files
+   * @param {string} resourceId - AWS resource ID
+   * @param {string} service - Service name
+   * @param {string} region - Region
+   * @returns {Promise<Workload|null>}
+   */
+  async findByDedupeKey(resourceId, service, region) {
+    await this._loadFromStorage();
+    const dedupeKey = `${resourceId}_${service}_${region}`.toLowerCase();
+    
+    // Search for workload with matching resource ID, service, and region
+    for (const workload of this._cache.values()) {
+      const workloadKey = `${workload.id}_${workload.service}_${workload.region}`.toLowerCase();
+      if (workloadKey === dedupeKey) {
+        return workload;
+      }
+    }
+    
+    return null;
+  }
+
+  /**
    * Persist cache to localStorage
    * Optimized for large datasets - processes in chunks
    * Handles quota exceeded gracefully
