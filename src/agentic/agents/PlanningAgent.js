@@ -53,6 +53,10 @@ export class PlanningAgent extends BaseAgent {
       }, 15);
 
       // Step 2: Generate migration plan (use case)
+      if (!this.generateMigrationPlanUseCase) {
+        throw new Error('GenerateMigrationPlanUseCase not initialized. Check dependency injection.');
+      }
+      
       const migrationPlan = await this.executeStep('Generating migration plan', async () => {
         this.think('Mapping services and determining 6 R\'s strategies');
         return await this.generateMigrationPlanUseCase.execute({
@@ -62,6 +66,10 @@ export class PlanningAgent extends BaseAgent {
       }, 40);
 
       // Step 3: Plan migration waves (use case)
+      if (!this.planMigrationWavesUseCase) {
+        throw new Error('PlanMigrationWavesUseCase not initialized. Check dependency injection.');
+      }
+      
       const wavePlan = await this.executeStep('Planning migration waves', async () => {
         this.think('Organizing workloads into migration waves based on complexity');
         return await this.planMigrationWavesUseCase.execute({

@@ -98,7 +98,19 @@ export class GenerateMigrationPlanUseCase {
           workload.sourceProvider
         );
       } catch (error) {
-        console.warn(`Failed to get mapping for ${workload.service}:`, error);
+        // ServiceMappingRepository now returns a default mapping instead of throwing
+        // But log warning for visibility
+        console.warn(`Service mapping issue for ${workload.service}:`, error.message || error);
+        // Try to get a default mapping
+        try {
+          serviceMapping = await this.serviceMappingPort.getMapping(
+            workload.service,
+            workload.sourceProvider
+          );
+        } catch (retryError) {
+          // If still fails, continue without mapping
+          console.warn(`Could not get mapping for ${workload.service}, continuing without mapping`);
+        }
       }
     }
 

@@ -135,6 +135,7 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
   /**
    * Persist cache to localStorage
    * Optimized for large datasets - processes in chunks
+   * Handles quota exceeded gracefully
    * @private
    */
   async _persistToStorage() {
@@ -159,17 +160,56 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
         
         // Stringify in chunks if needed
         const jsonString = JSON.stringify(workloadsArray);
-        localStorage.setItem(this.storageKey, jsonString);
+        
+        try {
+          localStorage.setItem(this.storageKey, jsonString);
+        } catch (quotaError) {
+          if (quotaError.name === 'QuotaExceededError') {
+            // Try to save a subset if quota exceeded
+            console.warn(`localStorage quota exceeded (${cacheSize} workloads). Attempting to save subset...`);
+            
+            // Save only the most recent 50% of workloads
+            const subset = workloadsArray.slice(-Math.floor(workloadsArray.length / 2));
+            const subsetJson = JSON.stringify(subset);
+            
+            try {
+              localStorage.setItem(this.storageKey, subsetJson);
+              console.warn(`Saved ${subset.length} most recent workloads (${workloadsArray.length - subset.length} older workloads not persisted)`);
+            } catch (subsetError) {
+              // If even subset fails, clear old data and try again
+              console.warn('Even subset failed. Clearing old data and retrying...');
+              localStorage.removeItem(this.storageKey);
+              
+              // Try saving just the last 100 workloads
+              const minimal = workloadsArray.slice(-100);
+              localStorage.setItem(this.storageKey, JSON.stringify(minimal));
+              console.warn(`Saved only ${minimal.length} most recent workloads due to storage limits`);
+            }
+          } else {
+            throw quotaError;
+          }
+        }
       } else {
         // For smaller caches, use direct serialization
         const workloadsData = Array.from(this._cache.values()).map(workload => workload.toJSON());
-        localStorage.setItem(this.storageKey, JSON.stringify(workloadsData));
+        
+        try {
+          localStorage.setItem(this.storageKey, JSON.stringify(workloadsData));
+        } catch (quotaError) {
+          if (quotaError.name === 'QuotaExceededError') {
+            console.warn('localStorage quota exceeded. Clearing old data and retrying...');
+            localStorage.removeItem(this.storageKey);
+            localStorage.setItem(this.storageKey, JSON.stringify(workloadsData));
+          } else {
+            throw quotaError;
+          }
+        }
       }
     } catch (error) {
       console.error('Failed to persist workloads:', error);
       // Don't throw - allow operation to continue even if persistence fails
       if (error.name === 'QuotaExceededError') {
-        console.warn('localStorage quota exceeded. Consider clearing old data.');
+        console.warn('localStorage quota exceeded. Data will remain in memory cache only.');
       }
     }
   }

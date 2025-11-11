@@ -67,6 +67,20 @@ export class ServiceMappingRepository extends ServiceMappingPort {
   }
 
   /**
+   * Normalize AWS service name by removing "AMAZON" prefix if present
+   * CUR files use "AMAZONEC2", "AMAZONS3", etc., but mappings use "EC2", "S3", etc.
+   * @private
+   */
+  _normalizeAwsServiceName(serviceName) {
+    const upper = serviceName.toUpperCase();
+    // Remove "AMAZON" prefix if present (e.g., "AMAZONEC2" -> "EC2")
+    if (upper.startsWith('AMAZON')) {
+      return upper.substring(6); // Remove "AMAZON" (6 chars)
+    }
+    return upper;
+  }
+
+  /**
    * Get service mapping for source service
    * Enhanced with official Google Cloud documentation
    * @param {string} sourceService 
@@ -78,12 +92,18 @@ export class ServiceMappingRepository extends ServiceMappingPort {
       sourceProvider = new CloudProvider(sourceProvider);
     }
 
+    // Normalize service name for lookup
+    // AWS CUR files use "AMAZONEC2", but mappings use "EC2"
+    const normalizedService = sourceProvider.type === CloudProviderType.AWS
+      ? this._normalizeAwsServiceName(sourceService)
+      : sourceService.toUpperCase();
+
     // First, try to get official mapping from Google Cloud docs
     if (this.useOfficialDocs) {
       try {
         const officialMapping = await this.googleCloudDocsAdapter.getOfficialMapping(
           sourceProvider.type,
-          sourceService
+          normalizedService
         );
 
         if (officialMapping) {
@@ -93,7 +113,7 @@ export class ServiceMappingRepository extends ServiceMappingPort {
           const effort = (officialMapping.effort || 'medium').toLowerCase();
           
           return new ServiceMapping({
-            sourceService,
+            sourceService: sourceService, // Keep original service name
             sourceProvider: sourceProvider.type,
             gcpService: officialMapping.gcpService,
             gcpApi: officialMapping.gcpApi || '',
@@ -115,11 +135,27 @@ export class ServiceMappingRepository extends ServiceMappingPort {
       ? this._awsMappings 
       : this._azureMappings;
 
-    const serviceKey = sourceService.toUpperCase();
-    const mapping = mappings.get(serviceKey);
+    const mapping = mappings.get(normalizedService);
 
     if (!mapping) {
-      throw new Error(`No mapping found for service: ${sourceService} (${sourceProvider.type})`);
+      // Try with original service name as fallback
+      const fallbackMapping = mappings.get(sourceService.toUpperCase());
+      if (fallbackMapping) {
+        return fallbackMapping;
+      }
+      
+      // Return a default mapping instead of throwing to prevent workflow failure
+      console.warn(`No mapping found for service: ${sourceService} (normalized: ${normalizedService}), using default`);
+      return new ServiceMapping({
+        sourceService: sourceService,
+        sourceProvider: sourceProvider.type,
+        gcpService: 'Compute Engine', // Default fallback
+        gcpApi: 'compute.googleapis.com',
+        migrationStrategy: 'rehost',
+        effort: 'medium',
+        notes: `Service mapping not found. Manual review required for ${sourceService}.`,
+        considerations: ['Service mapping needs manual verification']
+      });
     }
 
     return mapping;
