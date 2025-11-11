@@ -178,7 +178,9 @@ function CurUploadButton({ onUploadComplete }) {
               }
             } catch (awsError) {
               console.warn(`AWS BOM parsing failed for ${csvFile.name}, trying standard CSV:`, awsError);
+              // eslint-disable-next-line no-undef
               if (csvText) {
+                // eslint-disable-next-line no-undef
                 importedData = parseCSV(csvText);
               } else {
                 throw awsError; // Re-throw if we don't have csvText
