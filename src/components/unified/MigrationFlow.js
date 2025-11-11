@@ -149,20 +149,16 @@ function MigrationFlow() {
 
         case 'cost':
           // Step 4: Cost Analysis - optional
-          if (projectData?.costInputs) {
-            await agenticContainer.costAnalysisAgent.execute(projectData.costInputs);
-          } else {
-            // Use default cost scenario
-            const defaultCosts = {
-              onPremise: { hardware: 5000, software: 2000, maintenance: 1500, labor: 8000, power: 1200, cooling: 800, datacenter: 2500 },
-              aws: { ec2: 3500, s3: 800, rds: 2200, vpc: 400, cloudwatch: 300 },
-              azure: { virtualMachines: 3200, blobStorage: 700, sqlDatabase: 2000, networking: 450, monitoring: 250 },
-              gcp: { compute: 2800, storage: 600, networking: 350, database: 1800, monitoring: 200 },
-              migration: { assessment: 15000, tools: 8000, training: 12000, consulting: 25000 },
-              timeframe: 36
-            };
-            await agenticContainer.costAnalysisAgent.execute(defaultCosts);
-          }
+          // Use default cost scenario (no test data pre-loaded)
+          const defaultCosts = {
+            onPremise: { hardware: 5000, software: 2000, maintenance: 1500, labor: 8000, power: 1200, cooling: 800, datacenter: 2500 },
+            aws: { ec2: 3500, s3: 800, rds: 2200, vpc: 400, cloudwatch: 300 },
+            azure: { virtualMachines: 3200, blobStorage: 700, sqlDatabase: 2000, networking: 450, monitoring: 250 },
+            gcp: { compute: 2800, storage: 600, networking: 350, database: 1800, monitoring: 200 },
+            migration: { assessment: 15000, tools: 8000, training: 12000, consulting: 25000 },
+            timeframe: 36
+          };
+          await agenticContainer.costAnalysisAgent.execute(defaultCosts);
           return true;
 
         case 'terraform':
@@ -346,10 +342,9 @@ function MigrationFlow() {
           {currentStep === 1 && (
             <div className="step-content">
               <p>Discovering your cloud workloads...</p>
-              {testDataLoaded && projectData && (
-                <div className="test-data-preview">
-                  <h4>Test Data Loaded:</h4>
-                  <p>{projectData.workloads.length} workloads discovered</p>
+              {discoveredWorkloads.length > 0 && (
+                <div className="alert alert-success">
+                  <p>{discoveredWorkloads.length} workloads discovered</p>
                 </div>
               )}
             </div>
