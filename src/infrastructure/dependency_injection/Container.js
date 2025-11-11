@@ -189,6 +189,14 @@ export class Container {
   get generateMigrationPlanUseCase() {
     return this._generateMigrationPlanUseCase;
   }
+
+  get calculateTCOUseCase() {
+    return this._calculateTCOUseCase;
+  }
+
+  get planMigrationWavesUseCase() {
+    return this._planMigrationWavesUseCase;
+  }
 }
 
 // Singleton instance
