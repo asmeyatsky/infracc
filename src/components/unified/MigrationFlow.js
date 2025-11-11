@@ -63,6 +63,20 @@ function MigrationFlow() {
     };
   }, []);
 
+  // Clear workloads on startup to start fresh
+  useEffect(() => {
+    const clearOnStartup = async () => {
+      try {
+        // Clear all workloads from repository to start fresh
+        await workloadRepository.clear();
+        console.log('Cleared all workloads on startup - starting fresh');
+      } catch (error) {
+        console.error('Error clearing workloads:', error);
+      }
+    };
+    clearOnStartup();
+  }, [workloadRepository]);
+
   // Load workloads from repository
   useEffect(() => {
     const loadWorkloads = async () => {
@@ -71,16 +85,8 @@ function MigrationFlow() {
         setDiscoveredWorkloads(workloads);
         setWorkloadIds(workloads.map(w => w.id));
         
-        // If workloads exist, automatically skip Discovery and start from Assessment
-        if (workloads.length > 0 && currentStep === 0) {
-          console.log(`Found ${workloads.length} existing workloads. Starting from Assessment step.`);
-          setCurrentStep(1); // Skip to Assessment
-          // Mark Discovery as completed since workloads already exist
-          setStepStatuses(prev => ({
-            ...prev,
-            discovery: 'completed'
-          }));
-        }
+        // Start from Discovery step (no auto-skip)
+        // Workloads will appear after CUR upload completes
       } catch (error) {
         console.error('Error loading workloads:', error);
       }
