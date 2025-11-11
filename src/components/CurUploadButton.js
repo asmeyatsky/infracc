@@ -230,6 +230,7 @@ function CurUploadButton({ onUploadComplete }) {
       
       // Shared deduplication map across all files
       const dedupeMap = new Map(); // Track deduplication keys across all files
+      const savedDedupeKeys = new Set(); // Track which dedupe keys we've already saved
       const batchSize = 25; // Smaller batch size to prevent stack overflow
       
       // Process files incrementally - deduplicate and save as we go
@@ -336,8 +337,15 @@ function CurUploadButton({ onUploadComplete }) {
             status: `Saving workloads from ${file.name}...`
           });
 
-          // Process dedupeMap in batches and save to repository
-          const dedupeEntries = Array.from(dedupeMap.entries());
+          // Process only NEW entries from dedupeMap (ones we haven't saved yet)
+          const dedupeEntries = Array.from(dedupeMap.entries())
+            .filter(([dedupeKey]) => !savedDedupeKeys.has(dedupeKey));
+          
+          if (dedupeEntries.length === 0) {
+            console.log(`No new workloads to save from ${file.name} (all duplicates)`);
+            processedCount++;
+            continue;
+          }
           
           for (let i = 0; i < dedupeEntries.length; i += batchSize) {
             const batch = dedupeEntries.slice(i, i + batchSize);
@@ -379,6 +387,7 @@ function CurUploadButton({ onUploadComplete }) {
                   // Update in repository (delete old, save new)
                   await workloadRepository.delete(existingWorkload.id);
                   await workloadRepository.save(updatedWorkload);
+                  savedDedupeKeys.add(dedupeKey); // Mark as saved
                   totalWorkloadsSaved++;
                 } else {
                   // New workload - create and save
@@ -391,6 +400,7 @@ function CurUploadButton({ onUploadComplete }) {
                   });
                   
                   await workloadRepository.save(workload);
+                  savedDedupeKeys.add(dedupeKey); // Mark as saved
                   totalWorkloadsSaved++;
                 }
               } catch (error) {
@@ -403,6 +413,8 @@ function CurUploadButton({ onUploadComplete }) {
               await new Promise(resolve => setTimeout(resolve, 0));
             }
           }
+          
+          console.log(`Saved ${dedupeEntries.length} workloads from ${file.name} (${dedupeMap.size - savedDedupeKeys.size} duplicates merged)`);
 
           processedCount++;
         } catch (error) {
