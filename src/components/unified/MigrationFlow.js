@@ -54,10 +54,9 @@ function MigrationFlow() {
       setStepStatuses(newStatuses);
     });
 
-    // Load test data
-    const testProject = loadTestProject();
-    setProjectData(testProject);
-    setTestDataLoaded(true);
+    // Don't load test data automatically - start with 0 workloads
+    // Test data can be loaded manually via "Load Demo" button if needed
+    setTestDataLoaded(false);
 
     return () => {
       unsubscribe();

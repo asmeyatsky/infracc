@@ -24,10 +24,9 @@ function AppUnified() {
   const [projectData, setProjectData] = useState(null);
 
   useEffect(() => {
-    // Load test data on mount
-    const testProject = loadTestProject();
-    setProjectData(testProject);
-    setTestDataLoaded(true);
+    // Don't load test data automatically - start with 0 workloads
+    // Test data can be loaded manually via "Load Demo" button if needed
+    setTestDataLoaded(false);
   }, []);
 
   const handleCurUploadComplete = (result) => {
