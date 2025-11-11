@@ -4,13 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This repository contains the **Google Cloud Infrastructure Modernization Accelerator Suite** - a comprehensive web application for cloud migration assessment, planning, and operations. The suite implements all **3 Pillars** from the PRD:
+This repository contains the **AWS & Azure to GCP Migration Accelerator** - a comprehensive web application for cloud-to-cloud migration assessment, planning, and execution. The suite helps organizations migrate workloads from AWS or Azure to Google Cloud Platform.
 
 ### **Pillar 1: Assess** ✅
-1. **Discovery Tool** - Infrastructure inventory and workload discovery
+1. **Cloud Workload Discovery Tool** - Discover and inventory AWS/Azure workloads for migration
 2. **Dependency Visualization Map** - Interactive network graph showing workload relationships
-3. **Migration Strategy Recommender** - 6 R's framework-based migration recommendations
-4. **Multi-Cloud TCO Calculator** - Cost comparisons between on-premise infrastructure and AWS, Azure, and GCP
+3. **Migration Strategy Recommender** - 6 R's framework-based migration recommendations with service mapping
+4. **Cost Comparison Calculator** - Compare current AWS/Azure costs with projected GCP costs
 
 ### **Pillar 2: Mobilize** ✅
 5. **Landing Zone Builder** - 5-step wizard for GCP infrastructure configuration
@@ -22,9 +22,10 @@ This repository contains the **Google Cloud Infrastructure Modernization Acceler
 9. **Policy Compliance** - Governance dashboard with 20+ rules across 5 policy categories
 
 ### **Cross-Cutting Features** ✅
-10. **Project Manager** - Save/load/demo/import/export functionality with localStorage persistence
-11. **Auto-save** - Automatic project saving every 2 seconds
-12. **Demo Mode** - Pre-configured e-commerce platform with 16 workloads
+10. **Service Mapping** - Comprehensive AWS→GCP and Azure→GCP service mappings with migration strategies
+11. **Project Manager** - Save/load/demo/import/export functionality with localStorage persistence
+12. **Auto-save** - Automatic project saving every 2 seconds
+13. **Demo Mode** - Pre-configured cloud workloads for demonstration
 
 ## Project Structure
 
@@ -40,7 +41,7 @@ This repository contains the **Google Cloud Infrastructure Modernization Acceler
 
 ## Common Commands
 
-All commands should be run from the `tco-calculator` directory:
+All commands should be run from the project root directory:
 
 **Development:**
 - `npm start` - Start development server (opens on http://localhost:3000)
@@ -79,27 +80,34 @@ All commands should be run from the `tco-calculator` directory:
 - Cloud provider cards use brand colors: AWS (#FF9900), Azure (#0078D4), GCP (#4285F4)
 
 **Discovery Tool Features:**
-- Manual workload entry with detailed specifications (CPU, memory, storage, traffic)
-- Workload type classification (VM, database, storage, application, container)
+- Manual workload entry with detailed specifications (CPU, memory, storage, traffic, cost)
+- Source cloud selection (AWS or Azure)
+- AWS/Azure service selection from comprehensive service mapping
+- Workload type classification (VM, database, storage, application, container, function)
 - Dependency tracking for each workload
+- Region and monthly cost tracking
+- CSV import for bulk workload discovery
 - Summary table of all discovered workloads
-- Automatic navigation to strategy tab after discovery
+- Automatic navigation to assessment tab after discovery
 
 **Migration Strategy Features:**
 - Rule-based 6 R's recommendation engine (Rehost, Replatform, Refactor, Repurchase, Retire, Retain)
+- Service mapping integration for AWS→GCP and Azure→GCP conversions
 - Strategy distribution summary with percentages
 - Expandable accordion for detailed recommendations per workload
-- GCP service mapping for each workload type
+- GCP service mapping for each workload with target GCP API
 - Effort level indicators (Low, Medium, High)
+- Migration wave suggestions (Wave 1, 2, or 3)
+- Migration considerations and next steps
 - Reference guide for all 6 R's strategies
 
 **Cost Calculation Logic:**
-- Monthly costs calculated for on-premise, AWS, Azure, and GCP (tco-calculator/src/App.js:104-177)
+- Monthly costs calculated for AWS, Azure, and GCP
 - TCO calculated over timeframe: `monthlyCost * timeframe`
-- Migration costs are one-time and shared across all cloud providers
-- ROI calculated separately for each provider: `(onPremiseTCO - totalCloudTCO) / totalCloudTCO * 100`
-- Multi-dataset chart shows recurring costs vs total costs (with migration) for all platforms
-- Automatic "best option" recommendation based on highest ROI
+- Migration costs are one-time and added to GCP costs
+- ROI calculated for migration to GCP: `(currentCloudTCO - totalGcpTCO) / totalGcpTCO * 100`
+- Multi-dataset chart shows recurring costs vs total costs (with migration) for AWS/Azure vs GCP
+- Automatic "best option" recommendation based on highest ROI/savings
 
 **Data Export:**
 - JSON export functionality generates comprehensive multi-cloud report

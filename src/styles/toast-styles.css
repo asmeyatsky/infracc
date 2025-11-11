@@ -1,0 +1,44 @@
+
+.Toastify__toast-container {
+  font-family: var(--font-primary);
+}
+
+.Toastify__toast {
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: var(--spacing-md);
+  background-color: var(--searce-white);
+  color: var(--searce-gray-800);
+}
+
+.Toastify__toast--success {
+  border-left: 4px solid var(--searce-success);
+  background-color: var(--searce-success-light);
+  color: var(--searce-gray-900);
+}
+
+.Toastify__toast--error {
+  border-left: 4px solid var(--searce-error);
+  background-color: var(--searce-error-light);
+  color: var(--searce-gray-900);
+}
+
+.Toastify__toast--warning {
+  border-left: 4px solid var(--searce-warning);
+  background-color: var(--searce-warning-light);
+  color: var(--searce-gray-900);
+}
+
+.Toastify__toast--info {
+  border-left: 4px solid var(--searce-info);
+  background-color: var(--searce-info-light);
+  color: var(--searce-gray-900);
+}
+
+.Toastify__progress-bar {
+  background: var(--searce-blue-primary);
+}
+
+.Toastify__close-button {
+  color: var(--searce-gray-800);
+}

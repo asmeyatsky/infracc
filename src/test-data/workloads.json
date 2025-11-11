@@ -1,0 +1,337 @@
+{
+  "workloads": [
+    {
+      "id": "wl-001",
+      "name": "E-Commerce Web Frontend",
+      "type": "application",
+      "sourceProvider": "aws",
+      "service": "EC2",
+      "region": "us-east-1",
+      "cpu": 8,
+      "memory": 32,
+      "storage": 200,
+      "monthlyTraffic": 5000,
+      "monthlyCost": 450,
+      "dependencies": ["wl-002", "wl-003"],
+      "tags": ["production", "critical", "web"],
+      "metadata": {
+        "os": "Ubuntu 20.04",
+        "framework": "React",
+        "language": "JavaScript"
+      }
+    },
+    {
+      "id": "wl-002",
+      "name": "API Gateway Service",
+      "type": "application",
+      "sourceProvider": "aws",
+      "service": "API Gateway",
+      "region": "us-east-1",
+      "cpu": 4,
+      "memory": 16,
+      "storage": 50,
+      "monthlyTraffic": 12000,
+      "monthlyCost": 320,
+      "dependencies": ["wl-004", "wl-005", "wl-006"],
+      "tags": ["production", "critical", "api"],
+      "metadata": {
+        "os": "Linux",
+        "framework": "Express.js",
+        "language": "Node.js"
+      }
+    },
+    {
+      "id": "wl-003",
+      "name": "User Authentication Service",
+      "type": "container",
+      "sourceProvider": "aws",
+      "service": "ECS",
+      "region": "us-east-1",
+      "cpu": 2,
+      "memory": 8,
+      "storage": 20,
+      "monthlyTraffic": 3000,
+      "monthlyCost": 180,
+      "dependencies": ["wl-007"],
+      "tags": ["production", "security"],
+      "metadata": {
+        "os": "Linux",
+        "framework": "Docker",
+        "language": "Go"
+      }
+    },
+    {
+      "id": "wl-004",
+      "name": "Order Management Service",
+      "type": "container",
+      "sourceProvider": "aws",
+      "service": "ECS",
+      "region": "us-east-1",
+      "cpu": 6,
+      "memory": 16,
+      "storage": 100,
+      "monthlyTraffic": 4500,
+      "monthlyCost": 280,
+      "dependencies": ["wl-008", "wl-010"],
+      "tags": ["production", "critical"],
+      "metadata": {
+        "os": "Linux",
+        "framework": "Kubernetes",
+        "language": "Java"
+      }
+    },
+    {
+      "id": "wl-005",
+      "name": "Product Catalog Service",
+      "type": "container",
+      "sourceProvider": "aws",
+      "service": "ECS",
+      "region": "us-east-1",
+      "cpu": 4,
+      "memory": 12,
+      "storage": 150,
+      "monthlyTraffic": 6000,
+      "monthlyCost": 240,
+      "dependencies": ["wl-009"],
+      "tags": ["production"],
+      "metadata": {
+        "os": "Linux",
+        "framework": "Spring Boot",
+        "language": "Java"
+      }
+    },
+    {
+      "id": "wl-006",
+      "name": "Payment Processing Service",
+      "type": "function",
+      "sourceProvider": "aws",
+      "service": "Lambda",
+      "region": "us-east-1",
+      "cpu": 1,
+      "memory": 2,
+      "storage": 0,
+      "monthlyTraffic": 8000,
+      "monthlyCost": 150,
+      "dependencies": ["wl-008"],
+      "tags": ["production", "critical", "security"],
+      "metadata": {
+        "runtime": "Node.js 18",
+        "framework": "Serverless"
+      }
+    },
+    {
+      "id": "wl-007",
+      "name": "User Database",
+      "type": "database",
+      "sourceProvider": "aws",
+      "service": "RDS PostgreSQL",
+      "region": "us-east-1",
+      "cpu": 8,
+      "memory": 64,
+      "storage": 500,
+      "monthlyTraffic": 1000,
+      "monthlyCost": 650,
+      "dependencies": [],
+      "tags": ["production", "critical", "database"],
+      "metadata": {
+        "engine": "PostgreSQL 14",
+        "version": "14.5",
+        "backupEnabled": true
+      }
+    },
+    {
+      "id": "wl-008",
+      "name": "Orders Database",
+      "type": "database",
+      "sourceProvider": "aws",
+      "service": "RDS PostgreSQL",
+      "region": "us-east-1",
+      "cpu": 16,
+      "memory": 128,
+      "storage": 2000,
+      "monthlyTraffic": 2000,
+      "monthlyCost": 1200,
+      "dependencies": [],
+      "tags": ["production", "critical", "database"],
+      "metadata": {
+        "engine": "PostgreSQL 14",
+        "version": "14.5",
+        "backupEnabled": true,
+        "multiAZ": true
+      }
+    },
+    {
+      "id": "wl-009",
+      "name": "Products Database",
+      "type": "database",
+      "sourceProvider": "aws",
+      "service": "RDS MySQL",
+      "region": "us-east-1",
+      "cpu": 8,
+      "memory": 64,
+      "storage": 800,
+      "monthlyTraffic": 1500,
+      "monthlyCost": 580,
+      "dependencies": [],
+      "tags": ["production", "database"],
+      "metadata": {
+        "engine": "MySQL 8.0",
+        "version": "8.0.28",
+        "backupEnabled": true
+      }
+    },
+    {
+      "id": "wl-010",
+      "name": "Redis Cache",
+      "type": "database",
+      "sourceProvider": "aws",
+      "service": "ElastiCache",
+      "region": "us-east-1",
+      "cpu": 4,
+      "memory": 32,
+      "storage": 0,
+      "monthlyTraffic": 10000,
+      "monthlyCost": 420,
+      "dependencies": [],
+      "tags": ["production", "cache"],
+      "metadata": {
+        "engine": "Redis 6.2",
+        "clusterMode": true
+      }
+    },
+    {
+      "id": "wl-011",
+      "name": "File Storage Bucket",
+      "type": "storage",
+      "sourceProvider": "aws",
+      "service": "S3",
+      "region": "us-east-1",
+      "cpu": 0,
+      "memory": 0,
+      "storage": 50000,
+      "monthlyTraffic": 20000,
+      "monthlyCost": 1200,
+      "dependencies": [],
+      "tags": ["production", "storage"],
+      "metadata": {
+        "storageClass": "Standard",
+        "versioning": true,
+        "encryption": true
+      }
+    },
+    {
+      "id": "wl-012",
+      "name": "Backup Storage",
+      "type": "storage",
+      "sourceProvider": "aws",
+      "service": "S3 Glacier",
+      "region": "us-east-1",
+      "cpu": 0,
+      "memory": 0,
+      "storage": 100000,
+      "monthlyTraffic": 5000,
+      "monthlyCost": 400,
+      "dependencies": [],
+      "tags": ["backup", "storage"],
+      "metadata": {
+        "storageClass": "Glacier",
+        "retentionDays": 365
+      }
+    },
+    {
+      "id": "wl-013",
+      "name": "Analytics Processing VM",
+      "type": "vm",
+      "sourceProvider": "aws",
+      "service": "EC2",
+      "region": "us-east-1",
+      "cpu": 16,
+      "memory": 64,
+      "storage": 1000,
+      "monthlyTraffic": 3000,
+      "monthlyCost": 680,
+      "dependencies": ["wl-008", "wl-009"],
+      "tags": ["analytics", "batch"],
+      "metadata": {
+        "os": "Ubuntu 20.04",
+        "instanceType": "m5.4xlarge"
+      }
+    },
+    {
+      "id": "wl-014",
+      "name": "Reporting Service",
+      "type": "application",
+      "sourceProvider": "aws",
+      "service": "EC2",
+      "region": "us-east-1",
+      "cpu": 4,
+      "memory": 16,
+      "storage": 200,
+      "monthlyTraffic": 1500,
+      "monthlyCost": 220,
+      "dependencies": ["wl-013"],
+      "tags": ["reporting", "internal"],
+      "metadata": {
+        "os": "Linux",
+        "framework": "Python Flask",
+        "language": "Python"
+      }
+    },
+    {
+      "id": "wl-015",
+      "name": "Legacy Windows Application",
+      "type": "vm",
+      "sourceProvider": "azure",
+      "service": "Virtual Machines",
+      "region": "eastus",
+      "cpu": 8,
+      "memory": 32,
+      "storage": 500,
+      "monthlyTraffic": 500,
+      "monthlyCost": 380,
+      "dependencies": ["wl-016"],
+      "tags": ["legacy", "windows"],
+      "metadata": {
+        "os": "Windows Server 2019",
+        "framework": ".NET Framework 4.8"
+      }
+    },
+    {
+      "id": "wl-016",
+      "name": "Legacy SQL Server Database",
+      "type": "database",
+      "sourceProvider": "azure",
+      "service": "SQL Database",
+      "region": "eastus",
+      "cpu": 12,
+      "memory": 96,
+      "storage": 1500,
+      "monthlyTraffic": 800,
+      "monthlyCost": 850,
+      "dependencies": [],
+      "tags": ["legacy", "database", "windows"],
+      "metadata": {
+        "engine": "SQL Server 2019",
+        "version": "15.0",
+        "edition": "Standard"
+      }
+    }
+  ],
+  "summary": {
+    "total": 16,
+    "byType": {
+      "application": 4,
+      "container": 3,
+      "database": 5,
+      "storage": 2,
+      "vm": 2,
+      "function": 1
+    },
+    "byProvider": {
+      "aws": 14,
+      "azure": 2
+    },
+    "totalMonthlyCost": 8260,
+    "criticalCount": 7
+  }
+}

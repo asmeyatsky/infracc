@@ -1,0 +1,173 @@
+{
+  "scenarios": [
+    {
+      "id": "scenario-1",
+      "name": "Current AWS Costs",
+      "description": "Baseline AWS infrastructure costs",
+      "onPremise": {
+        "hardware": 5000,
+        "software": 2000,
+        "maintenance": 1500,
+        "labor": 8000,
+        "power": 1200,
+        "cooling": 800,
+        "datacenter": 2500
+      },
+      "aws": {
+        "ec2": 3500,
+        "s3": 800,
+        "rds": 2200,
+        "vpc": 400,
+        "cloudwatch": 300
+      },
+      "azure": {
+        "virtualMachines": 3200,
+        "blobStorage": 700,
+        "sqlDatabase": 2000,
+        "networking": 450,
+        "monitoring": 250
+      },
+      "gcp": {
+        "compute": 2800,
+        "storage": 600,
+        "networking": 350,
+        "database": 1800,
+        "monitoring": 200
+      },
+      "migration": {
+        "assessment": 15000,
+        "tools": 8000,
+        "training": 12000,
+        "consulting": 25000
+      },
+      "timeframe": 36
+    },
+    {
+      "id": "scenario-2",
+      "name": "High Volume E-Commerce",
+      "description": "Large-scale e-commerce platform with high traffic",
+      "onPremise": {
+        "hardware": 15000,
+        "software": 5000,
+        "maintenance": 4000,
+        "labor": 20000,
+        "power": 3000,
+        "cooling": 2000,
+        "datacenter": 6000
+      },
+      "aws": {
+        "ec2": 12000,
+        "s3": 2500,
+        "rds": 8000,
+        "vpc": 1200,
+        "cloudwatch": 800
+      },
+      "azure": {
+        "virtualMachines": 11000,
+        "blobStorage": 2200,
+        "sqlDatabase": 7500,
+        "networking": 1300,
+        "monitoring": 700
+      },
+      "gcp": {
+        "compute": 9500,
+        "storage": 1800,
+        "networking": 1000,
+        "database": 6800,
+        "monitoring": 600
+      },
+      "migration": {
+        "assessment": 50000,
+        "tools": 25000,
+        "training": 30000,
+        "consulting": 75000
+      },
+      "timeframe": 36
+    },
+    {
+      "id": "scenario-3",
+      "name": "Small Business Migration",
+      "description": "Small business with limited infrastructure",
+      "onPremise": {
+        "hardware": 2000,
+        "software": 800,
+        "maintenance": 600,
+        "labor": 3000,
+        "power": 400,
+        "cooling": 300,
+        "datacenter": 1000
+      },
+      "aws": {
+        "ec2": 1200,
+        "s3": 300,
+        "rds": 800,
+        "vpc": 150,
+        "cloudwatch": 100
+      },
+      "azure": {
+        "virtualMachines": 1100,
+        "blobStorage": 280,
+        "sqlDatabase": 750,
+        "networking": 180,
+        "monitoring": 90
+      },
+      "gcp": {
+        "compute": 900,
+        "storage": 250,
+        "networking": 120,
+        "database": 650,
+        "monitoring": 80
+      },
+      "migration": {
+        "assessment": 8000,
+        "tools": 4000,
+        "training": 5000,
+        "consulting": 12000
+      },
+      "timeframe": 24
+    },
+    {
+      "id": "scenario-4",
+      "name": "Enterprise Multi-Cloud",
+      "description": "Large enterprise with complex multi-cloud requirements",
+      "onPremise": {
+        "hardware": 50000,
+        "software": 20000,
+        "maintenance": 15000,
+        "labor": 50000,
+        "power": 10000,
+        "cooling": 8000,
+        "datacenter": 20000
+      },
+      "aws": {
+        "ec2": 45000,
+        "s3": 8000,
+        "rds": 30000,
+        "vpc": 5000,
+        "cloudwatch": 3000
+      },
+      "azure": {
+        "virtualMachines": 42000,
+        "blobStorage": 7500,
+        "sqlDatabase": 28000,
+        "networking": 5500,
+        "monitoring": 2500
+      },
+      "gcp": {
+        "compute": 38000,
+        "storage": 6000,
+        "networking": 4500,
+        "database": 25000,
+        "monitoring": 2000
+      },
+      "migration": {
+        "assessment": 150000,
+        "tools": 80000,
+        "training": 100000,
+        "consulting": 250000
+      },
+      "timeframe": 60
+    }
+  ],
+  "defaultScenario": "scenario-1"
+}

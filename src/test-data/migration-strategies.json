@@ -1,0 +1,205 @@
+{
+  "strategies": [
+    {
+      "workloadId": "wl-001",
+      "strategy": "rehost",
+      "effort": "low",
+      "timeline": "2-4 weeks",
+      "gcpService": "Compute Engine",
+      "rationale": "Simple web application, good candidate for lift-and-shift",
+      "risks": ["medium"],
+      "costSavings": 15
+    },
+    {
+      "workloadId": "wl-002",
+      "strategy": "replatform",
+      "effort": "medium",
+      "timeline": "4-6 weeks",
+      "gcpService": "Cloud Endpoints",
+      "rationale": "API Gateway can benefit from managed service",
+      "risks": ["low"],
+      "costSavings": 12
+    },
+    {
+      "workloadId": "wl-003",
+      "strategy": "replatform",
+      "effort": "low",
+      "timeline": "1-2 weeks",
+      "gcpService": "Cloud Run",
+      "rationale": "Containerized service perfect for Cloud Run",
+      "risks": ["low"],
+      "costSavings": 33
+    },
+    {
+      "workloadId": "wl-004",
+      "strategy": "refactor",
+      "effort": "high",
+      "timeline": "8-12 weeks",
+      "gcpService": "Google Kubernetes Engine",
+      "rationale": "Complex microservice benefits from Kubernetes orchestration",
+      "risks": ["medium"],
+      "costSavings": 14
+    },
+    {
+      "workloadId": "wl-005",
+      "strategy": "replatform",
+      "effort": "medium",
+      "timeline": "3-5 weeks",
+      "gcpService": "Cloud Run",
+      "rationale": "Java Spring Boot application can run on Cloud Run",
+      "risks": ["low"],
+      "costSavings": 17
+    },
+    {
+      "workloadId": "wl-006",
+      "strategy": "replatform",
+      "effort": "low",
+      "timeline": "1-2 weeks",
+      "gcpService": "Cloud Functions",
+      "rationale": "Serverless function perfect match",
+      "risks": ["low"],
+      "costSavings": 33
+    },
+    {
+      "workloadId": "wl-007",
+      "strategy": "replatform",
+      "effort": "medium",
+      "timeline": "4-6 weeks",
+      "gcpService": "Cloud SQL for PostgreSQL",
+      "rationale": "Managed database reduces operational overhead",
+      "risks": ["low"],
+      "costSavings": 20
+    },
+    {
+      "workloadId": "wl-008",
+      "strategy": "replatform",
+      "effort": "high",
+      "timeline": "6-8 weeks",
+      "gcpService": "Cloud SQL for PostgreSQL",
+      "rationale": "Critical database requires careful migration with HA",
+      "risks": ["high"],
+      "costSavings": 18
+    },
+    {
+      "workloadId": "wl-009",
+      "strategy": "replatform",
+      "effort": "medium",
+      "timeline": "4-6 weeks",
+      "gcpService": "Cloud SQL for MySQL",
+      "rationale": "Direct MySQL to Cloud SQL migration",
+      "risks": ["low"],
+      "costSavings": 17
+    },
+    {
+      "workloadId": "wl-010",
+      "strategy": "replatform",
+      "effort": "low",
+      "timeline": "2-3 weeks",
+      "gcpService": "Memorystore for Redis",
+      "rationale": "Managed Redis service",
+      "risks": ["low"],
+      "costSavings": 17
+    },
+    {
+      "workloadId": "wl-011",
+      "strategy": "rehost",
+      "effort": "low",
+      "timeline": "1-2 weeks",
+      "gcpService": "Cloud Storage",
+      "rationale": "Direct S3 to Cloud Storage migration",
+      "risks": ["low"],
+      "costSavings": 17
+    },
+    {
+      "workloadId": "wl-012",
+      "strategy": "rehost",
+      "effort": "low",
+      "timeline": "1-2 weeks",
+      "gcpService": "Cloud Storage (Coldline)",
+      "rationale": "Archive storage migration",
+      "risks": ["low"],
+      "costSavings": 25
+    },
+    {
+      "workloadId": "wl-013",
+      "strategy": "rehost",
+      "effort": "medium",
+      "timeline": "3-4 weeks",
+      "gcpService": "Compute Engine",
+      "rationale": "VM migration with potential for Dataflow later",
+      "risks": ["medium"],
+      "costSavings": 15
+    },
+    {
+      "workloadId": "wl-014",
+      "strategy": "rehost",
+      "effort": "low",
+      "timeline": "2-3 weeks",
+      "gcpService": "Compute Engine",
+      "rationale": "Simple reporting service",
+      "risks": ["low"],
+      "costSavings": 18
+    },
+    {
+      "workloadId": "wl-015",
+      "strategy": "retain",
+      "effort": "n/a",
+      "timeline": "deferred",
+      "gcpService": "N/A",
+      "rationale": "Legacy Windows application - defer migration or refactor",
+      "risks": ["high"],
+      "costSavings": 0,
+      "notes": "Consider refactoring to Linux-based solution in future phase"
+    },
+    {
+      "workloadId": "wl-016",
+      "strategy": "replatform",
+      "effort": "high",
+      "timeline": "8-10 weeks",
+      "gcpService": "Cloud SQL for SQL Server",
+      "rationale": "Legacy SQL Server migration or consider PostgreSQL migration",
+      "risks": ["high"],
+      "costSavings": 15,
+      "notes": "Consider migrating to PostgreSQL for better long-term value"
+    }
+  ],
+  "wavePlan": {
+    "wave1": {
+      "name": "Quick Wins",
+      "workloads": ["wl-003", "wl-006", "wl-011", "wl-012"],
+      "duration": "4-6 weeks",
+      "risk": "low",
+      "estimatedCost": 1720
+    },
+    "wave2": {
+      "name": "Production Workloads",
+      "workloads": ["wl-001", "wl-002", "wl-005", "wl-007", "wl-009", "wl-010", "wl-013", "wl-014"],
+      "duration": "8-12 weeks",
+      "risk": "medium",
+      "estimatedCost": 3240
+    },
+    "wave3": {
+      "name": "Critical Systems",
+      "workloads": ["wl-004", "wl-008"],
+      "duration": "10-14 weeks",
+      "risk": "high",
+      "estimatedCost": 1220
+    },
+    "wave4": {
+      "name": "Legacy Modernization",
+      "workloads": ["wl-015", "wl-016"],
+      "duration": "12-16 weeks",
+      "risk": "high",
+      "estimatedCost": 1140,
+      "notes": "Deferred or requires refactoring"
+    }
+  },
+  "summary": {
+    "totalWorkloads": 16,
+    "migratable": 14,
+    "deferred": 2,
+    "totalTimeline": "24-36 weeks",
+    "totalEstimatedCost": 7320,
+    "averageCostSavings": 18.5
+  }
+}

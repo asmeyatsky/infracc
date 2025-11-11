@@ -1,0 +1,11 @@
+LineItem/UsageAccountId,LineItem/ProductCode,LineItem/UsageType,LineItem/ResourceId,LineItem/UnblendedCost,Product/instanceType,Product/operatingSystem,Product/location,LineItem/UsageAmount
+123456789012,EC2,BoxUsage:m5.large,i-1234567890abcdef0,73.50,Linux/UNIX,us-east-1a,730
+123456789012,EC2,BoxUsage:t3.medium,i-0987654321fedcba0,30.00,Linux/UNIX,us-west-2a,720
+123456789012,RDS,InstanceUsage:db.t3.medium,prod-db-instance-1,150.00,db.t3.medium,PostgreSQL,us-east-1a,730
+123456789012,S3,Storage,my-bucket-1,25.00,Standard,us-east-1,1000
+123456789012,S3,DataTransfer-Out-Bytes,my-bucket-1,5.00,Standard,us-east-1,50000000
+123456789012,EBS,VolumeUsage,vol-1234567890abcdef0,10.00,gp3,us-east-1a,100
+123456789012,Lambda,Requests,my-lambda-function,2.50,us-east-1,1000000
+123456789012,ElastiCache,CacheUsage,cache-cluster-1,45.00,cache.t3.medium,Redis,us-east-1a,730
+123456789012,DynamoDB,Storage,my-table,15.00,Standard,us-east-1,50
+123456789012,CloudFront,DataTransfer-Out-Bytes,distribution-1,12.00,us-east-1,1000000000

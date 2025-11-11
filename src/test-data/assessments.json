@@ -1,0 +1,351 @@
+{
+  "assessments": [
+    {
+      "workloadId": "wl-001",
+      "complexityScore": 6,
+      "readinessScore": 85,
+      "riskFactors": [
+        {
+          "type": "dependency",
+          "severity": "medium",
+          "description": "Depends on multiple services"
+        }
+      ],
+      "recommendations": [
+        {
+          "type": "strategy",
+          "priority": "high",
+          "suggestion": "Rehost to Compute Engine initially, then consider Cloud Run for better scalability"
+        }
+      ],
+      "gcpMapping": {
+        "service": "Compute Engine",
+        "instanceType": "n2-standard-8",
+        "estimatedMonthlyCost": 380
+      }
+    },
+    {
+      "workloadId": "wl-002",
+      "complexityScore": 5,
+      "readinessScore": 90,
+      "riskFactors": [],
+      "recommendations": [
+        {
+          "type": "strategy",
+          "priority": "high",
+          "suggestion": "Refactor to Cloud Endpoints or API Gateway for better management"
+        }
+      ],
+      "gcpMapping": {
+        "service": "Cloud Endpoints",
+        "instanceType": "n2-standard-4",
+        "estimatedMonthlyCost": 280
+      }
+    },
+    {
+      "workloadId": "wl-003",
+      "complexityScore": 3,
+      "readinessScore": 95,
+      "riskFactors": [],
+      "recommendations": [
+        {
+          "type": "strategy",
+          "priority": "high",
+          "suggestion": "Perfect candidate for Cloud Run - serverless container platform"
+        }
+      ],
+      "gcpMapping": {
+        "service": "Cloud Run",
+        "instanceType": "2 vCPU, 2GB RAM",
+        "estimatedMonthlyCost": 120
+      }
+    },
+    {
+      "workloadId": "wl-004",
+      "complexityScore": 7,
+      "readinessScore": 80,
+      "riskFactors": [
+        {
+          "type": "database_dependency",
+          "severity": "high",
+          "description": "Critical dependency on orders database"
+        }
+      ],
+      "recommendations": [
+        {
+          "type": "strategy",
+          "priority": "high",
+          "suggestion": "Migrate to GKE for container orchestration and better scalability"
+        }
+      ],
+      "gcpMapping": {
+        "service": "Google Kubernetes Engine",
+        "instanceType": "n2-standard-6",
+        "estimatedMonthlyCost": 240
+      }
+    },
+    {
+      "workloadId": "wl-005",
+      "complexityScore": 4,
+      "readinessScore": 88,
+      "riskFactors": [],
+      "recommendations": [
+        {
+          "type": "strategy",
+          "priority": "medium",
+          "suggestion": "Replatform to Cloud Run or GKE"
+        }
+      ],
+      "gcpMapping": {
+        "service": "Cloud Run",
+        "instanceType": "4 vCPU, 4GB RAM",
+        "estimatedMonthlyCost": 200
+      }
+    },
+    {
+      "workloadId": "wl-006",
+      "complexityScore": 2,
+      "readinessScore": 98,
+      "riskFactors": [],
+      "recommendations": [
+        {
+          "type": "strategy",
+          "priority": "high",
+          "suggestion": "Perfect match for Cloud Functions - serverless execution"
+        }
+      ],
+      "gcpMapping": {
+        "service": "Cloud Functions",
+        "instanceType": "2nd gen, 2GB RAM",
+        "estimatedMonthlyCost": 100
+      }
+    },
+    {
+      "workloadId": "wl-007",
+      "complexityScore": 5,
+      "readinessScore": 92,
+      "riskFactors": [],
+      "recommendations": [
+        {
+          "type": "strategy",
+          "priority": "high",
+          "suggestion": "Replatform to Cloud SQL for PostgreSQL - managed database service"
+        }
+      ],
+      "gcpMapping": {
+        "service": "Cloud SQL for PostgreSQL",
+        "instanceType": "db-n1-standard-8",
+        "estimatedMonthlyCost": 520
+      }
+    },
+    {
+      "workloadId": "wl-008",
+      "complexityScore": 8,
+      "readinessScore": 75,
+      "riskFactors": [
+        {
+          "type": "critical",
+          "severity": "high",
+          "description": "Critical production database with high availability requirements"
+        }
+      ],
+      "recommendations": [
+        {
+          "type": "strategy",
+          "priority": "critical",
+          "suggestion": "Replatform to Cloud SQL with high availability configuration"
+        }
+      ],
+      "gcpMapping": {
+        "service": "Cloud SQL for PostgreSQL",
+        "instanceType": "db-n1-highmem-16",
+        "estimatedMonthlyCost": 980
+      }
+    },
+    {
+      "workloadId": "wl-009",
+      "complexityScore": 4,
+      "readinessScore": 90,
+      "riskFactors": [],
+      "recommendations": [
+        {
+          "type": "strategy",
+          "priority": "high",
+          "suggestion": "Replatform to Cloud SQL for MySQL"
+        }
+      ],
+      "gcpMapping": {
+        "service": "Cloud SQL for MySQL",
+        "instanceType": "db-n1-standard-8",
+        "estimatedMonthlyCost": 480
+      }
+    },
+    {
+      "workloadId": "wl-010",
+      "complexityScore": 3,
+      "readinessScore": 95,
+      "riskFactors": [],
+      "recommendations": [
+        {
+          "type": "strategy",
+          "priority": "high",
+          "suggestion": "Replatform to Memorystore for Redis"
+        }
+      ],
+      "gcpMapping": {
+        "service": "Memorystore for Redis",
+        "instanceType": "standard-4",
+        "estimatedMonthlyCost": 350
+      }
+    },
+    {
+      "workloadId": "wl-011",
+      "complexityScore": 2,
+      "readinessScore": 98,
+      "riskFactors": [],
+      "recommendations": [
+        {
+          "type": "strategy",
+          "priority": "high",
+          "suggestion": "Direct migration to Cloud Storage - perfect match"
+        }
+      ],
+      "gcpMapping": {
+        "service": "Cloud Storage",
+        "instanceType": "Standard",
+        "estimatedMonthlyCost": 1000
+      }
+    },
+    {
+      "workloadId": "wl-012",
+      "complexityScore": 2,
+      "readinessScore": 98,
+      "riskFactors": [],
+      "recommendations": [
+        {
+          "type": "strategy",
+          "priority": "medium",
+          "suggestion": "Migrate to Cloud Storage with Coldline storage class"
+        }
+      ],
+      "gcpMapping": {
+        "service": "Cloud Storage",
+        "instanceType": "Coldline",
+        "estimatedMonthlyCost": 300
+      }
+    },
+    {
+      "workloadId": "wl-013",
+      "complexityScore": 6,
+      "readinessScore": 82,
+      "riskFactors": [
+        {
+          "type": "batch_processing",
+          "severity": "medium",
+          "description": "Batch processing workload may benefit from different architecture"
+        }
+      ],
+      "recommendations": [
+        {
+          "type": "strategy",
+          "priority": "medium",
+          "suggestion": "Consider Dataflow for batch processing or Compute Engine for VM migration"
+        }
+      ],
+      "gcpMapping": {
+        "service": "Compute Engine",
+        "instanceType": "n2-standard-16",
+        "estimatedMonthlyCost": 580
+      }
+    },
+    {
+      "workloadId": "wl-014",
+      "complexityScore": 4,
+      "readinessScore": 85,
+      "riskFactors": [],
+      "recommendations": [
+        {
+          "type": "strategy",
+          "priority": "medium",
+          "suggestion": "Rehost to Compute Engine or consider Cloud Run"
+        }
+      ],
+      "gcpMapping": {
+        "service": "Compute Engine",
+        "instanceType": "n2-standard-4",
+        "estimatedMonthlyCost": 180
+      }
+    },
+    {
+      "workloadId": "wl-015",
+      "complexityScore": 9,
+      "readinessScore": 45,
+      "riskFactors": [
+        {
+          "type": "legacy",
+          "severity": "high",
+          "description": "Legacy Windows application requires significant modernization"
+        },
+        {
+          "type": "os",
+          "severity": "high",
+          "description": "Windows Server may require different migration approach"
+        }
+      ],
+      "recommendations": [
+        {
+          "type": "strategy",
+          "priority": "critical",
+          "suggestion": "Consider refactoring to Linux-based solution or retain on-premises initially"
+        }
+      ],
+      "gcpMapping": {
+        "service": "Compute Engine",
+        "instanceType": "n2-standard-8 (Windows)",
+        "estimatedMonthlyCost": 420,
+        "notes": "Requires Windows licensing and potential refactoring"
+      }
+    },
+    {
+      "workloadId": "wl-016",
+      "complexityScore": 8,
+      "readinessScore": 50,
+      "riskFactors": [
+        {
+          "type": "legacy",
+          "severity": "high",
+          "description": "Legacy SQL Server may require migration to Cloud SQL for SQL Server"
+        },
+        {
+          "type": "windows",
+          "severity": "medium",
+          "description": "Windows-based database requires careful migration planning"
+        }
+      ],
+      "recommendations": [
+        {
+          "type": "strategy",
+          "priority": "high",
+          "suggestion": "Migrate to Cloud SQL for SQL Server or consider migrating to PostgreSQL"
+        }
+      ],
+      "gcpMapping": {
+        "service": "Cloud SQL for SQL Server",
+        "instanceType": "db-n1-standard-12",
+        "estimatedMonthlyCost": 720,
+        "notes": "Consider PostgreSQL migration for better cost and features"
+      }
+    }
+  ],
+  "summary": {
+    "averageComplexity": 5.1,
+    "averageReadiness": 83.4,
+    "highRiskCount": 3,
+    "recommendedStrategies": {
+      "rehost": 4,
+      "replatform": 8,
+      "refactor": 2,
+      "retain": 2
+    }
+  }
+}

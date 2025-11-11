@@ -1,0 +1,234 @@
+{
+  "executions": [
+    {
+      "id": "exec-001",
+      "agentId": "DiscoveryAgent",
+      "agentName": "Discovery Agent",
+      "startedAt": "2024-01-15T10:00:00Z",
+      "completedAt": "2024-01-15T10:05:30Z",
+      "status": "completed",
+      "steps": [
+        {
+          "step": "Initializing discovery",
+          "status": "completed",
+          "duration": 200,
+          "progress": 5
+        },
+        {
+          "step": "Discovering assets",
+          "status": "completed",
+          "duration": 1500,
+          "progress": 30
+        },
+        {
+          "step": "Mapping dependencies",
+          "status": "completed",
+          "duration": 1000,
+          "progress": 50
+        },
+        {
+          "step": "Analyzing performance",
+          "status": "completed",
+          "duration": 800,
+          "progress": 70
+        },
+        {
+          "step": "Generating assessment",
+          "status": "completed",
+          "duration": 600,
+          "progress": 90
+        },
+        {
+          "step": "Generating recommendations",
+          "status": "completed",
+          "duration": 200,
+          "progress": 100
+        }
+      ],
+      "result": {
+        "totalAssets": 16,
+        "virtualMachines": 2,
+        "databases": 5,
+        "applications": 4,
+        "storage": 2
+      }
+    },
+    {
+      "id": "exec-002",
+      "agentId": "AssessmentAgent",
+      "agentName": "Assessment Agent",
+      "startedAt": "2024-01-15T10:06:00Z",
+      "completedAt": "2024-01-15T10:12:45Z",
+      "status": "completed",
+      "steps": [
+        {
+          "step": "Analyzing workload structure",
+          "status": "completed",
+          "duration": 300,
+          "progress": 20
+        },
+        {
+          "step": "Executing assessment use case",
+          "status": "completed",
+          "duration": 2000,
+          "progress": 50
+        },
+        {
+          "step": "Generating AI insights",
+          "status": "completed",
+          "duration": 400,
+          "progress": 80
+        },
+        {
+          "step": "Finalizing assessment",
+          "status": "completed",
+          "duration": 100,
+          "progress": 100
+        }
+      ],
+      "result": {
+        "assessedWorkloads": 16,
+        "averageComplexity": 5.1,
+        "averageReadiness": 83.4,
+        "highRiskCount": 3
+      }
+    },
+    {
+      "id": "exec-003",
+      "agentId": "PlanningAgent",
+      "agentName": "Planning Agent",
+      "startedAt": "2024-01-15T10:13:00Z",
+      "completedAt": "2024-01-15T10:18:20Z",
+      "status": "completed",
+      "steps": [
+        {
+          "step": "Analyzing workloads for planning",
+          "status": "completed",
+          "duration": 300,
+          "progress": 15
+        },
+        {
+          "step": "Generating migration plan",
+          "status": "completed",
+          "duration": 2500,
+          "progress": 40
+        },
+        {
+          "step": "Planning migration waves",
+          "status": "completed",
+          "duration": 1800,
+          "progress": 65
+        },
+        {
+          "step": "Optimizing with AI",
+          "status": "completed",
+          "duration": 400,
+          "progress": 85
+        },
+        {
+          "step": "Finalizing migration plan",
+          "status": "completed",
+          "duration": 100,
+          "progress": 100
+        }
+      ],
+      "result": {
+        "migrationPlan": {
+          "totalWorkloads": 16,
+          "strategies": {
+            "rehost": 4,
+            "replatform": 8,
+            "refactor": 2,
+            "retain": 2
+          }
+        },
+        "wavePlan": {
+          "totalWaves": 4,
+          "totalDuration": "24-36 weeks"
+        }
+      }
+    },
+    {
+      "id": "exec-004",
+      "agentId": "CostAnalysisAgent",
+      "agentName": "Cost Analysis Agent",
+      "startedAt": "2024-01-15T10:19:00Z",
+      "completedAt": "2024-01-15T10:21:15Z",
+      "status": "completed",
+      "steps": [
+        {
+          "step": "Calculating TCO",
+          "status": "completed",
+          "duration": 800,
+          "progress": 40
+        },
+        {
+          "step": "Generating cost insights",
+          "status": "completed",
+          "duration": 300,
+          "progress": 70
+        },
+        {
+          "step": "Identifying optimizations",
+          "status": "completed",
+          "duration": 200,
+          "progress": 90
+        },
+        {
+          "step": "Finalizing cost analysis",
+          "status": "completed",
+          "duration": 100,
+          "progress": 100
+        }
+      ],
+      "result": {
+        "bestOption": "gcp",
+        "roi": 45.2,
+        "savings": 125000,
+        "optimizations": [
+          {
+            "type": "committed_use",
+            "potentialSavings": "20-30%"
+          },
+          {
+            "type": "rightsizing",
+            "potentialSavings": "10-20%"
+          }
+        ]
+      }
+    }
+  ],
+  "workflow": {
+    "id": "workflow-001",
+    "startedAt": "2024-01-15T10:00:00Z",
+    "completedAt": "2024-01-15T10:21:15Z",
+    "status": "completed",
+    "totalDuration": 1275000,
+    "steps": [
+      {
+        "step": 1,
+        "agent": "DiscoveryAgent",
+        "status": "completed",
+        "duration": 330000
+      },
+      {
+        "step": 2,
+        "agent": "AssessmentAgent",
+        "status": "completed",
+        "duration": 405000
+      },
+      {
+        "step": 3,
+        "agent": "PlanningAgent",
+        "status": "completed",
+        "duration": 320000
+      },
+      {
+        "step": 4,
+        "agent": "CostAnalysisAgent",
+        "status": "completed",
+        "duration": 135000
+      }
+    ]
+  }
+}
