@@ -65,17 +65,24 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
       if (values.length === 0) return;
       
       const productCode = (values[headerIndices.productCode] || '').toUpperCase();
-      const resourceId = values[headerIndices.resourceId] || `resource-${lineNumber}`;
+      const rawResourceId = values[headerIndices.resourceId]?.trim();
       const cost = parseFloat(values[headerIndices.cost] || '0');
       const instanceType = values[headerIndices.instanceType] || '';
       const os = (values[headerIndices.os] || 'linux').toLowerCase();
-      const region = (values[headerIndices.region] || 'us-east-1').split('-').slice(0, 2).join('-');
+      const rawRegion = values[headerIndices.region]?.trim();
+      const region = rawRegion ? rawRegion.split('-').slice(0, 2).join('-') : 'us-east-1';
       const usageType = values[headerIndices.usageType] || '';
       const usageStartDate = headerIndices.usageStartDate !== -1 ? values[headerIndices.usageStartDate] : null;
       const usageEndDate = headerIndices.usageEndDate !== -1 ? values[headerIndices.usageEndDate] : null;
       
       // Skip if not a billable service
       if (!productCode || productCode === 'TAX' || cost === 0) return;
+      
+      // For rows without ResourceId, create a composite key from productCode + usageType + region
+      // This groups similar charges together instead of creating unique workloads for each row
+      const resourceId = rawResourceId && rawResourceId.length > 0 
+        ? rawResourceId 
+        : `${productCode}_${usageType}_${region}_no-resource-id`.toLowerCase();
       
       // Map AWS service to workload type
       const serviceMapping = {
@@ -92,9 +99,17 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
         'DYNAMODB': { type: 'database', service: 'DynamoDB' },
         'CLOUDFRONT': { type: 'application', service: 'CloudFront' },
         'APIGATEWAY': { type: 'application', service: 'API Gateway' },
+        'BEDROCK': { type: 'application', service: 'Bedrock' },
+        'AWSBACKUP': { type: 'storage', service: 'AWS Backup' },
+        'OCBLATEFEE': { type: 'application', service: 'AWS Service Fee' },
+        'TAX': null, // Skip taxes
       };
       
-      const mapping = serviceMapping[productCode] || { type: 'vm', service: productCode };
+      const mapping = serviceMapping[productCode];
+      if (!mapping) {
+        // Unknown service - skip to avoid creating too many workloads
+        return;
+      }
       
       // Extract instance specs
       const instanceSpecs = parseInstanceType(instanceType);

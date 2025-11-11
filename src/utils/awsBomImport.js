@@ -60,17 +60,24 @@ export const parseAwsCur = (csvText) => {
 
     const values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
     const productCode = values[productCodeIdx]?.toUpperCase();
-    const resourceId = values[resourceIdIdx] || `resource-${i}`;
+    const rawResourceId = values[resourceIdIdx]?.trim();
     const cost = parseFloat(values[costIdx] || '0');
     const instanceType = values[instanceTypeIdx] || '';
     const os = values[osIdx]?.toLowerCase() || 'linux';
-    const region = values[regionIdx]?.split('-').slice(0, 2).join('-') || 'us-east-1';
+    const rawRegion = values[regionIdx]?.trim();
+    const region = rawRegion ? rawRegion.split('-').slice(0, 2).join('-') : 'us-east-1';
     const usageType = values[usageTypeIdx] || '';
     const usageStartDate = usageStartDateIdx !== -1 ? values[usageStartDateIdx] : null;
     const usageEndDate = usageEndDateIdx !== -1 ? values[usageEndDateIdx] : null;
 
     // Skip if not a billable service
     if (!productCode || productCode === 'TAX' || cost === 0) continue;
+    
+    // For rows without ResourceId, create a composite key from productCode + usageType + region
+    // This groups similar charges together instead of creating unique workloads for each row
+    const resourceId = rawResourceId && rawResourceId.length > 0 
+      ? rawResourceId 
+      : `${productCode}_${usageType}_${region}_no-resource-id`.toLowerCase();
 
     // Map AWS service to workload type
     const serviceMapping = {
