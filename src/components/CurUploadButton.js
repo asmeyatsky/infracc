@@ -167,8 +167,9 @@ function CurUploadButton({ onUploadComplete }) {
             }
           } else {
             // For smaller files (<50MB), use regular parsing (faster)
+            let csvText = null;
             try {
-              const csvText = await csvFile.entry.async('string');
+              csvText = await csvFile.entry.async('string');
               
               if (awsBomFormat === 'cur') {
                 importedData = parseAwsCur(csvText);
@@ -177,7 +178,11 @@ function CurUploadButton({ onUploadComplete }) {
               }
             } catch (awsError) {
               console.warn(`AWS BOM parsing failed for ${csvFile.name}, trying standard CSV:`, awsError);
-              importedData = parseCSV(csvText);
+              if (csvText) {
+                importedData = parseCSV(csvText);
+              } else {
+                throw awsError; // Re-throw if we don't have csvText
+              }
             }
           }
 
