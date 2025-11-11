@@ -107,7 +107,7 @@ function CurUploadButton({ onUploadComplete }) {
 
       // Process each CSV file
       const allData = [];
-      const maxFileSize = 500 * 1024 * 1024; // 500MB - JavaScript string limit
+      const largeFileThreshold = 50 * 1024 * 1024; // 50MB - use streaming parser above this
       
       for (const csvFile of csvFiles) {
         try {
@@ -117,32 +117,28 @@ function CurUploadButton({ onUploadComplete }) {
             // Try to get uncompressed size from zip entry
             fileSize = csvFile.entry._data?.uncompressedSize || csvFile.entry._data?.length || 0;
           } catch (e) {
-            // If we can't get size, we'll try to process it anyway
+            // If we can't get size, we'll try to process it anyway with streaming parser
+            fileSize = 0; // Unknown size - use streaming parser
           }
           
-          // Skip files that are definitely too large
-          if (fileSize > maxFileSize) {
-            toast.warn(`Skipping ${csvFile.name}: File is too large (${(fileSize / 1024 / 1024).toFixed(1)}MB). Maximum size is 500MB. Please split into smaller files.`);
-            continue;
-          }
-          
-          // Warn for large files
+          // Warn for very large files
           if (fileSize > 100 * 1024 * 1024) {
-            toast.info(`Processing large file ${csvFile.name} (${(fileSize / 1024 / 1024).toFixed(1)}MB). This may take a while...`);
+            toast.info(`Processing large file ${csvFile.name} (${(fileSize / 1024 / 1024).toFixed(1)}MB) using streaming parser. This may take a while...`);
+          } else if (fileSize > largeFileThreshold) {
+            toast.info(`Processing file ${csvFile.name} (${(fileSize / 1024 / 1024).toFixed(1)}MB) using streaming parser...`);
           }
 
-          // For large files (>50MB), use streaming parser
+          // Always use streaming parser for large files (>50MB) or unknown size
+          // Streaming parser can handle files of any size without memory limits
           let importedData = [];
           
-          if (fileSize > 50 * 1024 * 1024 || fileSize === 0) {
-            // Use streaming parser for large files
+          if (fileSize > largeFileThreshold || fileSize === 0) {
+            // Use streaming parser for large files (no size limit)
             try {
-              toast.info(`Processing large file ${csvFile.name} using streaming parser...`);
-              
               // Get file as blob for streaming
               const blob = await csvFile.entry.async('blob');
               
-              // Use streaming parser
+              // Use streaming parser - handles files of any size
               importedData = await parseAwsCurStreaming(blob, (progress) => {
                 if (progress.percent % 10 === 0) { // Update every 10%
                   console.log(`Processing ${csvFile.name}: ${progress.percent}% (${progress.linesProcessed} lines)`);
@@ -152,8 +148,8 @@ function CurUploadButton({ onUploadComplete }) {
               toast.success(`Processed ${csvFile.name}: ${importedData.length} workloads`);
             } catch (streamError) {
               console.error(`Streaming parser failed for ${csvFile.name}:`, streamError);
-              // Fall back to regular parsing for smaller files
-              if (fileSize < 100 * 1024 * 1024) {
+              // For files under 100MB, try fallback to regular parsing
+              if (fileSize > 0 && fileSize < 100 * 1024 * 1024) {
                 try {
                   const csvText = await csvFile.entry.async('string');
                   if (awsBomFormat === 'cur') {
@@ -165,11 +161,12 @@ function CurUploadButton({ onUploadComplete }) {
                   throw streamError; // Use original streaming error
                 }
               } else {
+                // For very large files, streaming is the only option
                 throw streamError;
               }
             }
           } else {
-            // For smaller files, use regular parsing
+            // For smaller files (<50MB), use regular parsing (faster)
             try {
               const csvText = await csvFile.entry.async('string');
               
@@ -186,9 +183,19 @@ function CurUploadButton({ onUploadComplete }) {
 
           allData.push(...importedData);
         } catch (error) {
+          // Handle errors gracefully
           if (error.message.includes('Invalid string length') || error.name === 'RangeError') {
-            toast.error(`File ${csvFile.name} is too large to process. Please split into smaller files or process individually.`);
-            console.error(`File too large: ${csvFile.name}`, error);
+            // This shouldn't happen with streaming parser, but if it does, try streaming
+            console.error(`String length error for ${csvFile.name}, attempting streaming parser:`, error);
+            try {
+              const blob = await csvFile.entry.async('blob');
+              const importedData = await parseAwsCurStreaming(blob);
+              allData.push(...importedData);
+              toast.success(`Processed ${csvFile.name} using streaming parser: ${importedData.length} workloads`);
+            } catch (streamError) {
+              toast.error(`Failed to process ${csvFile.name}: ${streamError.message}`);
+              console.error(`Streaming parser also failed for ${csvFile.name}:`, streamError);
+            }
           } else {
             console.warn(`Error processing ${csvFile.name} from ZIP:`, error);
             toast.warn(`Failed to process ${csvFile.name}: ${error.message}`);
