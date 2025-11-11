@@ -94,9 +94,17 @@ export const parseAwsCur = (csvText) => {
       'DYNAMODB': { type: 'database', service: 'DynamoDB' },
       'CLOUDFRONT': { type: 'application', service: 'CloudFront' },
       'APIGATEWAY': { type: 'application', service: 'API Gateway' },
+      'BEDROCK': { type: 'application', service: 'Bedrock' },
+      'AWSBACKUP': { type: 'storage', service: 'AWS Backup' },
+      'OCBLATEFEE': { type: 'application', service: 'AWS Service Fee' },
+      'TAX': null, // Skip taxes
     };
 
-    const mapping = serviceMapping[productCode] || { type: 'vm', service: productCode };
+    const mapping = serviceMapping[productCode];
+    if (!mapping) {
+      // Unknown service - skip to avoid creating too many workloads
+      continue;
+    }
 
     // Extract instance specs from instance type (e.g., m5.large -> 2 vCPU, 8GB RAM)
     const instanceSpecs = parseInstanceType(instanceType);
