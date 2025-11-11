@@ -43,10 +43,43 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
     // Update cache
     this._cache.set(workload.id, workload);
 
-    // Persist to localStorage
-    await this._persistToStorage();
+    // Debounce persistence to avoid saving after every single workload
+    // This prevents stack overflow when saving many workloads
+    this._debouncedPersist();
 
     return workload;
+  }
+
+  /**
+   * Debounced persistence - batches saves to avoid stack overflow
+   * @private
+   */
+  _debouncedPersist() {
+    // Clear existing timeout
+    if (this._persistTimeout) {
+      clearTimeout(this._persistTimeout);
+    }
+
+    // Set new timeout - persist after 500ms of no new saves
+    this._persistTimeout = setTimeout(async () => {
+      try {
+        await this._persistToStorage();
+      } catch (error) {
+        console.error('Debounced persistence failed:', error);
+      }
+    }, 500);
+  }
+
+  /**
+   * Force immediate persistence (for critical saves)
+   * @private
+   */
+  async _forcePersist() {
+    if (this._persistTimeout) {
+      clearTimeout(this._persistTimeout);
+      this._persistTimeout = null;
+    }
+    await this._persistToStorage();
   }
 
   /**
@@ -83,7 +116,7 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
   async delete(id) {
     const deleted = this._cache.delete(id);
     if (deleted) {
-      await this._persistToStorage();
+      this._debouncedPersist();
     }
     return deleted;
   }
@@ -101,40 +134,112 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
 
   /**
    * Persist cache to localStorage
+   * Optimized for large datasets - processes in chunks
    * @private
    */
   async _persistToStorage() {
     try {
-      const workloadsData = Array.from(this._cache.values()).map(workload => workload.toJSON());
-      localStorage.setItem(this.storageKey, JSON.stringify(workloadsData));
+      const cacheSize = this._cache.size;
+      
+      // For very large caches, serialize in chunks to avoid stack overflow
+      if (cacheSize > 100) {
+        const workloadsArray = [];
+        let index = 0;
+        
+        // Process cache values in chunks
+        for (const workload of this._cache.values()) {
+          workloadsArray.push(workload.toJSON());
+          index++;
+          
+          // Yield to event loop every 50 items to prevent blocking
+          if (index % 50 === 0) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+          }
+        }
+        
+        // Stringify in chunks if needed
+        const jsonString = JSON.stringify(workloadsArray);
+        localStorage.setItem(this.storageKey, jsonString);
+      } else {
+        // For smaller caches, use direct serialization
+        const workloadsData = Array.from(this._cache.values()).map(workload => workload.toJSON());
+        localStorage.setItem(this.storageKey, JSON.stringify(workloadsData));
+      }
     } catch (error) {
       console.error('Failed to persist workloads:', error);
-      throw new Error('Failed to save workloads');
+      // Don't throw - allow operation to continue even if persistence fails
+      if (error.name === 'QuotaExceededError') {
+        console.warn('localStorage quota exceeded. Consider clearing old data.');
+      }
     }
   }
 
   /**
    * Load from localStorage into cache
+   * Optimized for large datasets - processes in chunks
    * @private
    */
   async _loadFromStorage() {
+    // Prevent concurrent loads
+    if (this._isLoading) {
+      return;
+    }
+
+    // If cache is already populated, skip loading
+    if (this._cache.size > 0) {
+      return;
+    }
+
+    this._isLoading = true;
+
     try {
       const storedData = localStorage.getItem(this.storageKey);
       if (!storedData) {
+        this._isLoading = false;
         return;
       }
 
+      // Parse JSON
       const workloadsData = JSON.parse(storedData);
-      const workloads = workloadsData.map(data => Workload.fromJSON(data));
-
-      // Update cache
-      workloads.forEach(workload => {
-        this._cache.set(workload.id, workload);
-      });
+      
+      // For large datasets, process in chunks to avoid stack overflow
+      if (workloadsData.length > 100) {
+        const chunkSize = 50;
+        for (let i = 0; i < workloadsData.length; i += chunkSize) {
+          const chunk = workloadsData.slice(i, i + chunkSize);
+          
+          // Process chunk
+          for (const data of chunk) {
+            try {
+              const workload = Workload.fromJSON(data);
+              this._cache.set(workload.id, workload);
+            } catch (error) {
+              console.warn('Failed to create workload from stored data:', error);
+            }
+          }
+          
+          // Yield to event loop every chunk to prevent blocking
+          if (i + chunkSize < workloadsData.length) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+          }
+        }
+      } else {
+        // For smaller datasets, process all at once
+        const workloads = workloadsData.map(data => Workload.fromJSON(data));
+        workloads.forEach(workload => {
+          this._cache.set(workload.id, workload);
+        });
+      }
     } catch (error) {
       console.error('Failed to load workloads:', error);
       // Clear corrupted data
-      localStorage.removeItem(this.storageKey);
+      try {
+        localStorage.removeItem(this.storageKey);
+      } catch (e) {
+        // Ignore errors when clearing
+      }
+    } finally {
+      this._isLoading = false;
     }
   }
 

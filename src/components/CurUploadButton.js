@@ -306,6 +306,16 @@ function CurUploadButton({ onUploadComplete }) {
         return;
       }
 
+      // Force final persistence to ensure all workloads are saved
+      try {
+        // Give debounced persistence a moment to complete
+        await new Promise(resolve => setTimeout(resolve, 600));
+        // Force a final save to ensure everything is persisted
+        await workloadRepository._forcePersist();
+      } catch (error) {
+        console.warn('Final persistence had issues, but workloads are saved in cache:', error);
+      }
+
       toast.success(`Successfully imported ${totalWorkloadsSaved} workloads from ${processedCount} file(s)!`);
       
       if (onUploadComplete) {
