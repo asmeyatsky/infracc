@@ -306,14 +306,12 @@ function CurUploadButton({ onUploadComplete }) {
         return;
       }
 
-      // Get all saved workloads for callback
-      const validWorkloads = await workloadRepository.findAll();
-      
       toast.success(`Successfully imported ${totalWorkloadsSaved} workloads from ${processedCount} file(s)!`);
       
       if (onUploadComplete) {
-        // Pass the count instead of the full array to avoid stack issues
-        onUploadComplete(validWorkloads.slice(-totalWorkloadsSaved)); // Get recently saved workloads
+        // Pass a minimal object to avoid loading all workloads into memory
+        // The MigrationFlow component will load workloads from repository automatically
+        onUploadComplete({ count: totalWorkloadsSaved });
       }
     } catch (error) {
       toast.error('Error importing files: ' + error.message);

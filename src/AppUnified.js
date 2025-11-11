@@ -30,19 +30,20 @@ function AppUnified() {
     setTestDataLoaded(true);
   }, []);
 
-  const handleCurUploadComplete = (workloads) => {
+  const handleCurUploadComplete = (result) => {
     // Workloads are automatically saved to repository
     // MigrationFlow component polls repository every second, so new workloads will appear automatically
-    console.log(`CUR upload complete: ${workloads.length} workloads imported`);
+    const count = result?.count || (Array.isArray(result) ? result.length : 0);
+    console.log(`CUR upload complete: ${count} workloads imported`);
     
     // Switch to Migration Flow view to show the imported workloads
     setView('flow');
     
     // Show success message
-    if (workloads && workloads.length > 0) {
+    if (count > 0) {
       setTimeout(() => {
         // Small delay to ensure view has switched
-        toast.success(`✅ ${workloads.length} workloads imported! Migration flow will start from Assessment step.`);
+        toast.success(`✅ ${count} workloads imported! Migration flow will start from Assessment step.`);
       }, 500);
     }
   };
