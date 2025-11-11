@@ -349,7 +349,7 @@ function CurUploadButton({ onUploadComplete }) {
             }
           }
           
-          console.log(`File ${file.name}: ${fileData.length} rows -> ${newKeysThisFile.size} new unique workloads, ${fileData.length - newKeysThisFile.size} duplicates`);
+          console.log(`File ${file.name}: ${fileData.length} rows -> ${newKeysThisFile.size} new unique workloads (deduplicated within file), ${fileData.length - newKeysThisFile.size} duplicates within file`);
 
           console.log(`Processed ${file.name}: ${fileData.length} rows -> ${dedupeMap.size} unique workloads so far`);
 
@@ -402,6 +402,11 @@ function CurUploadButton({ onUploadComplete }) {
                   alreadyExistsCount++;
                   savedDedupeKeys.add(dedupeKey); // Mark as saved
                   
+                  // Debug: Log first few duplicates to verify matching is working
+                  if (alreadyExistsCount <= 5) {
+                    console.log(`Found existing workload: ${lookupResourceId}_${lookupService}_${lookupRegion} (ID: ${existingWorkload.id})`);
+                  }
+                  
                   // Optionally update cost if needed (but don't count as new)
                   const currentCost = existingWorkload.monthlyCost.value || 0;
                   const newCost = currentCost + (data.monthlyCost || 0);
@@ -442,6 +447,11 @@ function CurUploadButton({ onUploadComplete }) {
                   await workloadRepository.save(workload);
                   savedDedupeKeys.add(dedupeKey);
                   newWorkloadsCount++;
+                  
+                  // Debug: Log first few new workloads to verify they're being saved
+                  if (newWorkloadsCount <= 5) {
+                    console.log(`Saving new workload: ${lookupResourceId}_${lookupService}_${lookupRegion} (ID: ${workload.id})`);
+                  }
                 }
               } catch (error) {
                 console.warn(`Failed to process workload ${data.id}:`, error);
