@@ -93,6 +93,7 @@ export class AssessmentAgent extends BaseAgent {
    */
   async assessBatch(input) {
     const { workloadIds, parallel = true } = input;
+    const startTime = Date.now();
 
     this.setExecuting('Batch Assessment', 0, `Assessing ${workloadIds.length} workloads`);
     this.think(`Starting batch assessment of ${workloadIds.length} workloads`);
@@ -143,24 +144,43 @@ export class AssessmentAgent extends BaseAgent {
                 // Ensure result includes workloadId explicitly for easier matching
                 // Assessment entity has workloadId as a getter, but we want it as a direct property too
                 if (result && typeof result === 'object') {
-                  // If it's an Assessment entity, ensure workloadId is accessible
-                  if (result.workloadId && !result.hasOwnProperty('workloadId')) {
+                  // Get workloadId from getter if it exists
+                  const workloadIdValue = result.workloadId || result._workloadId;
+                  
+                  // If it's an Assessment entity, ensure workloadId is accessible as enumerable property
+                  if (workloadIdValue && !result.hasOwnProperty('workloadId')) {
                     // Add workloadId as enumerable property for easier access
-                    Object.defineProperty(result, 'workloadId', {
-                      value: result.workloadId,
-                      enumerable: true,
-                      writable: false
-                    });
+                    try {
+                      Object.defineProperty(result, 'workloadId', {
+                        value: workloadIdValue,
+                        enumerable: true,
+                        writable: false,
+                        configurable: true
+                      });
+                    } catch (e) {
+                      // If defineProperty fails, add it directly (for non-frozen objects)
+                      if (!Object.isFrozen(result)) {
+                        result.workloadId = workloadIdValue;
+                      }
+                    }
                   }
                   
-                  // Verify complexityScore exists
-                  if (result.complexityScore === undefined && result._complexityScore !== undefined) {
+                  // Verify complexityScore exists and is accessible
+                  const complexityValue = result.complexityScore !== undefined ? result.complexityScore : 
+                                         (result._complexityScore !== undefined ? result._complexityScore : undefined);
+                  if (complexityValue !== undefined && !result.hasOwnProperty('complexityScore')) {
                     // Ensure complexityScore getter is accessible
-                    if (!result.hasOwnProperty('complexityScore')) {
+                    try {
                       Object.defineProperty(result, 'complexityScore', {
-                        get: () => result._complexityScore,
-                        enumerable: true
+                        get: () => result._complexityScore !== undefined ? result._complexityScore : result.complexityScore,
+                        enumerable: true,
+                        configurable: true
                       });
+                    } catch (e) {
+                      // If defineProperty fails, add it directly (for non-frozen objects)
+                      if (!Object.isFrozen(result) && complexityValue !== undefined) {
+                        result.complexityScore = complexityValue;
+                      }
                     }
                   }
                 }
@@ -192,13 +212,19 @@ export class AssessmentAgent extends BaseAgent {
 
       console.log(`AssessmentAgent: Completed processing ${assessments.length.toLocaleString()} assessments`);
 
+      const endTime = Date.now();
+      const totalTime = endTime - startTime;
       const summary = this._generateBatchSummary(assessments);
       this.setCompleted({ results: assessments, summary });
       
       return {
         results: assessments,
-        summary,
-        completedAt: new Date().toISOString()
+        summary: {
+          ...summary,
+          totalTime: totalTime
+        },
+        completedAt: new Date().toISOString(),
+        totalTime: totalTime // Also include at top level for consistency with UI expectations
       };
     } else {
       // Assess sequentially with visible progress
@@ -232,13 +258,19 @@ export class AssessmentAgent extends BaseAgent {
         }
       }
 
+      const endTime = Date.now();
+      const totalTime = endTime - startTime;
       const summary = this._generateBatchSummary(assessments);
       this.setCompleted({ results: assessments, summary });
 
       return {
         results: assessments,
-        summary,
-        completedAt: new Date().toISOString()
+        summary: {
+          ...summary,
+          totalTime: totalTime
+        },
+        completedAt: new Date().toISOString(),
+        totalTime: totalTime // Also include at top level for consistency with UI expectations
       };
     }
   }
