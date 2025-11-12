@@ -1,16 +1,20 @@
 /**
  * Comprehensive PDF Report Generator
  * 
- * Generates a complete migration assessment report PDF with:
+ * Generates a concise migration assessment report PDF with:
  * - Executive Summary
- * - Complexity and Readiness Charts
- * - Technology Breakdown
- * - Regional Analysis
- * - GCP Cost Estimates
- * - Migration Recommendations
+ * - Assessment Agent Summary (complexity & readiness distributions)
+ * - Strategy Agent Summary (wave distribution & service mappings)
+ * - Cost Analysis Summary (cost estimates)
+ * - Migration Timeline Summary
+ * 
+ * Note: This report contains only summaries - no detailed workload listings
  */
 
 import jsPDF from 'jspdf';
+// Import jspdf-autotable - it extends jsPDF prototype automatically
+// Must be imported before creating jsPDF instances
+// The side-effect import should work, but we'll verify it's loaded
 import 'jspdf-autotable';
 
 /**
@@ -34,7 +38,38 @@ export const generateComprehensiveReportPDF = async (
     includeCharts = true
   } = options;
 
-  const doc = new jsPDF('p', 'mm', 'a4');
+  // Ensure autoTable plugin is loaded before creating jsPDF instance
+  // The side-effect import should have extended the prototype, but verify
+  let doc;
+  try {
+    doc = new jsPDF('p', 'mm', 'a4');
+  } catch (error) {
+    console.error('Failed to create jsPDF instance:', error);
+    throw new Error('Failed to initialize PDF generator. Please ensure jspdf is installed.');
+  }
+  
+  // Verify autoTable is available
+  if (typeof doc.autoTable !== 'function') {
+    // Try dynamic import as fallback
+    try {
+      await import('jspdf-autotable');
+      // Recreate instance after import
+      doc = new jsPDF('p', 'mm', 'a4');
+    } catch (importError) {
+      console.error('Failed to dynamically import jspdf-autotable:', importError);
+    }
+    
+    // Final check
+    if (typeof doc.autoTable !== 'function') {
+      const errorMsg = 'PDF generation requires jspdf-autotable plugin. ' +
+        'Please ensure both "jspdf" and "jspdf-autotable" are installed: ' +
+        'npm install jspdf jspdf-autotable';
+      console.error(errorMsg);
+      console.error('jsPDF version:', jsPDF.version);
+      console.error('Available methods on doc:', Object.getOwnPropertyNames(doc).filter(name => name.includes('Table')));
+      throw new Error(errorMsg);
+    }
+  }
   let yPos = 20;
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -133,12 +168,11 @@ export const generateComprehensiveReportPDF = async (
   
   const tocItems = [
     'Executive Summary',
-    'Complexity Analysis',
-    'Migration Readiness',
-    'Technology Breakdown',
-    'Regional Analysis',
-    'GCP Cost Estimates',
-    'Migration Recommendations',
+    'Assessment Agent Summary',
+    'Strategy Agent Summary',
+    'Cost Analysis Agent Summary',
+    'Migration Timeline Summary',
+    'Key Recommendations',
     'Appendices'
   ];
 
@@ -223,36 +257,37 @@ export const generateComprehensiveReportPDF = async (
   yPos = doc.lastAutoTable.finalY + 15;
 
   // ==========================================
-  // TECHNOLOGY BREAKDOWN
+  // ASSESSMENT AGENT SUMMARY
   // ==========================================
   doc.addPage();
   yPos = margin;
-  addSectionHeader('Technology Breakdown', [0, 102, 204]);
+  addSectionHeader('Assessment Agent Summary', [0, 102, 204]);
 
   doc.setFontSize(10);
   doc.text(
-    `Analysis of ${reportData.summary.totalServices} AWS services identified in the workload inventory.`,
+    `Assessment results for ${reportData.summary.totalWorkloads.toLocaleString()} workloads across ` +
+    `${reportData.summary.totalServices} AWS services.`,
     margin, yPos, { maxWidth: contentWidth }
   );
   yPos += 10;
 
-  // Top Services Table
-  const topServices = reportData.services.topServices.slice(0, 15);
+  // All Services Table - Complete list
+  const allServices = reportData.services.topServices;
   const otherService = reportData.services.other;
 
-  const serviceTableData = topServices.map(service => [
+  const serviceTableData = allServices.map(service => [
     service.service,
-    service.count.toString(),
+    service.count.toLocaleString(),
     formatCurrency(service.totalCost),
     service.averageComplexity ? service.averageComplexity.toFixed(1) : 'N/A',
-    service.gcpService,
-    service.migrationStrategy
+    service.gcpService || 'N/A',
+    service.migrationStrategy || 'N/A'
   ]);
 
   if (otherService) {
     serviceTableData.push([
       otherService.service,
-      otherService.count.toString(),
+      otherService.count.toLocaleString(),
       formatCurrency(otherService.totalCost),
       otherService.averageComplexity ? otherService.averageComplexity.toFixed(1) : 'N/A',
       otherService.gcpService || 'Multiple',
@@ -281,10 +316,10 @@ export const generateComprehensiveReportPDF = async (
   yPos = doc.lastAutoTable.finalY + 15;
 
   // ==========================================
-  // REGIONAL ANALYSIS
+  // REGIONAL ANALYSIS SUMMARY
   // ==========================================
   checkPageBreak(30);
-  addSectionHeader('Regional Analysis', [0, 102, 204]);
+  addSectionHeader('Regional Analysis Summary', [0, 102, 204]);
 
   doc.setFontSize(10);
   doc.text(
@@ -293,50 +328,60 @@ export const generateComprehensiveReportPDF = async (
   );
   yPos += 10;
 
-  const regionTableData = reportData.regions.map(region => [
+  // All regions - sorted by cost
+  const sortedRegions = [...reportData.regions]
+    .sort((a, b) => b.totalCost - a.totalCost);
+
+  const regionTableData = sortedRegions.map(region => [
     region.region,
-    region.count.toString(),
+    region.count.toLocaleString(),
     formatCurrency(region.totalCost),
-    region.averageComplexity ? region.averageComplexity.toFixed(1) : 'N/A',
-    region.topServices.join(', ')
+    region.averageComplexity ? region.averageComplexity.toFixed(1) : 'N/A'
   ]);
 
   doc.autoTable({
     startY: yPos,
-    head: [['Region', 'Workloads', 'Monthly Cost', 'Avg Complexity', 'Top Services']],
+    head: [['Region', 'Workloads', 'Monthly Cost', 'Avg Complexity']],
     body: regionTableData,
     theme: 'grid',
     headStyles: { fillColor: [0, 102, 204] },
     margin: { left: margin, right: margin },
     styles: { fontSize: 8 },
     columnStyles: {
-      0: { cellWidth: 40 },
-      1: { cellWidth: 25, halign: 'center' },
-      2: { cellWidth: 30, halign: 'right' },
-      3: { cellWidth: 30, halign: 'center' },
-      4: { cellWidth: 65 }
+      0: { cellWidth: 50 },
+      1: { cellWidth: 30, halign: 'center' },
+      2: { cellWidth: 40, halign: 'right' },
+      3: { cellWidth: 30, halign: 'center' }
     }
   });
 
-  yPos = doc.lastAutoTable.finalY + 15;
+  yPos = doc.lastAutoTable.finalY + 10;
 
   // ==========================================
-  // GCP COST ESTIMATES
+  // COST ANALYSIS AGENT SUMMARY
   // ==========================================
   if (costEstimates && costEstimates.length > 0) {
     doc.addPage();
     yPos = margin;
-    addSectionHeader('GCP Cost Estimates', [40, 167, 69]);
+    addSectionHeader('Cost Analysis Agent Summary', [40, 167, 69]);
 
     doc.setFontSize(10);
     doc.text(
-      `Cost comparison between AWS and GCP with Committed Use Discounts (CUD) applied. ` +
-      `All workloads are assumed eligible for CUD pricing.`,
+      `Cost comparison summary between AWS and GCP with Committed Use Discounts (CUD) applied. ` +
+      `Complete service cost breakdown.`,
       margin, yPos, { maxWidth: contentWidth }
     );
     yPos += 10;
 
-    const costTableData = costEstimates.slice(0, 20).map(estimate => {
+    // Sort by AWS cost and show all services
+    const sortedCostEstimates = [...costEstimates]
+      .sort((a, b) => {
+        const costA = a.costEstimate?.awsCost || 0;
+        const costB = b.costEstimate?.awsCost || 0;
+        return costB - costA;
+      });
+
+    const costTableData = sortedCostEstimates.map(estimate => {
       const costs = estimate.costEstimate || {};
       return [
         estimate.service,
@@ -408,11 +453,11 @@ export const generateComprehensiveReportPDF = async (
   }
 
   // ==========================================
-  // MIGRATION RECOMMENDATIONS
+  // STRATEGY AGENT SUMMARY
   // ==========================================
   doc.addPage();
   yPos = margin;
-  addSectionHeader('Migration Recommendations', [255, 193, 7]);
+  addSectionHeader('Strategy Agent Summary', [255, 193, 7]);
 
   doc.setFontSize(10);
   doc.setTextColor(0, 0, 0);
@@ -451,7 +496,7 @@ export const generateComprehensiveReportPDF = async (
 
     if (strategyResults.migrationPlan.metrics && strategyResults.migrationPlan.metrics.strategyDistribution) {
       const strategyData = Object.entries(strategyResults.migrationPlan.metrics.strategyDistribution)
-        .map(([strategy, count]) => [strategy, count.toString()]);
+        .map(([strategy, count]) => [strategy, count.toLocaleString()]);
 
       doc.autoTable({
         startY: yPos,
@@ -465,6 +510,104 @@ export const generateComprehensiveReportPDF = async (
 
       yPos = doc.lastAutoTable.finalY + 15;
     }
+    
+    // Complete Service Mappings Summary
+    if (strategyResults.migrationPlan.plans && strategyResults.migrationPlan.plans.length > 0) {
+      checkPageBreak(30);
+      doc.setFontSize(12);
+      doc.setTextColor(0, 102, 204);
+      doc.text('Complete Service Mappings', margin, yPos);
+      yPos += 8;
+      
+      // Group by service and show all mappings
+      const serviceMap = new Map();
+      strategyResults.migrationPlan.plans.forEach(plan => {
+        const service = plan.sourceService || plan.service || 'Unknown';
+        if (!serviceMap.has(service)) {
+          serviceMap.set(service, {
+            service,
+            gcpService: plan.targetGcpService || plan.gcpService || 'N/A',
+            gcpApi: plan.gcpApi || 'N/A',
+            strategy: plan.strategy || 'N/A',
+            effort: plan.effort || 'N/A',
+            count: 0
+          });
+        }
+        serviceMap.get(service).count++;
+      });
+      
+      const allMappings = Array.from(serviceMap.values())
+        .sort((a, b) => b.count - a.count)
+        .map(m => [
+          m.service,
+          m.gcpService,
+          m.gcpApi,
+          m.strategy,
+          m.effort,
+          m.count.toLocaleString()
+        ]);
+      
+      doc.autoTable({
+        startY: yPos,
+        head: [['AWS Service', 'GCP Service', 'GCP API', 'Strategy', 'Effort', 'Workloads']],
+        body: allMappings,
+        theme: 'grid',
+        headStyles: { fillColor: [0, 102, 204] },
+        margin: { left: margin, right: margin },
+        styles: { fontSize: 8 },
+        columnStyles: {
+          0: { cellWidth: 35 },
+          1: { cellWidth: 40 },
+          2: { cellWidth: 40 },
+          3: { cellWidth: 25 },
+          4: { cellWidth: 20 },
+          5: { cellWidth: 20, halign: 'center' }
+        }
+      });
+      
+      yPos = doc.lastAutoTable.finalY + 15;
+    }
+  }
+  
+  // Migration Timeline Summary
+  if (strategyResults && strategyResults.wavePlan) {
+    checkPageBreak(25);
+    doc.setFontSize(12);
+    doc.setTextColor(0, 102, 204);
+    doc.text('Migration Timeline Summary', margin, yPos);
+    yPos += 8;
+    
+    const wave1Count = strategyResults.wavePlan.wave1?.length || 0;
+    const wave2Count = strategyResults.wavePlan.wave2?.length || 0;
+    const wave3Count = strategyResults.wavePlan.wave3?.length || 0;
+    
+    // Estimate durations (3 weeks landing zone + wave durations)
+    const landingZoneWeeks = 3;
+    const wave1Weeks = Math.max(2, Math.ceil(wave1Count * 0.5)); // ~0.5 weeks per workload, min 2
+    const wave2Weeks = Math.max(4, Math.ceil(wave2Count * 0.75)); // ~0.75 weeks per workload, min 4
+    const wave3Weeks = Math.max(6, Math.ceil(wave3Count * 1.0)); // ~1 week per workload, min 6
+    const totalWeeks = landingZoneWeeks + wave1Weeks + wave2Weeks + wave3Weeks;
+    
+    const timelineData = [
+      ['Phase', 'Duration', 'Workloads', 'Start Week'],
+      ['Landing Zone Setup', `${landingZoneWeeks} weeks`, '-', 'Week 0'],
+      ['Wave 1 - Quick Wins', `${wave1Weeks} weeks`, wave1Count.toLocaleString(), `Week ${landingZoneWeeks}`],
+      ['Wave 2 - Standard', `${wave2Weeks} weeks`, wave2Count.toLocaleString(), `Week ${landingZoneWeeks + wave1Weeks}`],
+      ['Wave 3 - Complex', `${wave3Weeks} weeks`, wave3Count.toLocaleString(), `Week ${landingZoneWeeks + wave1Weeks + wave2Weeks}`],
+      ['Total Project Duration', `${totalWeeks} weeks`, (wave1Count + wave2Count + wave3Count).toLocaleString(), '-']
+    ];
+    
+    doc.autoTable({
+      startY: yPos,
+      head: [timelineData[0]],
+      body: timelineData.slice(1),
+      theme: 'grid',
+      headStyles: { fillColor: [0, 102, 204] },
+      margin: { left: margin, right: margin },
+      styles: { fontSize: 9 }
+    });
+    
+    yPos = doc.lastAutoTable.finalY + 15;
   }
 
   // Recommendations text

@@ -826,6 +826,20 @@ function CurUploadButton({ onUploadComplete }) {
         }
       }
     } catch (error) {
+      console.error('Upload error:', error);
+      
+      // Update Discovery Agent status - error
+      agentStatusManager.updateAgentStatus('DiscoveryAgent', {
+        status: AgentStatus.ERROR,
+        currentStep: 'Import Failed',
+        progress: 0,
+        message: `Upload failed: ${error.message}`
+      });
+      agentEventEmitter.emit('DiscoveryAgent', 'error', {
+        message: `Upload failed: ${error.message}`,
+        error: error.message
+      });
+      
       toast.error('Error importing files: ' + error.message);
     } finally {
       setUploading(false);

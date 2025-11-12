@@ -36,23 +36,28 @@ export class WorkloadAssessmentService {
     const workloadType = workload.type?.type || workload.type || '';
     const typeStr = typeof workloadType === 'string' ? workloadType.toLowerCase() : workloadType.toString().toLowerCase();
     
-    let score = 3; // Lower base - start from low-medium
+    // More realistic base complexity scores - distributed across the range
+    let score = 5; // Default to medium complexity
     
     // Service type complexity (AWS services have different migration complexity)
     if (service.includes('S3') || service.includes('STORAGE') || typeStr === 'storage') {
-      score = 2; // Storage is simplest
+      score = 3; // Storage is simpler but not trivial
     } else if (service.includes('LAMBDA') || service.includes('FUNCTION') || typeStr === 'function') {
-      score = 3; // Functions are relatively simple
+      score = 4; // Functions need code changes
     } else if (service.includes('EC2') || typeStr === 'vm') {
-      score = 4; // VMs are moderately complex
+      score = 6; // VMs are moderately complex - need rehosting
     } else if (service.includes('RDS') || service.includes('DATABASE') || typeStr === 'database') {
-      score = 6; // Databases are more complex
+      score = 8; // Databases are very complex - data migration critical
     } else if (service.includes('EKS') || service.includes('ECS') || service.includes('KUBERNETES') || typeStr === 'container') {
       score = 5; // Containers are moderately complex
-    } else if (service.includes('REDSHIFT') || service.includes('EMR') || service.includes('GLUE')) {
-      score = 8; // Data/analytics services are very complex
+    } else if (service.includes('REDSHIFT') || service.includes('EMR') || service.includes('GLUE') || service.includes('ATHENA')) {
+      score = 9; // Data/analytics services are very complex
+    } else if (service.includes('VPC') || service.includes('NETWORK') || service.includes('ROUTE')) {
+      score = 7; // Networking is complex
+    } else if (service.includes('IAM') || service.includes('SECURITY')) {
+      score = 8; // Security/IAM is very complex
     } else {
-      score = 4; // Default for unknown services
+      score = 6; // Default for unknown services - assume moderate complexity
     }
     
     // Cost-based complexity (higher cost = more critical/complex)

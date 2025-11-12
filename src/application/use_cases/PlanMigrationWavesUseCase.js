@@ -148,15 +148,39 @@ export class PlanMigrationWavesUseCase {
         workloadType = '';
       }
       
-      // Start with base complexity based on workload type
-      if (workloadType === 'storage' || workloadType === 'function') {
-        complexityScore = 2; // Storage and functions are typically simpler
+      // Start with base complexity based on workload type (matching WorkloadAssessmentService)
+      if (workloadType === 'storage') {
+        complexityScore = 3; // Storage is simpler but not trivial
+      } else if (workloadType === 'function') {
+        complexityScore = 4; // Functions need code changes
       } else if (workloadType === 'container') {
-        complexityScore = 3; // Containers are moderately complex
+        complexityScore = 5; // Containers are moderately complex
       } else if (workloadType === 'database') {
-        complexityScore = 5; // Databases are more complex
+        complexityScore = 8; // Databases are very complex - data migration critical
+      } else if (workloadType === 'vm') {
+        complexityScore = 6; // VMs are moderately complex - need rehosting
       } else {
-        complexityScore = 4; // VMs and applications default
+        complexityScore = 6; // Default for unknown services - assume moderate complexity
+      }
+      
+      // Also check service name for more accurate scoring
+      const service = workload.service?.toUpperCase() || '';
+      if (service.includes('S3') || service.includes('STORAGE')) {
+        complexityScore = 3;
+      } else if (service.includes('LAMBDA') || service.includes('FUNCTION')) {
+        complexityScore = 4;
+      } else if (service.includes('EC2')) {
+        complexityScore = 6;
+      } else if (service.includes('RDS') || service.includes('DATABASE')) {
+        complexityScore = 8;
+      } else if (service.includes('EKS') || service.includes('ECS') || service.includes('KUBERNETES')) {
+        complexityScore = 5;
+      } else if (service.includes('REDSHIFT') || service.includes('EMR') || service.includes('GLUE') || service.includes('ATHENA')) {
+        complexityScore = 9;
+      } else if (service.includes('VPC') || service.includes('NETWORK') || service.includes('ROUTE')) {
+        complexityScore = 7;
+      } else if (service.includes('IAM') || service.includes('SECURITY')) {
+        complexityScore = 8;
       }
       
       // Adjust based on size
@@ -201,39 +225,52 @@ export class PlanMigrationWavesUseCase {
     }
 
     // Determine wave based on complexity, dependencies, and workload characteristics
+    // More realistic distribution: ~20% Wave 1, ~50% Wave 2, ~30% Wave 3
     let wave;
     
     // Get cost amount (handle both Money object and number)
     const monthlyCostAmount = workload.monthlyCost?.amount || 
                               (typeof workload.monthlyCost === 'number' ? workload.monthlyCost : 0);
     
-    // Wave 1: Simple, low-cost, no dependencies (quick wins)
-    if (complexityScore <= 3 && !workload.hasDependencies() && monthlyCostAmount < 500) {
+    // Calculate dependency complexity
+    const depCount = workload.hasDependencies() ? workload.dependencies.length : 0;
+    const hasDeps = depCount > 0;
+    
+    // Wave 1: Only truly simple workloads (low complexity, low cost, no deps, low risk)
+    // ~20% of workloads should be here
+    if (complexityScore <= 4 && 
+        !hasDeps && 
+        monthlyCostAmount < 1000 &&
+        (!workload.assessment || (workload.assessment.riskFactors?.length || 0) === 0)) {
       wave = 1;
     }
-    // Wave 3: High complexity, high cost, or many dependencies (complex migrations)
+    // Wave 3: High complexity OR high cost OR many dependencies OR high risk
+    // ~30% of workloads should be here
     else if (complexityScore >= 7 || 
-             monthlyCostAmount > 5000 ||
-             (workload.hasDependencies() && workload.dependencies.length >= 3)) {
+             monthlyCostAmount > 10000 ||
+             depCount >= 3 ||
+             (workload.assessment && (workload.assessment.riskFactors?.length || 0) >= 3)) {
       wave = 3;
     }
-    // Wave 2: Everything else (standard migrations)
+    // Wave 2: Medium complexity, moderate cost, some dependencies
+    // ~50% of workloads should be here (everything else)
     else {
       wave = 2;
     }
 
-    // Fine-tune based on dependencies
-    if (workload.hasDependencies() && wave === 1) {
-      wave = 2; // Dependencies move from wave 1 to wave 2
+    // Fine-tune: Dependencies always move to at least Wave 2
+    if (hasDeps && wave === 1) {
+      wave = 2;
     }
-
-    // Adjust for high risk from assessment
-    if (workload.assessment) {
-      const riskFactors = workload.assessment.riskFactors || 
-                         workload.assessment.infrastructureAssessment?.riskFactors || [];
-      if (riskFactors.length >= 3) {
-        wave = Math.min(3, wave + 1);
-      }
+    
+    // Fine-tune: Very high cost (>$50k/month) always Wave 3
+    if (monthlyCostAmount > 50000) {
+      wave = 3;
+    }
+    
+    // Fine-tune: Very low complexity (< 3) with no deps and low cost can be Wave 1
+    if (complexityScore < 3 && !hasDeps && monthlyCostAmount < 500) {
+      wave = 1;
     }
 
     return {

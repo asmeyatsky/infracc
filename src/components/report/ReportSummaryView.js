@@ -28,6 +28,7 @@ import { generateComprehensiveReportPDF } from '../../utils/reportPdfGenerator.j
 import TechnologySummary from './TechnologySummary.js';
 import RegionalBreakdown from './RegionalBreakdown.js';
 import CostComparison from './CostComparison.js';
+import MigrationTimelineGantt from './MigrationTimelineGantt.js';
 
 // Register Chart.js components
 ChartJS.register(
@@ -432,6 +433,19 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
         </div>
       </div>
 
+      {/* Migration Timeline Gantt Chart */}
+      {strategyResults && (
+        <div className="row mb-4">
+          <div className="col-12">
+            <MigrationTimelineGantt 
+              workloads={workloads}
+              strategyResults={strategyResults}
+              assessmentResults={assessmentResults}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Wave Distribution */}
       {strategyResults && (
         <div className="row mb-4">
@@ -457,6 +471,110 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
                     <h2>{waveDistribution.wave3 || 0}</h2>
                     <small className="text-muted">Complex</small>
                   </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Service Mapping Section */}
+      {strategyResults && strategyResults.migrationPlan && strategyResults.migrationPlan.plans && (
+        <div className="row mb-4">
+          <div className="col-12">
+            <div className="card">
+              <div className="card-header bg-primary text-white">
+                <h5 className="mb-0">
+                  <i className="bi bi-diagram-3 me-2"></i>
+                  AWS to GCP Service Mapping
+                </h5>
+              </div>
+              <div className="card-body">
+                <p className="text-muted mb-3">
+                  Detailed service mappings showing AWS services and their corresponding GCP equivalents, migration strategies, and effort levels.
+                </p>
+                <div className="table-responsive" style={{ maxHeight: '500px', overflowY: 'auto' }}>
+                  <table className="table table-hover table-striped">
+                    <thead className="table-light sticky-top">
+                      <tr>
+                        <th>Workload</th>
+                        <th>AWS Service</th>
+                        <th>GCP Service</th>
+                        <th>GCP API</th>
+                        <th>Strategy</th>
+                        <th>Effort</th>
+                        <th>Wave</th>
+                        <th>Complexity</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {strategyResults.migrationPlan.plans.map((plan, idx) => {
+                        // Get complexity from assessment if available
+                        let complexityScore = 'N/A';
+                        if (assessmentResults && assessmentResults.results) {
+                          const assessment = assessmentResults.results.find(r => 
+                            r.workloadId === plan.workloadId || 
+                            r.workloadId === plan.workload?.id
+                          );
+                          if (assessment && !assessment.error) {
+                            const assessmentData = assessment.assessment || assessment;
+                            complexityScore = assessmentData.complexityScore || 
+                                             assessmentData.infrastructureAssessment?.complexityScore || 'N/A';
+                          }
+                        }
+                        
+                        return (
+                          <tr key={idx}>
+                            <td><code>{plan.workloadId || plan.workload?.id || 'Unknown'}</code></td>
+                            <td><strong>{plan.sourceService || plan.service || 'N/A'}</strong></td>
+                            <td>
+                              <strong>{plan.targetGcpService || plan.gcpService || 'N/A'}</strong>
+                            </td>
+                            <td>
+                              <small className="text-muted">{plan.gcpApi || 'N/A'}</small>
+                            </td>
+                            <td>
+                              <span className={`badge ${
+                                plan.strategy === 'Rehost' ? 'bg-success' :
+                                plan.strategy === 'Replatform' ? 'bg-info' :
+                                plan.strategy === 'Refactor' ? 'bg-warning' :
+                                'bg-secondary'
+                              }`}>
+                                {plan.strategy || 'N/A'}
+                              </span>
+                            </td>
+                            <td>
+                              <span className={`badge ${
+                                plan.effort === 'Low' ? 'bg-success' :
+                                plan.effort === 'Medium' ? 'bg-warning' :
+                                'bg-danger'
+                              }`}>
+                                {plan.effort || 'N/A'}
+                              </span>
+                            </td>
+                            <td>
+                              <span className="badge bg-primary">
+                                Wave {plan.wave || 'N/A'}
+                              </span>
+                            </td>
+                            <td>
+                              {typeof complexityScore === 'number' ? (
+                                <span className={`badge ${
+                                  complexityScore <= 3 ? 'bg-success' :
+                                  complexityScore <= 6 ? 'bg-warning' :
+                                  'bg-danger'
+                                }`}>
+                                  {complexityScore}/10
+                                </span>
+                              ) : (
+                                <span className="badge bg-secondary">N/A</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
