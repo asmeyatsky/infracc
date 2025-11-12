@@ -914,7 +914,7 @@ export const generateComprehensiveReportPDF = async (
   // Complexity recommendations
   const mediumComplexityCount = reportData?.complexity?.medium?.count || 0;
   const lowComplexityCount = reportData?.complexity?.low?.count || 0;
-  const unassignedCount = reportData?.complexity?.unassigned?.count || 0;
+  // unassignedCount already declared earlier in function (line 228)
   const conditionalCount = reportData?.readiness?.conditional?.count || 0;
   const notReadyCount = reportData?.readiness?.notReady?.count || 0;
   
