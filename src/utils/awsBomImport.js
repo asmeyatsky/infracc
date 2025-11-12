@@ -62,7 +62,19 @@ export const parseAwsCur = (csvText) => {
     if (!line) continue;
 
     const values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-    const productCode = values[productCodeIdx]?.toUpperCase();
+    const productCode = values[productCodeIdx]?.toUpperCase().trim();
+    
+    // CRITICAL FIX: Validate product code - skip if it looks like a date or is invalid
+    // Dates in ISO format (e.g., "2025-09-22T09:00:00Z") should not be treated as product codes
+    if (!productCode || productCode.length === 0) {
+      continue;
+    }
+    
+    // Skip if productCode looks like a date (ISO format: YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)
+    if (/^\d{4}-\d{2}-\d{2}/.test(productCode)) {
+      continue;
+    }
+    
     const rawResourceId = values[resourceIdIdx]?.trim();
     const cost = parseFloat(values[costIdx] || '0');
     const instanceType = values[instanceTypeIdx] || '';
@@ -79,7 +91,7 @@ export const parseAwsCur = (csvText) => {
     }
 
     // Skip if not a billable service
-    if (!productCode || productCode === 'TAX' || cost === 0) continue;
+    if (productCode === 'TAX' || cost === 0) continue;
     
     // For rows without ResourceId, create a composite key from productCode + usageType + region
     // This groups similar charges together instead of creating unique workloads for each row

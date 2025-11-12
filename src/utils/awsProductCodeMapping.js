@@ -160,6 +160,7 @@ export const awsProductCodeToService = {
   'MACIE': 'Macie',
   'AMAZONCERTIFICATEMANAGER': 'Certificate Manager',
   'CERTIFICATEMANAGER': 'Certificate Manager',
+  'ACM': 'Certificate Manager', // AWS Certificate Manager abbreviation
   'AMAZONCOGNITO': 'Cognito',
   'COGNITO': 'COGNITO',
   'AMAZONARTIFACT': 'Artifact',

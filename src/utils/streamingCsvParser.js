@@ -75,7 +75,21 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
       const values = parseCSVLine(line);
       if (values.length === 0) return;
       
-      const productCode = (values[headerIndices.productCode] || '').toUpperCase();
+      const productCode = (values[headerIndices.productCode] || '').toUpperCase().trim();
+      
+      // CRITICAL FIX: Validate product code - skip if it looks like a date or is invalid
+      // Dates in ISO format (e.g., "2025-09-22T09:00:00Z") should not be treated as product codes
+      if (!productCode || productCode.length === 0) {
+        skippedRows.noProductCode++;
+        return;
+      }
+      
+      // Skip if productCode looks like a date (ISO format: YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)
+      if (/^\d{4}-\d{2}-\d{2}/.test(productCode)) {
+        skippedRows.noProductCode++;
+        return;
+      }
+      
       const rawResourceId = values[headerIndices.resourceId]?.trim();
       const cost = parseFloat(values[headerIndices.cost] || '0');
       const roundedCost = Math.round(cost * 100) / 100;
