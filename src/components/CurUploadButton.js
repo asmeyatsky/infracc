@@ -38,7 +38,7 @@ function CurUploadButton({ onUploadComplete }) {
       try {
         const importedData = await parseAwsCurStreaming(file, (progress) => {
           if (progress.percent % 10 === 0) { // Update every 10%
-            console.log(`Processing ${file.name}: ${progress.percent}% (${progress.linesProcessed} lines)`);
+            // Progress logging removed to avoid console spam
             // Progress updates removed for performance - focus on accurate PDF generation
           }
         });
@@ -156,10 +156,10 @@ function CurUploadButton({ onUploadComplete }) {
               const blob = await csvFile.entry.async('blob');
               
               // Use streaming parser - handles files of any size
+              // Progress logging removed to avoid console spam - progress shown in UI via agent status
               importedData = await parseAwsCurStreaming(blob, (progress) => {
-                if (progress.percent % 10 === 0) { // Update every 10%
-                  console.log(`Processing ${csvFile.name}: ${progress.percent}% (${progress.linesProcessed} lines)`);
-                }
+                // Silent progress tracking - no console spam
+                // Progress is shown via agent status updates instead
               });
               
               toast.success(`Processed ${csvFile.name}: ${importedData.length} workloads`);
