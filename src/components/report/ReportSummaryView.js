@@ -54,11 +54,12 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
     
     // Only calculate minimal data needed for summary cards
     // Full aggregation happens during PDF generation
+    // CRITICAL: Do NOT iterate through workloads array - use length only
     const summary = {
       summary: {
         totalWorkloads: workloads.length,
         totalMonthlyCost: uploadSummary?.totalMonthlyCost || 0,
-        totalRegions: new Set(workloads.map(w => w.region || 'Unknown')).size,
+        totalRegions: uploadSummary?.totalRegions || 1, // Use from uploadSummary or default to 1
         averageComplexity: null // Skip heavy calculation
       },
       complexity: {
