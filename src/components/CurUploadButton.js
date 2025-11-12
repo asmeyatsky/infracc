@@ -229,14 +229,16 @@ function CurUploadButton({ onUploadComplete }) {
           }
 
           // CRITICAL FIX: Push items without spreading to prevent stack overflow
-          // Use concat or push.apply instead of spread operator for large arrays
-          // Concat is safer for very large arrays as it doesn't use the call stack
-          if (importedData.length > 50000) {
-            // For very large arrays, use concat in batches
-            const BATCH_SIZE = 50000;
+          // Use push.apply with smaller batches to avoid call stack limits
+          // push.apply has a limit of ~65k arguments, but some engines have lower limits
+          // Use smaller batches (32k) to be safe across all JavaScript engines
+          const MAX_PUSH_APPLY_SIZE = 32000; // Conservative limit for all engines
+          if (importedData.length > MAX_PUSH_APPLY_SIZE) {
+            // For very large arrays, use push.apply in smaller batches
+            const BATCH_SIZE = MAX_PUSH_APPLY_SIZE;
             for (let i = 0; i < importedData.length; i += BATCH_SIZE) {
               const batch = importedData.slice(i, i + BATCH_SIZE);
-              allData = allData.concat(batch);
+              Array.prototype.push.apply(allData, batch);
               // Yield to event loop every batch to prevent blocking
               if (i + BATCH_SIZE < importedData.length) {
                 await new Promise(resolve => setTimeout(resolve, 0));
@@ -263,13 +265,24 @@ function CurUploadButton({ onUploadComplete }) {
               }
               
               // CRITICAL FIX: Push items in batches to prevent stack overflow
-              const BATCH_SIZE = 10000;
-              for (let i = 0; i < importedData.length; i += BATCH_SIZE) {
-                const batch = importedData.slice(i, i + BATCH_SIZE);
-                allData.push(...batch);
-                if (i + BATCH_SIZE < importedData.length) {
-                  await new Promise(resolve => setTimeout(resolve, 0));
+              // Use push.apply with smaller batches to avoid call stack limits
+              // push.apply has a limit of ~65k arguments, but some engines have lower limits
+              // Use smaller batches (32k) to be safe across all JavaScript engines
+              const MAX_PUSH_APPLY_SIZE = 32000; // Conservative limit for all engines
+              if (importedData.length > MAX_PUSH_APPLY_SIZE) {
+                // For very large arrays, use push.apply in smaller batches
+                const BATCH_SIZE = MAX_PUSH_APPLY_SIZE;
+                for (let i = 0; i < importedData.length; i += BATCH_SIZE) {
+                  const batch = importedData.slice(i, i + BATCH_SIZE);
+                  Array.prototype.push.apply(allData, batch);
+                  // Yield to event loop every batch to prevent blocking
+                  if (i + BATCH_SIZE < importedData.length) {
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                  }
                 }
+              } else {
+                // For smaller arrays, use push.apply (safer than spread)
+                Array.prototype.push.apply(allData, importedData);
               }
               toast.success(`Processed ${csvFile.name} using streaming parser: ${importedData.length} workloads`);
             } catch (streamError) {
@@ -283,7 +296,13 @@ function CurUploadButton({ onUploadComplete }) {
         }
       }
 
-      const zipTotalAggregatedCost = allData.reduce((sum, workload) => sum + (workload.monthlyCost || 0), 0);
+      // Calculate aggregated cost in batches to avoid stack overflow with very large arrays
+      let zipTotalAggregatedCost = 0;
+      const REDUCE_BATCH_SIZE = 100000;
+      for (let i = 0; i < allData.length; i += REDUCE_BATCH_SIZE) {
+        const batch = allData.slice(i, Math.min(i + REDUCE_BATCH_SIZE, allData.length));
+        zipTotalAggregatedCost += batch.reduce((sum, workload) => sum + (workload.monthlyCost || 0), 0);
+      }
 
       // Attach total raw cost metadata to combined result (sum of ALL CSV files in ZIP)
       allData._metadata = {
