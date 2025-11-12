@@ -69,14 +69,22 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
       
       if (assessment) {
         // Merge assessment data into workload
+        // Handle both Assessment entity (with methods) and plain objects
+        const assessmentObj = assessment.toJSON ? assessment.toJSON() : assessment;
+        const readinessScore = assessment.getReadinessScore ? assessment.getReadinessScore() : 
+                              (assessmentObj.readinessScore || 
+                               (assessmentObj.complexityScore !== undefined ? 
+                                Math.max(0, Math.min(100, 100 - ((assessmentObj.complexityScore - 1) * 5) - ((assessmentObj.riskFactors?.length || 0) * 10))) : 
+                                null));
+        
         return {
           ...workloadData,
           assessment: {
-            complexityScore: assessment.complexityScore,
-            readinessScore: assessment.readinessScore,
-            riskFactors: assessment.riskFactors || [],
-            infrastructureAssessment: assessment.infrastructureAssessment,
-            applicationAssessment: assessment.applicationAssessment
+            complexityScore: assessmentObj.complexityScore,
+            readinessScore: readinessScore,
+            riskFactors: assessmentObj.riskFactors || [],
+            infrastructureAssessment: assessmentObj.infrastructureAssessment,
+            applicationAssessment: assessmentObj.applicationAssessment
           }
         };
       }

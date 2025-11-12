@@ -214,6 +214,7 @@ export class Assessment {
       applicationAssessment: this._applicationAssessment,
       codeModResults: this._codeModResults,
       complexityScore: this._complexityScore,
+      readinessScore: this.getReadinessScore(), // Include calculated readiness score
       riskFactors: this._riskFactors,
       recommendations: this._recommendations,
       createdAt: this._createdAt.toISOString()
