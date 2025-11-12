@@ -5,6 +5,8 @@
  * Converts AWS resources to workloads for migration analysis
  */
 
+import { normalizeAwsProductCode, getAwsServiceType } from './awsProductCodeMapping.js';
+
 /**
  * Parse AWS Cost and Usage Report (CUR) CSV
  * Supports standard AWS CUR format with columns like:

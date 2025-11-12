@@ -28,7 +28,8 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
     const totalBytes = fileOrBuffer.size || fileOrBuffer.byteLength || 0;
     
     // CRITICAL FIX: Queue for processing lines in batches to prevent stack overflow
-    const MAX_LINES_PER_BATCH = 50; // Process max 50 lines before yielding (very small to prevent stack overflow)
+    // Increased batch size for better performance - 1000 lines is safe and reduces overhead significantly
+    const MAX_LINES_PER_BATCH = 1000; // Process max 1000 lines before yielding (safe for stack, much faster)
     const pendingLines = []; // Queue of lines to process (shared across chunks)
     
     // Column index finder

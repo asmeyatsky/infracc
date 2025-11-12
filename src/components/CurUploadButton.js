@@ -229,18 +229,18 @@ function CurUploadButton({ onUploadComplete }) {
           }
 
           // CRITICAL FIX: Push items without spreading to prevent stack overflow
-          // Use push.apply with smaller batches to avoid call stack limits
-          // push.apply has a limit of ~65k arguments, but some engines have lower limits
-          // Use smaller batches (32k) to be safe across all JavaScript engines
-          const MAX_PUSH_APPLY_SIZE = 32000; // Conservative limit for all engines
+          // Use push.apply with batches to avoid call stack limits
+          // push.apply has a limit of ~65k arguments, use 50k to be safe
+          const MAX_PUSH_APPLY_SIZE = 50000; // Safe limit below 65k
           if (importedData.length > MAX_PUSH_APPLY_SIZE) {
-            // For very large arrays, use push.apply in smaller batches
+            // For very large arrays, use push.apply in batches
             const BATCH_SIZE = MAX_PUSH_APPLY_SIZE;
+            const YIELD_EVERY_N_BATCHES = 5; // Only yield every 5 batches to reduce overhead
             for (let i = 0; i < importedData.length; i += BATCH_SIZE) {
               const batch = importedData.slice(i, i + BATCH_SIZE);
               Array.prototype.push.apply(allData, batch);
-              // Yield to event loop every batch to prevent blocking
-              if (i + BATCH_SIZE < importedData.length) {
+              // Yield to event loop every N batches to prevent blocking while minimizing overhead
+              if ((i / BATCH_SIZE) % YIELD_EVERY_N_BATCHES === 0 && i + BATCH_SIZE < importedData.length) {
                 await new Promise(resolve => setTimeout(resolve, 0));
               }
             }
@@ -265,18 +265,18 @@ function CurUploadButton({ onUploadComplete }) {
               }
               
               // CRITICAL FIX: Push items in batches to prevent stack overflow
-              // Use push.apply with smaller batches to avoid call stack limits
-              // push.apply has a limit of ~65k arguments, but some engines have lower limits
-              // Use smaller batches (32k) to be safe across all JavaScript engines
-              const MAX_PUSH_APPLY_SIZE = 32000; // Conservative limit for all engines
+              // Use push.apply with batches to avoid call stack limits
+              // push.apply has a limit of ~65k arguments, use 50k to be safe
+              const MAX_PUSH_APPLY_SIZE = 50000; // Safe limit below 65k
               if (importedData.length > MAX_PUSH_APPLY_SIZE) {
-                // For very large arrays, use push.apply in smaller batches
+                // For very large arrays, use push.apply in batches
                 const BATCH_SIZE = MAX_PUSH_APPLY_SIZE;
+                const YIELD_EVERY_N_BATCHES = 5; // Only yield every 5 batches to reduce overhead
                 for (let i = 0; i < importedData.length; i += BATCH_SIZE) {
                   const batch = importedData.slice(i, i + BATCH_SIZE);
                   Array.prototype.push.apply(allData, batch);
-                  // Yield to event loop every batch to prevent blocking
-                  if (i + BATCH_SIZE < importedData.length) {
+                  // Yield to event loop every N batches to prevent blocking while minimizing overhead
+                  if ((i / BATCH_SIZE) % YIELD_EVERY_N_BATCHES === 0 && i + BATCH_SIZE < importedData.length) {
                     await new Promise(resolve => setTimeout(resolve, 0));
                   }
                 }
@@ -296,13 +296,9 @@ function CurUploadButton({ onUploadComplete }) {
         }
       }
 
-      // Calculate aggregated cost in batches to avoid stack overflow with very large arrays
-      let zipTotalAggregatedCost = 0;
-      const REDUCE_BATCH_SIZE = 100000;
-      for (let i = 0; i < allData.length; i += REDUCE_BATCH_SIZE) {
-        const batch = allData.slice(i, Math.min(i + REDUCE_BATCH_SIZE, allData.length));
-        zipTotalAggregatedCost += batch.reduce((sum, workload) => sum + (workload.monthlyCost || 0), 0);
-      }
+      // Calculate aggregated cost efficiently - reduce is already optimized for large arrays
+      // No need to batch reduce operations, they don't cause stack overflow
+      const zipTotalAggregatedCost = allData.reduce((sum, workload) => sum + (workload.monthlyCost || 0), 0);
 
       // Attach total raw cost metadata to combined result (sum of ALL CSV files in ZIP)
       allData._metadata = {
