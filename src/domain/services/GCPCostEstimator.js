@@ -50,17 +50,31 @@ export class GCPCostEstimator {
     const cud1Year = this._applyCUDDiscount(onDemandCost, serviceType, 1);
     const cud3Year = this._applyCUDDiscount(onDemandCost, serviceType, 3);
     
+    // Handle negative costs (credits/refunds) - ensure non-negative values
+    const absAwsCost = Math.abs(awsCost);
+    const absOnDemandCost = Math.max(0, onDemandCost);
+    const absCud1Year = Math.max(0, cud1Year);
+    const absCud3Year = Math.max(0, cud3Year);
+    
+    // Calculate savings (only if AWS cost is positive)
+    const savings1Year = absAwsCost > 0 ? absAwsCost - absCud1Year : 0;
+    const savings3Year = absAwsCost > 0 ? absAwsCost - absCud3Year : 0;
+    const savingsPercent1Year = absAwsCost > 0 ? ((savings1Year) / absAwsCost) * 100 : 0;
+    const savingsPercent3Year = absAwsCost > 0 ? ((savings3Year) / absAwsCost) * 100 : 0;
+    
     return {
-      awsCost,
-      gcpOnDemand: onDemandCost,
-      gcp1YearCUD: cud1Year,
-      gcp3YearCUD: cud3Year,
-      savings1Year: awsCost - cud1Year,
-      savings3Year: awsCost - cud3Year,
-      savingsPercent1Year: ((awsCost - cud1Year) / awsCost) * 100,
-      savingsPercent3Year: ((awsCost - cud3Year) / awsCost) * 100,
+      awsCost: absAwsCost, // Use absolute value for reporting
+      awsCostRaw: awsCost, // Keep original for reference
+      gcpOnDemand: absOnDemandCost,
+      gcp1YearCUD: absCud1Year,
+      gcp3YearCUD: absCud3Year,
+      savings1Year,
+      savings3Year,
+      savingsPercent1Year,
+      savingsPercent3Year,
       region,
-      gcpService
+      gcpService,
+      hasNegativeCost: awsCost < 0 // Flag for reporting
     };
   }
 
