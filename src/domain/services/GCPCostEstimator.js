@@ -202,8 +202,17 @@ export class GCPCostEstimator {
    * @private
    */
   static _applyCUDDiscount(baseCost, serviceType, years) {
-    const discountKey = `${serviceType}_${years}_YEAR`;
-    const discount = this.CUD_DISCOUNTS[discountKey] || this.CUD_DISCOUNTS.COMPUTE_1_YEAR;
+    // Map service type to correct discount key
+    let discount;
+    if (serviceType === 'COMPUTE') {
+      discount = years === 3 ? this.CUD_DISCOUNTS.COMPUTE_3_YEAR : this.CUD_DISCOUNTS.COMPUTE_1_YEAR;
+    } else if (serviceType === 'STORAGE') {
+      discount = years === 3 ? this.CUD_DISCOUNTS.STORAGE_3_YEAR : this.CUD_DISCOUNTS.STORAGE_1_YEAR;
+    } else if (serviceType === 'DATABASE') {
+      discount = years === 3 ? this.CUD_DISCOUNTS.DATABASE_3_YEAR : this.CUD_DISCOUNTS.DATABASE_1_YEAR;
+    } else {
+      discount = years === 3 ? this.CUD_DISCOUNTS.COMPUTE_3_YEAR : this.CUD_DISCOUNTS.COMPUTE_1_YEAR;
+    }
     return baseCost * (1 - discount);
   }
 

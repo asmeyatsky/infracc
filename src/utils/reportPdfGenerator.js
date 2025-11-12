@@ -613,11 +613,7 @@ export const generateComprehensiveReportPDF = async (
     });
 
     yPos = getLastAutoTable().finalY + 15;
-      theme: 'grid',
-      headStyles: { fillColor: [40, 167, 69] },
-      margin: { left: margin, right: margin },
-      styles: { fontSize: 10 }
-    });
+  }
 
     yPos = getLastAutoTable().finalY + 15;
   }
