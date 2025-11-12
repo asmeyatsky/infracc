@@ -321,10 +321,6 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
                 <i className="bi bi-info-circle me-2"></i>
                 Complexity distribution chart available in PDF report.
               </div>
-              {/*               <div className="alert alert-info">
-                <i className="bi bi-info-circle me-2"></i>
-                Complexity distribution chart available in PDF report.
-              </div>
             </div>
           </div>
         </div>
@@ -351,36 +347,10 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
               <h5 className="mb-0">Top 10 AWS Services by Cost</h5>
             </div>
             <div className="card-body">
-              <Bar 
-                data={serviceCostChartData}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: {
-                      display: false
-                    },
-                    tooltip: {
-                      callbacks: {
-                        label: function(context) {
-                          return `Cost: ${formatCurrency(context.parsed.y)}`;
-                        }
-                      }
-                    }
-                  },
-                  scales: {
-                    y: {
-                      beginAtZero: true,
-                      ticks: {
-                        callback: function(value) {
-                          return formatCurrency(value);
-                        }
-                      }
-                    }
-                  }
-                }}
-                height={300}
-              />
+              <div className="alert alert-info">
+                <i className="bi bi-info-circle me-2"></i>
+                Top services by cost chart available in PDF report.
+              </div>
             </div>
           </div>
         </div>
