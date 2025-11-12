@@ -85,32 +85,23 @@ export const parseAwsCur = (csvText) => {
       ? rawResourceId 
       : `${productCode}_${usageType}_${region}_no-resource-id`.toLowerCase();
 
-    // Map AWS service to workload type
-    const serviceMapping = {
-      'EC2': { type: 'vm', service: 'EC2' },
-      'EC2-INSTANCE': { type: 'vm', service: 'EC2' },
-      'RDS': { type: 'database', service: 'RDS' },
-      'S3': { type: 'storage', service: 'S3' },
-      'S3-STORAGE': { type: 'storage', service: 'S3' },
-      'EBS': { type: 'storage', service: 'EBS' },
-      'LAMBDA': { type: 'function', service: 'Lambda' },
-      'ECS': { type: 'container', service: 'ECS' },
-      'EKS': { type: 'container', service: 'EKS' },
-      'ELASTICACHE': { type: 'database', service: 'ElastiCache' },
-      'DYNAMODB': { type: 'database', service: 'DynamoDB' },
-      'CLOUDFRONT': { type: 'application', service: 'CloudFront' },
-      'APIGATEWAY': { type: 'application', service: 'API Gateway' },
-      'BEDROCK': { type: 'application', service: 'Bedrock' },
-      'AWSBACKUP': { type: 'storage', service: 'AWS Backup' },
-      'OCBLATEFEE': { type: 'application', service: 'AWS Service Fee' },
-      'TAX': null, // Skip taxes
-    };
-
-    const mapping = serviceMapping[productCode];
-    if (!mapping) {
-      // Unknown service - skip to avoid creating too many workloads
+    // CRITICAL FIX: Use comprehensive AWS product code mapping
+    // Normalize AWS product code to standard service name
+    const normalizedService = normalizeAwsProductCode(productCode);
+    
+    // Skip if this is a tax or null service
+    if (!normalizedService || normalizedService === 'TAX') {
       continue;
     }
+    
+    // Get service type based on normalized service name
+    const serviceType = getAwsServiceType(normalizedService);
+    
+    // Create mapping object
+    const mapping = {
+      type: serviceType,
+      service: normalizedService
+    };
 
     // Extract instance specs from instance type (e.g., m5.large -> 2 vCPU, 8GB RAM)
     const instanceSpecs = parseInstanceType(instanceType);

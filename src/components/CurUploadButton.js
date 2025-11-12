@@ -228,12 +228,29 @@ function CurUploadButton({ onUploadComplete }) {
             }
           }
 
-          allData.push(...importedData);
+          // CRITICAL FIX: Push items without spreading to prevent stack overflow
+          // Use concat or push.apply instead of spread operator for large arrays
+          // Concat is safer for very large arrays as it doesn't use the call stack
+          if (importedData.length > 50000) {
+            // For very large arrays, use concat in batches
+            const BATCH_SIZE = 50000;
+            for (let i = 0; i < importedData.length; i += BATCH_SIZE) {
+              const batch = importedData.slice(i, i + BATCH_SIZE);
+              allData = allData.concat(batch);
+              // Yield to event loop every batch to prevent blocking
+              if (i + BATCH_SIZE < importedData.length) {
+                await new Promise(resolve => setTimeout(resolve, 0));
+              }
+            }
+          } else {
+            // For smaller arrays, use push.apply (safer than spread)
+            Array.prototype.push.apply(allData, importedData);
+          }
         } catch (error) {
           // Handle errors gracefully
-          if (error.message.includes('Invalid string length') || error.name === 'RangeError') {
+          if (error.message.includes('Invalid string length') || error.name === 'RangeError' || error.message.includes('Maximum call stack')) {
             // This shouldn't happen with streaming parser, but if it does, try streaming
-            console.error(`String length error for ${csvFile.name}, attempting streaming parser:`, error);
+            console.error(`String length/stack error for ${csvFile.name}, attempting streaming parser:`, error);
             try {
               const blob = await csvFile.entry.async('blob');
               const importedData = await parseAwsCurStreaming(blob);
@@ -245,7 +262,15 @@ function CurUploadButton({ onUploadComplete }) {
                 console.log(`CSV ${csvFile.name}: Raw cost $${csvMetadata.totalRawCost.toFixed(2)} (${csvMetadata.totalRows} rows)`);
               }
               
-              allData.push(...importedData);
+              // CRITICAL FIX: Push items in batches to prevent stack overflow
+              const BATCH_SIZE = 10000;
+              for (let i = 0; i < importedData.length; i += BATCH_SIZE) {
+                const batch = importedData.slice(i, i + BATCH_SIZE);
+                allData.push(...batch);
+                if (i + BATCH_SIZE < importedData.length) {
+                  await new Promise(resolve => setTimeout(resolve, 0));
+                }
+              }
               toast.success(`Processed ${csvFile.name} using streaming parser: ${importedData.length} workloads`);
             } catch (streamError) {
               toast.error(`Failed to process ${csvFile.name}: ${streamError.message}`);
@@ -371,7 +396,8 @@ function CurUploadButton({ onUploadComplete }) {
           const parserMetadata = fileData._metadata;
           if (parserMetadata && parserMetadata.totalRawCost !== undefined) {
             fileRawCost = parserMetadata.totalRawCost;
-            console.log(`File ${file.name}: Raw cost from parser metadata: $${fileRawCost.toFixed(2)} (${parserMetadata.totalRows} rows)`);
+            console.log(`File ${file.name}: Raw cost from parser metadata: $${fileRawCost.toFixed(2)} (${parserMetadata.totalRows} rows, ${parserMetadata.uniqueWorkloads} unique workloads)`);
+            console.log(`File ${file.name}: Parser metadata - processedRows: ${parserMetadata.processedRows}, skippedRows:`, parserMetadata.skippedRows);
           } else {
             // Fallback: sum costs from parsed data (already aggregated, but better than nothing)
             console.warn(`No metadata found for ${file.name}, falling back to aggregated costs`);
@@ -493,6 +519,7 @@ function CurUploadButton({ onUploadComplete }) {
           }
           
           console.log(`File ${file.name}: ${fileData.length} rows -> ${newKeysThisFile.size} new unique workloads (deduplicated within file), ${fileData.length - newKeysThisFile.size} duplicates within file`);
+          console.log(`File ${file.name}: Regions found:`, [...new Set(fileData.map(d => d.region))].slice(0, 10));
 
           console.log(`Processed ${file.name}: ${fileData.length} rows -> ${dedupeMap.size} unique workloads so far`);
 
@@ -722,13 +749,17 @@ function CurUploadButton({ onUploadComplete }) {
       // Calculate raw total cost from all file stats (sum of all bills)
       let totalRawCost = 0;
       try {
+        console.log(`\n=== CALCULATING TOTAL RAW COST ===`);
+        console.log(`Number of file stats: ${fileStats.length}`);
         for (const fileStat of fileStats) {
           const cost = parseFloat(fileStat?.totalCost || 0);
           if (!isNaN(cost)) {
+            console.log(`  File: ${fileStat.fileName}, Cost: $${cost.toFixed(2)}, Workloads: ${fileStat.uniqueWorkloads}`);
             totalRawCost += cost;
           }
         }
-        console.log(`Calculated totalRawCost from ${fileStats.length} file stats: $${totalRawCost.toFixed(2)}`);
+        console.log(`Total raw cost from ${fileStats.length} files: $${totalRawCost.toFixed(2)}`);
+        console.log(`=====================================\n`);
       } catch (error) {
         console.error('Error calculating totalRawCost:', error);
         console.error('fileStats:', fileStats);
@@ -800,7 +831,7 @@ function CurUploadButton({ onUploadComplete }) {
             uniqueWorkloads: deduplicatedCount,
             duplicatesMerged: totalDuplicatesRemoved,
             workloadsSaved: actualUniqueCount,
-            totalMonthlyCost: totalAggregatedCost || 0, // Use aggregated cost
+            totalMonthlyCost: totalRawCost || totalAggregatedCost || 0, // Use raw cost (sum of all bills) - this is the correct total
             fileStats: fileStats || [] // Ensure fileStats is an array
           };
           

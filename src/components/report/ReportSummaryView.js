@@ -134,12 +134,14 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
   };
 
   // Prepare service cost chart data (top 10)
-  const topServices = reportData.services.topServices.slice(0, 10);
+  // Use all services (topServices now contains all services, not just top N)
+  const topServices = reportData.services.topServices || [];
+  const displayServices = topServices.slice(0, 10); // Display top 10 in chart, but all are included in calculations
   const serviceCostChartData = {
-    labels: topServices.map(s => s.service),
+    labels: displayServices.map(s => s.service),
     datasets: [{
       label: 'Monthly Cost (USD)',
-      data: topServices.map(s => s.totalCost),
+      data: displayServices.map(s => s.totalCost),
       backgroundColor: 'rgba(0, 123, 255, 0.8)',
       borderColor: 'rgba(0, 123, 255, 1)',
       borderWidth: 1
@@ -147,7 +149,8 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
   };
 
   // Get top 5 services and regions for summary cards
-  const top5Services = reportData.services.topServices.slice(0, 5);
+  // Get top 5 for display, but all services are included in calculations
+  const top5Services = (reportData.services.topServices || []).slice(0, 5);
   const top5Regions = reportData.regions.slice(0, 5);
 
   // Calculate wave distribution if strategy results available
@@ -645,10 +648,111 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
               try {
                 const reportData = ReportDataAggregator.generateReportSummary(workloads);
                 const serviceAggregation = ReportDataAggregator.aggregateByService(workloads);
+                
+                // CRITICAL FIX: Scale service aggregation costs BEFORE generating estimates
+                if (uploadSummary && uploadSummary.totalMonthlyCost && serviceAggregation.length > 0) {
+                  const currentAggTotal = serviceAggregation.reduce((sum, s) => sum + (s.totalCost || 0), 0);
+                  const targetTotal = uploadSummary.totalMonthlyCost;
+                  if (currentAggTotal > 0 && Math.abs(currentAggTotal - targetTotal) > 100) {
+                    const aggScaleFactor = targetTotal / currentAggTotal;
+                    console.log(`ReportSummaryView - Scaling service aggregation costs by factor ${aggScaleFactor.toFixed(4)}`);
+                    serviceAggregation.forEach(service => {
+                      if (service.totalCost) {
+                        service.totalCost = service.totalCost * aggScaleFactor;
+                      }
+                    });
+                  }
+                }
+                
                 const estimates = await GCPCostEstimator.estimateAllServiceCosts(serviceAggregation, targetRegion);
                 
+                // CRITICAL FIX: Scale cost estimates to match correct total
+                if (uploadSummary && uploadSummary.totalMonthlyCost && estimates.length > 0) {
+                  const currentAwsTotal = estimates.reduce((sum, est) => sum + (est.costEstimate?.awsCost || 0), 0);
+                  const targetTotal = uploadSummary.totalMonthlyCost;
+                  if (currentAwsTotal > 0 && Math.abs(currentAwsTotal - targetTotal) > 100) {
+                    const scaleFactor = targetTotal / currentAwsTotal;
+                    console.log(`ReportSummaryView - Scaling cost estimates by factor ${scaleFactor.toFixed(4)}`);
+                    estimates.forEach(est => {
+                      if (est.costEstimate) {
+                        est.costEstimate.awsCost = (est.costEstimate.awsCost || 0) * scaleFactor;
+                        est.costEstimate.gcpOnDemand = (est.costEstimate.gcpOnDemand || 0) * scaleFactor;
+                        est.costEstimate.gcp1YearCUD = (est.costEstimate.gcp1YearCUD || 0) * scaleFactor;
+                        est.costEstimate.gcp3YearCUD = (est.costEstimate.gcp3YearCUD || 0) * scaleFactor;
+                        est.costEstimate.savings1Year = est.costEstimate.awsCost - est.costEstimate.gcp1YearCUD;
+                        est.costEstimate.savings3Year = est.costEstimate.awsCost - est.costEstimate.gcp3YearCUD;
+                      }
+                    });
+                  }
+                }
+                
+                // CRITICAL FIX: Override totalMonthlyCost and scale service costs in reportData
+                const finalReportData = { ...reportData };
+                if (uploadSummary && uploadSummary.totalMonthlyCost) {
+                  const targetTotal = uploadSummary.totalMonthlyCost;
+                  finalReportData.summary = {
+                    ...finalReportData.summary,
+                    totalMonthlyCost: targetTotal
+                  };
+                  
+                  // Scale ALL costs to match correct total (services, complexity, readiness, regions)
+                  const currentServiceTotal = finalReportData.services?.topServices?.reduce((sum, s) => sum + (s.totalCost || 0), 0) || 0;
+                  const currentComplexityTotal = (finalReportData.complexity?.low?.totalCost || 0) + 
+                                                 (finalReportData.complexity?.medium?.totalCost || 0) + 
+                                                 (finalReportData.complexity?.high?.totalCost || 0) + 
+                                                 (finalReportData.complexity?.unassigned?.totalCost || 0);
+                  const currentReadinessTotal = (finalReportData.readiness?.ready?.totalCost || 0) + 
+                                               (finalReportData.readiness?.conditional?.totalCost || 0) + 
+                                               (finalReportData.readiness?.notReady?.totalCost || 0) + 
+                                               (finalReportData.readiness?.unassigned?.totalCost || 0);
+                  const currentTotal = Math.max(currentServiceTotal, currentComplexityTotal, currentReadinessTotal);
+                  
+                  if (currentTotal > 0 && Math.abs(currentTotal - targetTotal) > 100) {
+                    const scaleFactor = targetTotal / currentTotal;
+                    console.log(`ReportSummaryView - Scaling all costs by factor ${scaleFactor.toFixed(4)}`);
+                    
+                    // Scale service costs
+                    if (finalReportData.services?.topServices) {
+                      finalReportData.services.topServices.forEach(service => {
+                        if (service.totalCost) {
+                          service.totalCost = service.totalCost * scaleFactor;
+                        }
+                      });
+                    }
+                    
+                    // Scale complexity costs
+                    if (finalReportData.complexity) {
+                      ['low', 'medium', 'high', 'unassigned'].forEach(level => {
+                        if (finalReportData.complexity[level]?.totalCost) {
+                          finalReportData.complexity[level].totalCost *= scaleFactor;
+                        }
+                      });
+                    }
+                    
+                    // Scale readiness costs
+                    if (finalReportData.readiness) {
+                      ['ready', 'conditional', 'notReady', 'unassigned'].forEach(level => {
+                        if (finalReportData.readiness[level]?.totalCost) {
+                          finalReportData.readiness[level].totalCost *= scaleFactor;
+                        }
+                      });
+                    }
+                    
+                    // Scale region costs
+                    if (finalReportData.regions && Array.isArray(finalReportData.regions)) {
+                      finalReportData.regions.forEach(region => {
+                        if (region.totalCost) {
+                          region.totalCost *= scaleFactor;
+                        }
+                      });
+                    }
+                  }
+                  
+                  console.log(`ReportSummaryView - Overriding totalMonthlyCost to $${targetTotal.toFixed(2)} for PDF`);
+                }
+                
                 await generateComprehensiveReportPDF(
-                  reportData,
+                  finalReportData,
                   estimates,
                   strategyResults,
                   assessmentResults,

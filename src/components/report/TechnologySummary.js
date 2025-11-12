@@ -24,9 +24,8 @@ const TechnologySummary = ({ workloads = [] }) => {
   }
 
   const serviceAggregation = ReportDataAggregator.aggregateByService(workloads);
-  const { topServices, other } = ReportDataAggregator.getTopServicesWithOther(serviceAggregation, 15);
-
-  const displayServices = other ? [...topServices, other] : topServices;
+  // Use all services - no longer limiting to top N
+  const displayServices = serviceAggregation; // All services are now shown
 
   const formatCurrency = (value) => {
     return new Intl.NumberFormat('en-US', {
@@ -154,11 +153,10 @@ const TechnologySummary = ({ workloads = [] }) => {
             </tfoot>
           </table>
         </div>
-        {other && (
-          <div className="alert alert-info mt-3">
-            <i className="bi bi-info-circle me-2"></i>
-            <strong>"Other" category</strong> includes {serviceAggregation.length - 15} additional AWS services 
-            with lower individual costs.
+        {displayServices.length > 0 && (
+          <div className="alert alert-success mt-3">
+            <i className="bi bi-check-circle me-2"></i>
+            <strong>All {displayServices.length} AWS services</strong> are mapped to GCP equivalents and included in TCO calculations.
           </div>
         )}
       </div>

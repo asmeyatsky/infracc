@@ -5,6 +5,9 @@
  * Supports AWS CUR format and handles files larger than JavaScript string limits
  */
 
+// Import comprehensive AWS product code mapping
+import { normalizeAwsProductCode, getAwsServiceType } from './awsProductCodeMapping.js';
+
 /**
  * Parse AWS CUR CSV in streaming fashion
  * Processes file in chunks and parses line-by-line
@@ -14,6 +17,8 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
     const workloads = [];
     const workloadMap = new Map(); // Group by resource ID
     let totalRawCost = 0; // Track sum of ALL raw costs from ALL rows (before aggregation)
+    let skippedRows = { noProductCode: 0, tax: 0, zeroCost: 0, unknownService: 0 };
+    let processedRows = 0;
     
     let headers = null;
     let headerIndices = null;
@@ -21,6 +26,10 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
     let lineNumber = 0;
     let bytesProcessed = 0;
     const totalBytes = fileOrBuffer.size || fileOrBuffer.byteLength || 0;
+    
+    // CRITICAL FIX: Queue for processing lines in batches to prevent stack overflow
+    const MAX_LINES_PER_BATCH = 50; // Process max 50 lines before yielding (very small to prevent stack overflow)
+    const pendingLines = []; // Queue of lines to process (shared across chunks)
     
     // Column index finder
     const getColumnIndex = (patterns, headers) => {
@@ -69,14 +78,47 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
       const rawResourceId = values[headerIndices.resourceId]?.trim();
       const cost = parseFloat(values[headerIndices.cost] || '0');
       const roundedCost = Math.round(cost * 100) / 100;
+      
+      // Extract other fields from CSV
+      const usageType = values[headerIndices.usageType] || '';
+      const instanceType = values[headerIndices.instanceType] || '';
+      const os = (values[headerIndices.os] || '').toLowerCase();
+      const rawRegion = values[headerIndices.region] || '';
+      // CRITICAL FIX: Preserve full region name (e.g., us-east-1, us-west-2) instead of truncating
+      // Only normalize if region is truly missing, otherwise use the full region name
+      const region = rawRegion && rawRegion.trim() ? rawRegion.trim() : 'us-east-1';
+      const usageStartDate = values[headerIndices.usageStartDate] || null;
+      const usageEndDate = values[headerIndices.usageEndDate] || null;
 
       // Track raw cost from EVERY row (before any filtering or aggregation)
-      if (!isNaN(roundedCost) && roundedCost > 0) {
-        totalRawCost += roundedCost;
+      // CRITICAL FIX: Include ALL costs (positive and negative) to get accurate total
+      // Negative costs represent credits/refunds and should be subtracted
+      if (!isNaN(roundedCost)) {
+        totalRawCost += roundedCost; // Include both positive and negative costs
       }
 
-      // Skip if not a billable service
-      if (!productCode || productCode === 'TAX' || roundedCost === 0) return;
+      // Track skipped rows for debugging
+      if (!productCode) {
+        skippedRows.noProductCode++;
+        if (lineNumber % 100000 === 0) {
+          console.warn(`Skipped ${skippedRows.noProductCode} rows with no productCode so far (row ${lineNumber})`);
+        }
+        return;
+      }
+      
+      if (productCode === 'TAX') {
+        skippedRows.tax++;
+        return;
+      }
+      
+      // CRITICAL FIX: Don't skip zero-cost rows - they still represent workloads
+      // Include zero-cost rows - they still represent workloads that should be tracked
+      // (e.g., free tier usage, stopped instances, etc.)
+      if (roundedCost === 0) {
+        skippedRows.zeroCost++;
+      }
+      
+      processedRows++;
       
       // For rows without ResourceId, create a composite key from productCode + usageType + region
       // This groups similar charges together instead of creating unique workloads for each row
@@ -84,32 +126,23 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
         ? rawResourceId 
         : `${productCode}_${usageType}_${region}_no-resource-id`.toLowerCase();
       
-      // Map AWS service to workload type
-      const serviceMapping = {
-        'EC2': { type: 'vm', service: 'EC2' },
-        'EC2-INSTANCE': { type: 'vm', service: 'EC2' },
-        'RDS': { type: 'database', service: 'RDS' },
-        'S3': { type: 'storage', service: 'S3' },
-        'S3-STORAGE': { type: 'storage', service: 'S3' },
-        'EBS': { type: 'storage', service: 'EBS' },
-        'LAMBDA': { type: 'function', service: 'Lambda' },
-        'ECS': { type: 'container', service: 'ECS' },
-        'EKS': { type: 'container', service: 'EKS' },
-        'ELASTICACHE': { type: 'database', service: 'ElastiCache' },
-        'DYNAMODB': { type: 'database', service: 'DynamoDB' },
-        'CLOUDFRONT': { type: 'application', service: 'CloudFront' },
-        'APIGATEWAY': { type: 'application', service: 'API Gateway' },
-        'BEDROCK': { type: 'application', service: 'Bedrock' },
-        'AWSBACKUP': { type: 'storage', service: 'AWS Backup' },
-        'OCBLATEFEE': { type: 'application', service: 'AWS Service Fee' },
-        'TAX': null, // Skip taxes
-      };
+      // CRITICAL FIX: Use comprehensive AWS product code mapping
+      // Normalize AWS product code to standard service name
+      const normalizedService = normalizeAwsProductCode(productCode);
       
-      const mapping = serviceMapping[productCode];
-      if (!mapping) {
-        // Unknown service - skip to avoid creating too many workloads
+      // Skip if this is a tax or null service
+      if (!normalizedService || normalizedService === 'TAX') {
         return;
       }
+      
+      // Get service type based on normalized service name
+      const serviceType = getAwsServiceType(normalizedService);
+      
+      // Create mapping object
+      const mapping = {
+        type: serviceType,
+        service: normalizedService
+      };
       
       // Extract instance specs
       const instanceSpecs = parseInstanceType(instanceType);
@@ -148,7 +181,8 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
       // Note: This sums costs for the same resource across different dates
       // For daily CUR files, this gives monthly total. For monthly files, this aggregates them.
       const workload = workloadMap.get(dedupeKey);
-      workload.monthlyCost += roundedCost;
+      // CRITICAL FIX: Ensure we're adding costs correctly (handle negative costs from credits)
+      workload.monthlyCost = (workload.monthlyCost || 0) + roundedCost;
       
       // Track date range (expand if needed)
       if (usageStartDate) {
@@ -294,19 +328,27 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
     };
     
     // Process chunk of data
-    const processChunk = (chunk) => {
+    // CRITICAL FIX: Process lines in very small batches to prevent stack overflow
+    const processChunk = async (chunk) => {
       buffer += chunk;
       
-      // Process complete lines
+      // CRITICAL FIX: Process only MAX_LINES_PER_BATCH lines per call to prevent stack overflow
+      // Leave remaining lines in buffer for next call - this prevents synchronous processing of 100k+ lines
+      let linesProcessedInBatch = 0;
       let newlineIndex;
-      while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+      
+      // Process only up to MAX_LINES_PER_BATCH lines, then yield
+      while (linesProcessedInBatch < MAX_LINES_PER_BATCH && (newlineIndex = buffer.indexOf('\n')) !== -1) {
         const line = buffer.substring(0, newlineIndex);
         buffer = buffer.substring(newlineIndex + 1);
         
-        try {
-          processLine(line);
-        } catch (error) {
-          console.warn(`Error processing line ${lineNumber}:`, error);
+        if (line.trim()) {
+          try {
+            processLine(line);
+            linesProcessedInBatch++;
+          } catch (error) {
+            console.warn(`Error processing line ${lineNumber}:`, error);
+          }
         }
       }
       
@@ -321,6 +363,35 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
       }
     };
     
+    // CRITICAL FIX: Process buffer iteratively in batches to prevent stack overflow
+    // This function processes all remaining lines in buffer, but in small batches with yields
+    const processRemainingBuffer = async () => {
+      while (buffer.indexOf('\n') !== -1) {
+        let linesProcessedInBatch = 0;
+        let newlineIndex;
+        
+        // Process up to MAX_LINES_PER_BATCH lines
+        while (linesProcessedInBatch < MAX_LINES_PER_BATCH && (newlineIndex = buffer.indexOf('\n')) !== -1) {
+          const line = buffer.substring(0, newlineIndex);
+          buffer = buffer.substring(newlineIndex + 1);
+          
+          if (line.trim()) {
+            try {
+              processLine(line);
+              linesProcessedInBatch++;
+            } catch (error) {
+              console.warn(`Error processing line ${lineNumber}:`, error);
+            }
+          }
+        }
+        
+        // Yield after each batch
+        if (buffer.indexOf('\n') !== -1) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      }
+    };
+    
     // Handle File object
     if (fileOrBuffer instanceof File || fileOrBuffer instanceof Blob) {
       const reader = fileOrBuffer.stream().getReader();
@@ -331,20 +402,39 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
           while (true) {
             const { done, value } = await reader.read();
             if (done) {
-              // Process remaining buffer
+              // Process all remaining buffer in batches
+              await processRemainingBuffer();
+              
+              // Process last line if buffer has content without newline
               if (buffer.trim()) {
                 processLine(buffer);
+                buffer = '';
               }
               
               const result = Array.from(workloadMap.values());
-              const totalAggregatedCost = result.reduce((sum, workload) => sum + workload.monthlyCost, 0);
+              const totalAggregatedCost = result.reduce((sum, workload) => sum + (workload.monthlyCost || 0), 0);
+              
+              // CRITICAL DEBUG: Log row processing statistics
+              const totalRowsRead = lineNumber - 1; // Exclude header
+              console.log(`\n=== CSV PARSING SUMMARY ===`);
+              console.log(`Total rows read: ${totalRowsRead.toLocaleString()}`);
+              console.log(`Rows processed: ${processedRows.toLocaleString()}`);
+              console.log(`Rows skipped - no productCode: ${skippedRows.noProductCode.toLocaleString()}`);
+              console.log(`Rows skipped - TAX: ${skippedRows.tax.toLocaleString()}`);
+              console.log(`Rows with zero cost (included): ${skippedRows.zeroCost.toLocaleString()}`);
+              console.log(`Unique workloads created: ${result.length.toLocaleString()}`);
+              console.log(`Total raw cost: $${totalRawCost.toFixed(2)}`);
+              console.log(`Total aggregated cost: $${totalAggregatedCost.toFixed(2)}`);
+              console.log(`===========================\n`);
               
               // Attach metadata with raw total cost (sum of ALL rows before aggregation)
               result._metadata = {
                 totalRawCost: totalRawCost,
                 totalAggregatedCost: totalAggregatedCost,
-                totalRows: lineNumber - 1, // Exclude header
-                uniqueWorkloads: result.length
+                totalRows: totalRowsRead,
+                uniqueWorkloads: result.length,
+                skippedRows: skippedRows,
+                processedRows: processedRows
               };
               
               console.log('streamingCsvParser.js: totalRawCost', totalRawCost);
@@ -354,8 +444,28 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
               return;
             }
             
+            // CRITICAL FIX: Decode in smaller chunks to prevent large buffers
+            // Split large chunks into smaller pieces before processing
             const chunk = decoder.decode(value, { stream: true });
-            processChunk(chunk);
+            
+            // If chunk is very large, process it in smaller pieces
+            if (chunk.length > 500000) { // 500KB threshold
+              const pieceSize = 100000; // 100KB pieces
+              for (let i = 0; i < chunk.length; i += pieceSize) {
+                const piece = chunk.substring(i, Math.min(i + pieceSize, chunk.length));
+                await processChunk(piece);
+                // Process any accumulated buffer after each piece
+                await processRemainingBuffer();
+                // Yield between pieces
+                if (i + pieceSize < chunk.length) {
+                  await new Promise(resolve => setTimeout(resolve, 0));
+                }
+              }
+            } else {
+              await processChunk(chunk); // Make async to allow yielding
+              // Process any accumulated buffer
+              await processRemainingBuffer();
+            }
           }
         } catch (error) {
           reject(error);
@@ -368,32 +478,61 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
       const decoder = new TextDecoder('utf-8');
       const chunkSize = 10 * 1024 * 1024; // 10MB chunks
       
-      for (let i = 0; i < fileOrBuffer.byteLength; i += chunkSize) {
-        const chunk = fileOrBuffer.slice(i, Math.min(i + chunkSize, fileOrBuffer.byteLength));
-        const textChunk = decoder.decode(chunk, { stream: i + chunkSize < fileOrBuffer.byteLength });
-        processChunk(textChunk);
-      }
+      // CRITICAL FIX: Process ArrayBuffer path asynchronously to prevent stack overflow
+      const processArrayBuffer = async () => {
+        for (let i = 0; i < fileOrBuffer.byteLength; i += chunkSize) {
+          const chunk = fileOrBuffer.slice(i, Math.min(i + chunkSize, fileOrBuffer.byteLength));
+          const textChunk = decoder.decode(chunk, { stream: i + chunkSize < fileOrBuffer.byteLength });
+          await processChunk(textChunk); // Make async to allow yielding
+          
+          // Yield to event loop every chunk to prevent blocking
+          if (i + chunkSize < fileOrBuffer.byteLength) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+          }
+        }
+        
+        // Process all remaining buffer in batches
+        await processRemainingBuffer();
+        
+        // Process last line if buffer has content without newline
+        if (buffer.trim()) {
+          processLine(buffer);
+          buffer = '';
+        }
+        
+        const result = Array.from(workloadMap.values());
+        const totalAggregatedCost = result.reduce((sum, workload) => sum + (workload.monthlyCost || 0), 0);
       
-      // Process remaining buffer
-      if (buffer.trim()) {
-        processLine(buffer);
-      }
-      
-      const result = Array.from(workloadMap.values());
-      const totalAggregatedCost = result.reduce((sum, workload) => sum + workload.monthlyCost, 0);
-      
-      // Attach metadata with raw total cost (sum of ALL rows before aggregation)
-      result._metadata = {
-        totalRawCost: totalRawCost,
-        totalAggregatedCost: totalAggregatedCost,
-        totalRows: lineNumber - 1, // Exclude header
-        uniqueWorkloads: result.length
+        // CRITICAL DEBUG: Log row processing statistics
+        const totalRowsRead = lineNumber - 1; // Exclude header
+        console.log(`\n=== CSV PARSING SUMMARY (ArrayBuffer path) ===`);
+        console.log(`Total rows read: ${totalRowsRead.toLocaleString()}`);
+        console.log(`Rows processed: ${processedRows.toLocaleString()}`);
+        console.log(`Rows skipped - no productCode: ${skippedRows.noProductCode.toLocaleString()}`);
+        console.log(`Rows skipped - TAX: ${skippedRows.tax.toLocaleString()}`);
+        console.log(`Rows with zero cost (included): ${skippedRows.zeroCost.toLocaleString()}`);
+        console.log(`Unique workloads created: ${result.length.toLocaleString()}`);
+        console.log(`Total raw cost: $${totalRawCost.toFixed(2)}`);
+        console.log(`Total aggregated cost: $${totalAggregatedCost.toFixed(2)}`);
+        console.log(`=============================================\n`);
+        
+        // Attach metadata with raw total cost (sum of ALL rows before aggregation)
+        result._metadata = {
+          totalRawCost: totalRawCost,
+          totalAggregatedCost: totalAggregatedCost,
+          totalRows: totalRowsRead,
+          uniqueWorkloads: result.length,
+          skippedRows: skippedRows,
+          processedRows: processedRows
+        };
+        
+        console.log('streamingCsvParser.js: totalRawCost', totalRawCost);
+        console.log('streamingCsvParser.js: totalAggregatedCost', totalAggregatedCost);
+
+        resolve(result);
       };
       
-      console.log('streamingCsvParser.js: totalRawCost', totalRawCost);
-      console.log('streamingCsvParser.js: totalAggregatedCost', totalAggregatedCost);
-
-      resolve(result);
+      processArrayBuffer();
     }
   });
 };

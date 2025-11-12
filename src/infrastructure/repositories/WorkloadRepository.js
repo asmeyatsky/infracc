@@ -105,7 +105,15 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
    */
   async findAll() {
     await this._loadFromStorage();
-    return Array.from(this._cache.values());
+    const allWorkloads = Array.from(this._cache.values());
+    console.log(`WorkloadRepository.findAll() - Returning ${allWorkloads.length} workloads from cache (cache size: ${this._cache.size})`);
+    
+    // CRITICAL DEBUG: Warn if only 255 workloads
+    if (allWorkloads.length <= 255 && this._cache.size > 255) {
+      console.error(`⚠️ WARNING: findAll() returning only ${allWorkloads.length} workloads but cache has ${this._cache.size}!`);
+    }
+    
+    return allWorkloads;
   }
 
   /**
@@ -274,6 +282,22 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
 
     // If cache is already populated, skip loading
     if (this._cache.size > 0) {
+      console.log(`WorkloadRepository._loadFromStorage() - Cache already populated with ${this._cache.size} workloads, skipping load`);
+      
+      // CRITICAL DEBUG: Warn if cache has suspiciously low count
+      if (this._cache.size <= 255) {
+        console.warn(`⚠️ WARNING: Cache only has ${this._cache.size} workloads! This might be incorrect. Checking localStorage...`);
+        const storedData = localStorage.getItem(this.storageKey);
+        if (storedData) {
+          try {
+            const workloadsData = JSON.parse(storedData);
+            console.warn(`localStorage has ${workloadsData.length} workloads. Cache might be stale.`);
+          } catch (e) {
+            console.warn('Could not parse localStorage data');
+          }
+        }
+      }
+      
       return;
     }
 
@@ -282,16 +306,24 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
     try {
       const storedData = localStorage.getItem(this.storageKey);
       if (!storedData) {
+        console.log('WorkloadRepository._loadFromStorage() - No stored data found');
         this._isLoading = false;
         return;
       }
 
       // Parse JSON
       const workloadsData = JSON.parse(storedData);
+      console.log(`WorkloadRepository._loadFromStorage() - Found ${workloadsData.length} workloads in localStorage`);
+      
+      // CRITICAL DEBUG: Check if localStorage only has 255 workloads
+      if (workloadsData.length <= 255) {
+        console.warn(`⚠️ WARNING: localStorage only contains ${workloadsData.length} workloads! This might be due to quota exceeded. All workloads should be in memory cache during current session.`);
+      }
       
       // For large datasets, process in chunks to avoid stack overflow
       if (workloadsData.length > 100) {
         const chunkSize = 50;
+        let loadedCount = 0;
         for (let i = 0; i < workloadsData.length; i += chunkSize) {
           const chunk = workloadsData.slice(i, i + chunkSize);
           
@@ -300,6 +332,7 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
             try {
               const workload = Workload.fromJSON(data);
               this._cache.set(workload.id, workload);
+              loadedCount++;
             } catch (error) {
               console.warn('Failed to create workload from stored data:', error);
             }
@@ -310,12 +343,14 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
             await new Promise(resolve => setTimeout(resolve, 0));
           }
         }
+        console.log(`WorkloadRepository._loadFromStorage() - Loaded ${loadedCount} workloads into cache (cache size now: ${this._cache.size})`);
       } else {
         // For smaller datasets, process all at once
         const workloads = workloadsData.map(data => Workload.fromJSON(data));
         workloads.forEach(workload => {
           this._cache.set(workload.id, workload);
         });
+        console.log(`WorkloadRepository._loadFromStorage() - Loaded ${workloads.length} workloads into cache (cache size now: ${this._cache.size})`);
       }
     } catch (error) {
       console.error('Failed to load workloads:', error);

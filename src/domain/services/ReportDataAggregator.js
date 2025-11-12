@@ -302,7 +302,12 @@ export class ReportDataAggregator {
     const serviceAgg = this.aggregateByService(workloads);
     const regionAgg = this.aggregateByRegion(workloads);
     const readinessAgg = this.aggregateByReadiness(workloads);
-    const topServices = this.getTopServicesWithOther(serviceAgg, 15);
+    
+    // Return ALL services, not just top N - all services must be mapped and included in TCO
+    const allServicesData = {
+      topServices: serviceAgg, // All services (keeping name for backward compatibility)
+      other: null // No "other" category - all services are shown
+    };
 
     const totalWorkloads = workloads.length;
     let totalCost = 0;
@@ -340,11 +345,18 @@ export class ReportDataAggregator {
       totalCost += cost;
     });
     
+    // CRITICAL FIX: Ensure totalCost is never negative (handle credits/refunds)
+    if (totalCost < 0) {
+      console.warn(`⚠️ WARNING: Calculated totalCost is negative (${totalCost.toFixed(2)}). This might indicate credits/refunds or cost extraction issues.`);
+      console.warn(`This suggests workloads may have negative costs (credits) or cost extraction is failing.`);
+    }
+    
     if (costExtractionIssues > 0) {
       console.warn(`Cost extraction: Found ${costExtractionIssues} workloads with very small costs (< $1)`);
     }
     
     console.log(`ReportDataAggregator: Calculated totalMonthlyCost = $${totalCost.toFixed(2)} from ${totalWorkloads} workloads`);
+    console.log(`ReportDataAggregator: Found ${serviceAgg.length} unique AWS services (all will be mapped and included in TCO)`);
 
     const complexities = workloads
       .map(w => {
@@ -367,9 +379,9 @@ export class ReportDataAggregator {
       },
       complexity: complexityAgg,
       readiness: readinessAgg,
-      services: topServices,
+      services: allServicesData, // All services (not limited to top N)
       regions: regionAgg,
-      allServices: serviceAgg // Keep full list for detailed analysis
+      allServices: serviceAgg // Keep full list for detailed analysis (same as services.topServices now)
     };
   }
 }
