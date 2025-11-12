@@ -175,7 +175,7 @@ function AgentStatusDashboard({
                             <h6>Workflow Controls</h6>
                             {workloadIds.length > 0 ? (
                               <div className="alert alert-success mb-2">
-                                <small><strong>{workloadIds.length} workloads</strong> discovered</small>
+                                <small><strong>{workloadIds.length.toLocaleString()} workloads</strong> discovered</small>
                               </div>
                             ) : (
                               <div className="alert alert-info mb-2">

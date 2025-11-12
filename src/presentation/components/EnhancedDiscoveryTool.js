@@ -743,54 +743,18 @@ function EnhancedDiscoveryTool({ onAnalysisComplete, sourceCloud = 'aws', onSour
         {/* Workloads Summary */}
         <div className="card">
           <div className="card-header">
-            Discovered Workloads ({workloads.length})
+            Discovered Workloads ({workloads.length.toLocaleString()})
           </div>
           <div className="card-body">
             {workloads.length === 0 ? (
               <p className="text-muted">No workloads discovered yet. Add workloads above.</p>
             ) : (
-              <>
-                <div className="table-responsive">
-                  <table className="table table-striped">
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th>Service</th>
-                        <th>Type</th>
-                        <th>CPU</th>
-                        <th>Memory</th>
-                        <th>Storage</th>
-                        <th>Cost/Month</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {workloads.map((workload) => (
-                        <tr key={workload.id}>
-                          <td>{workload.name}</td>
-                          <td>{workload.service || 'N/A'}</td>
-                          <td>
-                            <span className="badge bg-secondary">
-                              {workload.type.displayName}
-                            </span>
-                          </td>
-                          <td>{workload.cpu}</td>
-                          <td>{workload.memory} GB</td>
-                          <td>{workload.storage} GB</td>
-                          <td>{workload.monthlyCost.format()}</td>
-                          <td>
-                            <button
-                              className="btn btn-sm btn-danger"
-                              onClick={() => removeWorkload(workload.id)}
-                            >
-                              Remove
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+              <div className="alert alert-success">
+                <i className="bi bi-check-circle me-2"></i>
+                <strong>{workloads.length.toLocaleString()} workloads</strong> discovered successfully.
+                <br />
+                <small className="text-muted">Detailed workload information available in PDF report. UI rendering disabled for performance with large workload counts.</small>
+              </div>
                 <div className="mt-3">
                   <button
                     className="btn btn-success btn-lg"
@@ -799,7 +763,6 @@ function EnhancedDiscoveryTool({ onAnalysisComplete, sourceCloud = 'aws', onSour
                     Complete Discovery & Analyze
                   </button>
                 </div>
-              </>
             )}
           </div>
         </div>
