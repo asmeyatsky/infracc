@@ -113,7 +113,10 @@ export class AssessmentAgent extends BaseAgent {
         const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
         const totalBatches = Math.ceil(workloadIds.length / BATCH_SIZE);
         
-        console.log(`AssessmentAgent: Processing batch ${batchNumber}/${totalBatches} (${batch.length.toLocaleString()} workloads)`);
+        // Only log every 10 batches or first/last batch to avoid console spam
+        if (batchNumber === 1 || batchNumber === totalBatches || batchNumber % 10 === 0) {
+          console.log(`AssessmentAgent: Processing batch ${batchNumber}/${totalBatches} (${batch.length.toLocaleString()} workloads)`);
+        }
         
         this.setExecuting(
           'Batch Assessment',
