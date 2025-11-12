@@ -771,8 +771,10 @@ function CurUploadButton({ onUploadComplete }) {
         const finalCount = (await workloadRepository.findAll()).length;
         console.log(`Final repository count after forced persistence: ${finalCount.toLocaleString()}`);
         
-        // Force a final save to ensure everything is persisted
-        await workloadRepository._forcePersist();
+        if (finalCount !== deduplicatedCount) {
+          const missing = deduplicatedCount - finalCount;
+          console.warn(`⚠️ Still missing ${missing.toLocaleString()} workloads after forced persistence. They may be in memory cache but not persisted to localStorage due to quota limits.`);
+        }
       } catch (error) {
         console.warn('Final persistence had issues, but workloads are saved in cache:', error);
       }
