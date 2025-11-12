@@ -135,11 +135,12 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
       
       processedRows++;
       
-      // For rows without ResourceId, create a composite key from productCode + usageType + region
-      // This groups similar charges together instead of creating unique workloads for each row
+      // For rows without ResourceId, create a composite key from productCode + region only
+      // This aggregates all usage types (storage, requests, data transfer) into one workload per service per region
+      // This makes more sense for migration planning - one S3 workload per region, not one per usage type
       const resourceId = rawResourceId && rawResourceId.length > 0 
         ? rawResourceId 
-        : `${productCode}_${usageType}_${region}_no-resource-id`.toLowerCase();
+        : `${productCode}_${region}_aggregated`.toLowerCase();
       
       // CRITICAL FIX: Use comprehensive AWS product code mapping
       // Normalize AWS product code to standard service name
