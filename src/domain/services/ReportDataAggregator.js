@@ -277,22 +277,15 @@ export class ReportDataAggregator {
    */
   static _extractCost(workloadData) {
     if (workloadData.monthlyCost !== undefined && workloadData.monthlyCost !== null) {
-      // If it's a Workload instance, monthlyCost will be a Money object
-      if (typeof workloadData.monthlyCost.value === 'number') {
+      // If it's a Money object (either Workload instance or deserialized Money object)
+      if (typeof workloadData.monthlyCost === 'object' && typeof workloadData.monthlyCost.value === 'number') {
         return workloadData.monthlyCost.value;
       }
-      // Handle Money object (has amount property)
-      if (workloadData.monthlyCost && typeof workloadData.monthlyCost === 'object') {
-        // Check for Money object with amount property
-        if ('amount' in workloadData.monthlyCost) {
-          return parseFloat(workloadData.monthlyCost.amount) || 0;
-        }
-        // Check for Money object with _amount property (internal)
-        if ('_amount' in workloadData.monthlyCost) {
-          return parseFloat(workloadData.monthlyCost._amount) || 0;
-        }
+      // If it's a plain object with an 'amount' property (e.g., from toJSON)
+      if (typeof workloadData.monthlyCost === 'object' && 'amount' in workloadData.monthlyCost) {
+        return parseFloat(workloadData.monthlyCost.amount) || 0;
       }
-      // Handle plain number (including after toJSON conversion)
+      // Handle plain number
       const numValue = parseFloat(workloadData.monthlyCost);
       return isNaN(numValue) ? 0 : numValue;
     }
