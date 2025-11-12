@@ -268,6 +268,9 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
           // Set status to running
           setStepStatuses(prev => ({ ...prev, discovery: 'running' }));
           
+          // Show pipeline progress
+          toast.info('🔍 Starting Discovery Agent...', { autoClose: 2000 });
+          
           // DiscoveryAgent already saves workloads to repository
           const discoveryResult = await agenticContainer.discoveryAgent.execute({}, { scanType: 'full' });
           
@@ -286,6 +289,9 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
             }
           }
           
+          // Artificial delay to show pipeline working (3 seconds)
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          
           // Reload workloads after discovery
           const workloads = await workloadRepository.findAll();
           setDiscoveredWorkloads(workloads);
@@ -293,6 +299,7 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
           
           // Mark discovery as completed
           setStepStatuses(prev => ({ ...prev, discovery: 'completed' }));
+          toast.success(`✅ Discovery complete! Found ${workloads.length} workloads.`, { autoClose: 3000 });
           
           return true;
 
@@ -312,8 +319,13 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
             return false;
           }
           
+          // Artificial delay before starting next agent (2 seconds)
+          toast.info('⏳ Preparing Assessment Agent...', { autoClose: 2000 });
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
           // Set status to running
           setStepStatuses(prev => ({ ...prev, assessment: 'running' }));
+          toast.info('📊 Starting Assessment Agent...', { autoClose: 2000 });
           
           console.log(`Running Assessment Agent for ${workloadIds.length} workloads...`);
           try {
@@ -339,8 +351,11 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
               }
             }
             
+            // Artificial delay to show pipeline working (4 seconds)
+            await new Promise(resolve => setTimeout(resolve, 4000));
+            
             setStepStatuses(prev => ({ ...prev, assessment: 'completed' }));
-            toast.success(`Assessment complete! Processed ${assessmentResult?.results?.length || workloadIds.length} workloads.`);
+            toast.success(`✅ Assessment complete! Processed ${assessmentResult?.results?.length || workloadIds.length} workloads.`, { autoClose: 3000 });
             return true;
           } catch (error) {
             console.error('Assessment failed:', error);
@@ -364,8 +379,13 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
             return false;
           }
           
+          // Artificial delay before starting next agent (2 seconds)
+          toast.info('⏳ Preparing Strategy Agent...', { autoClose: 2000 });
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
           // Set status to running
           setStepStatuses(prev => ({ ...prev, strategy: 'running' }));
+          toast.info('🎯 Starting Strategy Agent...', { autoClose: 2000 });
           
           console.log(`Running Planning Agent for ${workloadIds.length} workloads...`);
           try {
@@ -390,8 +410,11 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
               }
             }
             
+            // Artificial delay to show pipeline working (4 seconds)
+            await new Promise(resolve => setTimeout(resolve, 4000));
+            
             setStepStatuses(prev => ({ ...prev, strategy: 'completed' }));
-            toast.success(`Strategy planning complete! Generated plans for ${workloadIds.length} workloads.`);
+            toast.success(`✅ Strategy planning complete! Generated plans for ${workloadIds.length} workloads.`, { autoClose: 3000 });
             return true;
           } catch (error) {
             console.error('Strategy planning failed:', error);
@@ -408,6 +431,14 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
             return false;
           }
           
+          // Artificial delay before starting next agent (2 seconds)
+          toast.info('⏳ Preparing Cost Analysis Agent...', { autoClose: 2000 });
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          // Set status to running
+          setStepStatuses(prev => ({ ...prev, cost: 'running' }));
+          toast.info('💰 Starting Cost Analysis Agent...', { autoClose: 2000 });
+          
           console.log(`Running Cost Analysis Agent...`);
           try {
             // For now, we'll skip cost analysis if no cost inputs are provided
@@ -417,10 +448,13 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
             const estimates = await GCPCostEstimator.estimateAllServiceCosts(serviceAggregation, 'us-central1');
             setCostEstimates(estimates);
             
+            // Artificial delay to show pipeline working (3 seconds)
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            
             // If cost inputs are available, run the Cost Analysis Agent
             // For now, we'll mark this step as completed with the estimates
             setStepStatuses(prev => ({ ...prev, cost: 'completed' }));
-            toast.success(`Cost optimization complete! Generated estimates for ${discoveredWorkloads.length} workloads.`);
+            toast.success(`✅ Cost optimization complete! Generated estimates for ${discoveredWorkloads.length} workloads.`, { autoClose: 3000 });
             return true;
           } catch (error) {
             console.error('Cost optimization failed:', error);

@@ -272,10 +272,16 @@ export class ReportDataAggregator {
 
   /**
    * Extract cost from workload
+   * Handles both Money objects and plain numbers
    * @private
    */
   static _extractCost(workloadData) {
     if (workloadData.monthlyCost !== undefined) {
+      // Handle Money object (has amount property)
+      if (workloadData.monthlyCost && typeof workloadData.monthlyCost === 'object' && 'amount' in workloadData.monthlyCost) {
+        return parseFloat(workloadData.monthlyCost.amount) || 0;
+      }
+      // Handle plain number
       return parseFloat(workloadData.monthlyCost) || 0;
     }
     return 0;
