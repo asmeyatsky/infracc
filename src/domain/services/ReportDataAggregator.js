@@ -310,7 +310,17 @@ export class ReportDataAggregator {
     const totalWorkloads = workloads.length;
     const totalCost = workloads.reduce((sum, w) => {
       const workloadData = w.toJSON ? w.toJSON() : w;
-      return sum + this._extractCost(workloadData);
+      const cost = this._extractCost(workloadData);
+      // Debug: Log if cost seems incorrect (very small compared to expected)
+      if (cost > 0 && cost < 1 && workloads.length > 1000) {
+        console.warn('Very small cost detected:', { 
+          cost, 
+          monthlyCost: workloadData.monthlyCost,
+          hasToJSON: !!w.toJSON,
+          workloadType: w.constructor?.name || typeof w
+        });
+      }
+      return sum + cost;
     }, 0);
 
     const complexities = workloads
