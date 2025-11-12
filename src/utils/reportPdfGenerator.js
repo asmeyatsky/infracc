@@ -486,18 +486,133 @@ export const generateComprehensiveReportPDF = async (
     doc.text('Total Cost Summary', margin, yPos);
     yPos += 8;
 
+    // Calculate migration costs (one-time)
+    const totalWorkloads = reportData?.summary?.totalWorkloads || 0;
+    const dataEgressCost = totalCosts.aws * 0.02; // Estimate 2% of monthly cost for data egress
+    const migrationConsulting = totalWorkloads * 50; // $50 per workload for consulting
+    const migrationTools = totalCosts.aws * 0.01; // 1% of monthly cost for migration tools
+    const trainingCost = totalWorkloads * 10; // $10 per workload for training
+    const totalMigrationCost = dataEgressCost + migrationConsulting + migrationTools + trainingCost;
+    
+    // Calculate operational costs (ongoing)
+    const licensingCost = totalCosts.gcp3Year * 0.05; // 5% for licensing (Custom Solutions, etc.)
+    const managementTools = totalCosts.gcp3Year * 0.03; // 3% for management/monitoring tools
+    const monthlyOperationalCost = licensingCost + managementTools;
+    const annualOperationalCost = monthlyOperationalCost * 12;
+    const threeYearOperationalCost = annualOperationalCost * 3;
+    
+    // Calculate complete TCO (3 years)
+    const gcp3YearTotal = totalCosts.gcp3Year * 12 * 3; // 3 years of GCP costs
+    const totalTCO = gcp3YearTotal + totalMigrationCost + threeYearOperationalCost;
+    const aws3YearTotal = totalCosts.aws * 12 * 3;
+    const netSavings = aws3YearTotal - totalTCO;
+    
     const totalCostData = [
-      ['AWS Total', formatCurrency(totalCosts.aws)],
-      ['GCP On-Demand', formatCurrency(totalCosts.gcpOnDemand)],
-      ['GCP 1-Year CUD', formatCurrency(totalCosts.gcp1Year)],
-      ['GCP 3-Year CUD', formatCurrency(totalCosts.gcp3Year)],
-      ['Potential Savings (3Y CUD)', formatCurrency(totalCosts.aws - totalCosts.gcp3Year)]
+      ['AWS Total (Monthly)', formatCurrency(totalCosts.aws)],
+      ['GCP On-Demand (Monthly)', formatCurrency(totalCosts.gcpOnDemand)],
+      ['GCP 1-Year CUD (Monthly)', formatCurrency(totalCosts.gcp1Year)],
+      ['GCP 3-Year CUD (Monthly)', formatCurrency(totalCosts.gcp3Year)],
+      ['Potential Savings (Monthly)', formatCurrency(totalCosts.aws - totalCosts.gcp3Year)]
     ];
-
+    
     callAutoTable({
       startY: yPos,
       head: [['Cost Type', 'Monthly Cost']],
       body: totalCostData,
+      theme: 'grid',
+      headStyles: { fillColor: [40, 167, 69] },
+      margin: { left: margin, right: margin },
+      styles: { fontSize: 9 }
+    });
+    
+    yPos = getLastAutoTable().finalY + 15;
+    
+    // Migration Costs (One-Time)
+    checkPageBreak(30);
+    doc.setFontSize(12);
+    doc.setTextColor(40, 167, 69);
+    doc.text('Migration Costs (One-Time)', margin, yPos);
+    yPos += 8;
+    
+    const migrationCostData = [
+      ['Data Egress from AWS', formatCurrency(dataEgressCost)],
+      ['Migration Consulting', formatCurrency(migrationConsulting)],
+      ['Migration Tools & Software', formatCurrency(migrationTools)],
+      ['Training & Knowledge Transfer', formatCurrency(trainingCost)],
+      ['Total Migration Cost', formatCurrency(totalMigrationCost)]
+    ];
+    
+    callAutoTable({
+      startY: yPos,
+      head: [['Cost Item', 'One-Time Cost']],
+      body: migrationCostData,
+      theme: 'grid',
+      headStyles: { fillColor: [40, 167, 69] },
+      margin: { left: margin, right: margin },
+      styles: { fontSize: 9 }
+    });
+    
+    yPos = getLastAutoTable().finalY + 15;
+    
+    // Operational Costs (Ongoing)
+    checkPageBreak(30);
+    doc.setFontSize(12);
+    doc.setTextColor(40, 167, 69);
+    doc.text('Operational Costs (Ongoing)', margin, yPos);
+    yPos += 8;
+    
+    const operationalCostData = [
+      ['Licensing (Custom Solutions)', formatCurrency(licensingCost) + '/month'],
+      ['Management & Monitoring Tools', formatCurrency(managementTools) + '/month'],
+      ['Total Operational Cost (Monthly)', formatCurrency(monthlyOperationalCost)],
+      ['Total Operational Cost (3 Years)', formatCurrency(threeYearOperationalCost)]
+    ];
+    
+    callAutoTable({
+      startY: yPos,
+      head: [['Cost Item', 'Cost']],
+      body: operationalCostData,
+      theme: 'grid',
+      headStyles: { fillColor: [40, 167, 69] },
+      margin: { left: margin, right: margin },
+      styles: { fontSize: 9 }
+    });
+    
+    yPos = getLastAutoTable().finalY + 15;
+    
+    // Complete TCO Summary (3 Years)
+    checkPageBreak(30);
+    doc.setFontSize(12);
+    doc.setTextColor(0, 0, 0);
+    doc.setFont(undefined, 'bold');
+    doc.text('Complete TCO Analysis (3 Years)', margin, yPos);
+    yPos += 8;
+    
+    doc.setFont(undefined, 'normal');
+    doc.setFontSize(10);
+    const tcoData = [
+      ['AWS Total (3 Years)', formatCurrency(aws3YearTotal)],
+      ['GCP 3-Year CUD Total (3 Years)', formatCurrency(gcp3YearTotal)],
+      ['Migration Costs (One-Time)', formatCurrency(totalMigrationCost)],
+      ['Operational Costs (3 Years)', formatCurrency(threeYearOperationalCost)],
+      ['Total GCP TCO (3 Years)', formatCurrency(totalTCO)],
+      ['Net Savings (3 Years)', formatCurrency(netSavings)]
+    ];
+    
+    callAutoTable({
+      startY: yPos,
+      head: [['Cost Category', '3-Year Total']],
+      body: tcoData,
+      theme: 'grid',
+      headStyles: { fillColor: [0, 102, 204] },
+      margin: { left: margin, right: margin },
+      styles: { fontSize: 9 },
+      columnStyles: {
+        1: { halign: 'right', fontStyle: 'bold' }
+      }
+    });
+
+    yPos = getLastAutoTable().finalY + 15;
       theme: 'grid',
       headStyles: { fillColor: [40, 167, 69] },
       margin: { left: margin, right: margin },
