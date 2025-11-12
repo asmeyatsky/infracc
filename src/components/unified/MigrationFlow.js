@@ -114,6 +114,15 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
         const success = await executeStep(step);
         if (success) {
           setStepStatuses(prev => ({ ...prev, [step.id]: 'completed' }));
+          
+          // Special handling for assessment step - ensure assessmentResults is set
+          if (step.id === 'assessment') {
+            // Wait a bit longer to ensure state is set
+            await new Promise(resolve => setTimeout(resolve, 500));
+            // Verify assessmentResults was set (check current state via a ref or callback)
+            console.log(`Auto-run: Assessment step completed, verifying assessmentResults state...`);
+          }
+          
           // Wait to ensure agent is fully done before advancing
           await new Promise(resolve => setTimeout(resolve, 2000));
           if (currentStep < STEPS.length - 1) {
@@ -143,6 +152,16 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
   const agenticContainer = getAgenticContainer();
   const container = getContainer();
   const workloadRepository = container.workloadRepository;
+
+  // Debug: Log when assessmentResults changes
+  useEffect(() => {
+    console.log(`CRITICAL: assessmentResults state changed:`, {
+      isNull: assessmentResults === null,
+      hasResults: !!assessmentResults?.results,
+      resultsLength: assessmentResults?.results?.length,
+      keys: assessmentResults ? Object.keys(assessmentResults) : 'null'
+    });
+  }, [assessmentResults]);
 
   useEffect(() => {
     // Subscribe to agent status changes
@@ -348,6 +367,13 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
             const resultCount = assessmentResult?.results?.length || 0;
             console.log(`CRITICAL: Assessment result received: ${resultCount.toLocaleString()} assessments`);
             console.log(`CRITICAL: Expected ${workloadIds.length.toLocaleString()} assessments`);
+            console.log(`CRITICAL: assessmentResult structure:`, {
+              hasResult: !!assessmentResult,
+              hasResults: !!assessmentResult?.results,
+              resultsLength: assessmentResult?.results?.length,
+              keys: assessmentResult ? Object.keys(assessmentResult) : 'null',
+              sampleResult: assessmentResult?.results?.[0]
+            });
             
             // Verify ALL workloads were assessed
             if (resultCount !== workloadIds.length) {
@@ -358,7 +384,22 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
               console.log(`✅ SUCCESS: All ${resultCount.toLocaleString()} workloads assessed successfully`);
             }
             
+            // Ensure assessmentResult has the expected structure
+            if (!assessmentResult || !assessmentResult.results) {
+              console.error(`⚠️ CRITICAL ERROR: assessmentResult is invalid:`, assessmentResult);
+              toast.error('Assessment Agent returned invalid results. Please try again.');
+              setStepStatuses(prev => ({ ...prev, assessment: 'failed' }));
+              return false;
+            }
+            
+            console.log(`CRITICAL: Setting assessmentResults state with ${resultCount.toLocaleString()} results`);
             setAssessmentResults(assessmentResult);
+            console.log(`CRITICAL: assessmentResults state set. Verifying...`);
+            
+            // Verify state was set (after a brief delay)
+            setTimeout(() => {
+              console.log(`CRITICAL: State verification - assessmentResults should now be available`);
+            }, 100);
             
             // Wait for assessment agent to be fully completed - increase timeout for large batches
             let assessmentCompleted = false;
@@ -393,8 +434,15 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
             return true;
           } catch (error) {
             console.error('Assessment failed:', error);
+            console.error('Assessment error stack:', error.stack);
+            console.error('Assessment error details:', {
+              message: error.message,
+              name: error.name,
+              cause: error.cause
+            });
             toast.error(`Assessment failed: ${error.message}`);
             setStepStatuses(prev => ({ ...prev, assessment: 'failed' }));
+            // Don't set assessmentResults to null - keep any partial results
             return false;
           }
 
