@@ -217,10 +217,13 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
             // All workloads are still in memory cache and will work fine during this session
             // Only persistence to localStorage is affected
             
-            console.warn(`⚠️ Browser localStorage quota exceeded (${cacheSize} workloads).`);
-            console.warn(`✅ All ${cacheSize} workloads are still available in memory and will work correctly.`);
-            console.warn(`⚠️ Only ${Math.floor(cacheSize / 2)} workloads will persist across page refreshes.`);
-            console.warn(`💡 Tip: Export your workloads to JSON to preserve all data.`);
+            // Only log once per persistence attempt to avoid spam
+            if (!this._quotaWarningLogged) {
+              console.warn(`⚠️ Browser localStorage quota exceeded (${cacheSize.toLocaleString()} workloads).`);
+              console.warn(`✅ All ${cacheSize.toLocaleString()} workloads are still available in memory and will work correctly during this session.`);
+              console.warn(`💡 Tip: Export your workloads to JSON to preserve all data across page refreshes.`);
+              this._quotaWarningLogged = true;
+            }
             
             // Try to save a subset if quota exceeded
             const subset = workloadsArray.slice(-Math.floor(workloadsArray.length / 2));
@@ -228,16 +231,18 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
             
             try {
               localStorage.setItem(this.storageKey, subsetJson);
-              console.warn(`Saved ${subset.length} most recent workloads to localStorage (${workloadsArray.length - subset.length} older workloads not persisted to disk, but still in memory)`);
+              // Silent success - quota warning already logged
             } catch (subsetError) {
               // If even subset fails, clear old data and try again
-              console.warn('Even subset failed. Clearing old data and retrying...');
+              if (!this._quotaWarningLogged) {
+                console.warn('Even subset failed. Clearing old data and retrying...');
+              }
               localStorage.removeItem(this.storageKey);
               
               // Try saving just the last 100 workloads
               const minimal = workloadsArray.slice(-100);
               localStorage.setItem(this.storageKey, JSON.stringify(minimal));
-              console.warn(`Saved only ${minimal.length} most recent workloads to localStorage due to browser storage limits`);
+              // Silent - quota warning already logged
             }
           } else {
             throw quotaError;

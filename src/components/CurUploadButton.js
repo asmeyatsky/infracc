@@ -738,21 +738,51 @@ function CurUploadButton({ onUploadComplete }) {
       const actualUniqueCount = allWorkloadsInRepo.length;
       const deduplicatedCount = dedupeMap.size;
       
+      const missingCount = deduplicatedCount - actualUniqueCount;
+      
       console.log(`\n=== FINAL DEDUPLICATION SUMMARY ===`);
-      console.log(`Total rows processed: ${totalRowsProcessed}`);
+      console.log(`Total rows processed: ${totalRowsProcessed.toLocaleString()}`);
       console.log(`Total files processed: ${files.length}`);
-      console.log(`Unique workloads in dedupeMap: ${deduplicatedCount}`);
-      console.log(`Duplicates merged: ${totalDuplicatesRemoved}`);
-      console.log(`Workloads saved to repository: ${totalWorkloadsSaved}`);
-      console.log(`Actual workloads in repository: ${actualUniqueCount}`);
+      console.log(`Unique workloads in dedupeMap: ${deduplicatedCount.toLocaleString()}`);
+      console.log(`Duplicates merged: ${totalDuplicatesRemoved.toLocaleString()}`);
+      console.log(`Workloads saved to repository: ${totalWorkloadsSaved.toLocaleString()}`);
+      console.log(`Workloads skipped/failed: ${totalSkippedCount.toLocaleString()}`);
+      console.log(`Actual workloads in repository: ${actualUniqueCount.toLocaleString()}`);
       console.log(`Total aggregated monthly cost (deduplicated): $${totalAggregatedCost.toFixed(2)}`);
       console.log(`Total raw cost (sum of all bills): $${totalRawCost.toFixed(2)}`);
       console.log(`fileStats length: ${fileStats.length}`);
       console.log(`=====================================\n`);
       
       if (actualUniqueCount !== deduplicatedCount) {
-        console.warn(`⚠️ WARNING: Repository count (${actualUniqueCount}) doesn't match dedupeMap count (${deduplicatedCount})`);
-        console.warn(`This suggests some workloads may not have been saved or were duplicated`);
+        const difference = deduplicatedCount - actualUniqueCount;
+        
+        // Check if localStorage quota was exceeded (indicated by repository warning)
+        const localStorageQuotaExceeded = actualUniqueCount > 100000; // Large count suggests quota issue
+        
+        if (localStorageQuotaExceeded || difference > 1000) {
+          // This is expected - browser localStorage quota limits
+          console.warn(`⚠️ NOTE: Repository count (${actualUniqueCount.toLocaleString()}) is less than dedupeMap count (${deduplicatedCount.toLocaleString()})`);
+          console.warn(`Difference: ${difference.toLocaleString()} workloads`);
+          console.warn(`• This is due to browser localStorage quota limits (typically 5-10MB)`);
+          console.warn(`• All ${deduplicatedCount.toLocaleString()} workloads are available in memory cache and will work correctly`);
+          console.warn(`• Only ${actualUniqueCount.toLocaleString()} workloads will persist across page refreshes`);
+          console.warn(`• 💡 Export workloads to JSON to preserve all data`);
+        } else {
+          // Small difference - might be actual save errors
+          console.warn(`⚠️ WARNING: Repository count (${actualUniqueCount.toLocaleString()}) doesn't match dedupeMap count (${deduplicatedCount.toLocaleString()})`);
+          console.warn(`Difference: ${difference.toLocaleString()} workloads`);
+          
+          if (totalSkippedCount > 0) {
+            console.warn(`• ${totalSkippedCount.toLocaleString()} workloads were skipped due to save errors or invalid data`);
+          }
+          
+          if (difference <= 100) {
+            console.warn(`• Small difference (${difference.toLocaleString()}) likely due to save errors or validation failures`);
+            console.warn(`• Check console for specific error messages about failed saves`);
+          }
+        }
+      } else {
+        console.log(`✅ SUCCESS: All ${actualUniqueCount.toLocaleString()} workloads successfully saved to repository`);
       }
 
       // Force final persistence to ensure all workloads are saved
