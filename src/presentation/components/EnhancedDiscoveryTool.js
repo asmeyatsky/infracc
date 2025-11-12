@@ -749,12 +749,13 @@ function EnhancedDiscoveryTool({ onAnalysisComplete, sourceCloud = 'aws', onSour
             {workloads.length === 0 ? (
               <p className="text-muted">No workloads discovered yet. Add workloads above.</p>
             ) : (
-              <div className="alert alert-success">
-                <i className="bi bi-check-circle me-2"></i>
-                <strong>{workloads.length.toLocaleString()} workloads</strong> discovered successfully.
-                <br />
-                <small className="text-muted">Detailed workload information available in PDF report. UI rendering disabled for performance with large workload counts.</small>
-              </div>
+              <>
+                <div className="alert alert-success">
+                  <i className="bi bi-check-circle me-2"></i>
+                  <strong>{workloads.length.toLocaleString()} workloads</strong> discovered successfully.
+                  <br />
+                  <small className="text-muted">Detailed workload information available in PDF report. UI rendering disabled for performance with large workload counts.</small>
+                </div>
                 <div className="mt-3">
                   <button
                     className="btn btn-success btn-lg"
@@ -763,6 +764,7 @@ function EnhancedDiscoveryTool({ onAnalysisComplete, sourceCloud = 'aws', onSour
                     Complete Discovery & Analyze
                   </button>
                 </div>
+              </>
             )}
           </div>
         </div>
