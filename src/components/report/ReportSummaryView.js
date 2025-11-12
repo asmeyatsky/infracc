@@ -10,7 +10,7 @@
  * - PDF Download
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Bar, Doughnut } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -45,21 +45,46 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
   const [reportData, setReportData] = useState(null);
   const [targetRegion, setTargetRegion] = useState('us-central1');
 
-  useEffect(() => {
-    if (workloads && workloads.length > 0) {
-      const summary = ReportDataAggregator.generateReportSummary(workloads);
-      
-      // Override totalMonthlyCost with uploadSummary value if available (more accurate)
-      // The uploadSummary has the raw cost sum from all bills, which is correct
-      // The workload-based calculation may be wrong due to deduplication or Money object issues
-      if (uploadSummary && uploadSummary.totalMonthlyCost) {
-        console.log(`ReportSummaryView: Overriding totalMonthlyCost from $${summary.summary.totalMonthlyCost.toFixed(2)} to $${uploadSummary.totalMonthlyCost.toFixed(2)}`);
-        summary.summary.totalMonthlyCost = uploadSummary.totalMonthlyCost;
-      }
-      
-      setReportData(summary);
+  // Performance optimization: Only calculate report data when needed for display
+  // Use useMemo to prevent recalculation on every render
+  const reportDataMemo = useMemo(() => {
+    if (!workloads || workloads.length === 0) {
+      return null;
     }
-  }, [workloads, uploadSummary]);
+    
+    // Only calculate minimal data needed for summary cards
+    // Full aggregation happens during PDF generation
+    const summary = {
+      summary: {
+        totalWorkloads: workloads.length,
+        totalMonthlyCost: uploadSummary?.totalMonthlyCost || 0,
+        totalRegions: new Set(workloads.map(w => w.region || 'Unknown')).size,
+        averageComplexity: null // Skip heavy calculation
+      },
+      complexity: {
+        low: { count: 0, totalCost: 0 },
+        medium: { count: 0, totalCost: 0 },
+        high: { count: 0, totalCost: 0 },
+        unassigned: { count: workloads.length, totalCost: uploadSummary?.totalMonthlyCost || 0 }
+      },
+      readiness: {
+        ready: { count: 0, totalCost: 0 },
+        conditional: { count: 0, totalCost: 0 },
+        notReady: { count: 0, totalCost: 0 },
+        unassigned: { count: workloads.length, totalCost: uploadSummary?.totalMonthlyCost || 0 }
+      },
+      services: {
+        topServices: [] // Empty - not needed for UI
+      },
+      regions: [] // Empty - not needed for UI
+    };
+    
+    return summary;
+  }, [workloads.length, uploadSummary?.totalMonthlyCost]); // Only depend on length and cost, not full workloads array
+
+  useEffect(() => {
+    setReportData(reportDataMemo);
+  }, [reportDataMemo]);
 
   if (!reportData) {
     return (
@@ -79,16 +104,22 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
     }).format(value);
   };
 
-  // Prepare complexity chart data
-  const complexityChartData = {
+  // Skip charts - they require heavy aggregation
+  // Charts available in PDF report
+  const complexityChartData = null;
+  const readinessChartData = null;
+  const serviceCostChartData = null;
+  
+  // Minimal data for display
+  const _complexityChartData = {
     labels: ['Low (1-3)', 'Medium (4-6)', 'High (7-10)', 'Unassigned'],
     datasets: [{
       label: 'Workloads',
       data: [
-        reportData.complexity.low.count,
-        reportData.complexity.medium.count,
-        reportData.complexity.high.count,
-        reportData.complexity.unassigned.count
+        reportData?.complexity?.low?.count || 0,
+        reportData?.complexity?.medium?.count || 0,
+        reportData?.complexity?.high?.count || 0,
+        reportData?.complexity?.unassigned?.count || 0
       ],
       backgroundColor: [
         'rgba(40, 167, 69, 0.8)',   // Green for Low
@@ -106,16 +137,15 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
     }]
   };
 
-  // Prepare readiness chart data
-  const readinessChartData = {
+  const _readinessChartData = {
     labels: ['Ready', 'Conditional', 'Not Ready', 'Unassigned'],
     datasets: [{
       label: 'Workloads',
       data: [
-        reportData.readiness.ready.count,
-        reportData.readiness.conditional.count,
-        reportData.readiness.notReady.count,
-        reportData.readiness.unassigned.count
+        reportData?.readiness?.ready?.count || 0,
+        reportData?.readiness?.conditional?.count || 0,
+        reportData?.readiness?.notReady?.count || 0,
+        reportData?.readiness?.unassigned?.count || 0
       ],
       backgroundColor: [
         'rgba(40, 167, 69, 0.8)',   // Green for Ready
@@ -133,25 +163,20 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
     }]
   };
 
-  // Prepare service cost chart data (top 10)
-  // Use all services (topServices now contains all services, not just top N)
-  const topServices = reportData.services.topServices || [];
-  const displayServices = topServices.slice(0, 10); // Display top 10 in chart, but all are included in calculations
-  const serviceCostChartData = {
-    labels: displayServices.map(s => s.service),
+  const _serviceCostChartData = {
+    labels: [],
     datasets: [{
       label: 'Monthly Cost (USD)',
-      data: displayServices.map(s => s.totalCost),
+      data: [],
       backgroundColor: 'rgba(0, 123, 255, 0.8)',
       borderColor: 'rgba(0, 123, 255, 1)',
       borderWidth: 1
     }]
   };
 
-  // Get top 5 services and regions for summary cards
-  // Get top 5 for display, but all services are included in calculations
-  const top5Services = (reportData.services.topServices || []).slice(0, 5);
-  const top5Regions = reportData.regions.slice(0, 5);
+  // Skip top services/regions - not needed for UI
+  const top5Services = [];
+  const top5Regions = [];
 
   // Calculate wave distribution if strategy results available
   const waveDistribution = strategyResults?.wavePlan ? {
@@ -284,7 +309,7 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
         </div>
       </div>
 
-      {/* Charts Row */}
+      {/* Charts Row - Disabled for performance */}
       <div className="row mb-4">
         <div className="col-md-6 mb-3">
           <div className="card">
@@ -292,7 +317,11 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
               <h5 className="mb-0">Complexity Distribution</h5>
             </div>
             <div className="card-body">
-              <Doughnut 
+              <div className="alert alert-info">
+                <i className="bi bi-info-circle me-2"></i>
+                Complexity distribution chart available in PDF report.
+              </div>
+              {/* <Doughnut 
                 data={complexityChartData}
                 options={{
                   responsive: true,
