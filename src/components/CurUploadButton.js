@@ -797,7 +797,7 @@ function CurUploadButton({ onUploadComplete }) {
             uniqueWorkloads: deduplicatedCount,
             duplicatesMerged: totalDuplicatesRemoved,
             workloadsSaved: actualUniqueCount,
-            totalMonthlyCost: totalRawCost || 0, // Use raw cost sum (sum of all bills), default to 0 if undefined
+            totalMonthlyCost: totalAggregatedCost || 0, // Use aggregated cost
             totalAggregatedCost: totalAggregatedCost || 0, // Deduplicated cost for reference
             fileStats: fileStats || [] // Ensure fileStats is an array
           };

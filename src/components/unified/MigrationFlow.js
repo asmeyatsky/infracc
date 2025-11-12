@@ -493,29 +493,30 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
               const serviceAggregation = ReportDataAggregator.aggregateByService(discoveredWorkloads);
               const estimates = await GCPCostEstimator.estimateAllServiceCosts(serviceAggregation, 'us-central1');
               setCostEstimates(estimates);
-            }
 
-            setStepStatuses(prev => ({ ...prev, report: 'completed' }));
-            
-            // If PDF format selected, generate PDF immediately
-            if (outputFormat === 'pdf') {
-              try {
-                await generateComprehensiveReportPDF(
-                  reportData,
-                  costEstimates,
-                  strategyResults,
-                  assessmentResults,
-                  {
-                    projectName: projectData?.name || 'AWS to GCP Migration Assessment',
-                    targetRegion: 'us-central1'
-                  }
-                );
-                toast.success('PDF report generated successfully!');
-              } catch (pdfError) {
-                console.error('PDF generation error:', pdfError);
-                toast.error(`PDF generation failed: ${pdfError.message}. Showing screen report instead.`);
-                // Continue to show screen report even if PDF fails
+              // If PDF format selected, generate PDF immediately
+              if (outputFormat === 'pdf') {
+                try {
+                  await generateComprehensiveReportPDF(
+                    reportData,
+                    estimates, // Use 'estimates' directly here as it's just been set
+                    strategyResults,
+                    assessmentResults,
+                    {
+                      projectName: projectData?.name || 'AWS to GCP Migration Assessment',
+                      targetRegion: 'us-central1'
+                    }
+                  );
+                  toast.success('PDF report generated successfully!');
+                } catch (pdfError) {
+                  console.error('PDF generation error:', pdfError);
+                  toast.error(`PDF generation failed: ${pdfError.message}. Showing screen report instead.`);
+                  // Continue to show screen report even if PDF fails
+                }
               }
+              setStepStatuses(prev => ({ ...prev, report: 'completed' }));
+            } else {
+              setStepStatuses(prev => ({ ...prev, report: 'completed' }));
             }
             
             return true;
