@@ -99,21 +99,18 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
     }
     
     // Use ReportDataAggregator to calculate actual complexity and readiness
-    const complexity = ReportDataAggregator.aggregateByComplexity(workloadsWithAssessments);
-    const readiness = ReportDataAggregator.aggregateByReadiness(workloadsWithAssessments);
-    const services = ReportDataAggregator.aggregateByService(workloadsWithAssessments);
-    const regions = ReportDataAggregator.aggregateByRegion(workloadsWithAssessments);
-    const summary = ReportDataAggregator.generateSummary(workloadsWithAssessments);
+    // Use generateReportSummary which includes all aggregations
+    const reportSummary = ReportDataAggregator.generateReportSummary(workloadsWithAssessments);
     
     return {
       summary: {
-        ...summary.summary,
-        totalRegions: uploadSummary?.totalRegions || summary.summary.totalRegions || 1
+        ...reportSummary.summary,
+        totalRegions: uploadSummary?.totalRegions || reportSummary.summary.totalRegions || 1
       },
-      complexity,
-      readiness,
-      services,
-      regions
+      complexity: reportSummary.complexity,
+      readiness: reportSummary.readiness,
+      services: reportSummary.services,
+      regions: reportSummary.regions
     };
   }, [workloadsWithAssessments, uploadSummary]);
 
