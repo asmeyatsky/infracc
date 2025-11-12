@@ -615,9 +615,6 @@ export const generateComprehensiveReportPDF = async (
     yPos = getLastAutoTable().finalY + 15;
   }
 
-    yPos = getLastAutoTable().finalY + 15;
-  }
-
   // ==========================================
   // STRATEGY AGENT SUMMARY
   // ==========================================
