@@ -48,17 +48,54 @@ export const generateComprehensiveReportPDF = async (
     throw new Error('Failed to initialize PDF generator. Please ensure jspdf is installed.');
   }
   
-  // Verify autoTable is available
-  // In jspdf-autotable v5, autoTable is added to jsPDF.prototype
-  // We need to check both the instance and prototype
+  // Helper function to safely call autoTable
+  // jspdf-autotable v5 extends jsPDF.prototype.autoTable via side-effect import
+  const callAutoTable = (options) => {
+    // Try direct call first (most common case)
+    if (typeof doc.autoTable === 'function') {
+      const result = doc.autoTable(options);
+      return result;
+    }
+    
+    // Try prototype (where plugin extends it)
+    const proto = Object.getPrototypeOf(doc);
+    if (typeof proto.autoTable === 'function') {
+      const result = proto.autoTable.call(doc, options);
+      return result;
+    }
+    
+    // Last resort: try to access via jsPDF.API
+    if (typeof jsPDF.API !== 'undefined' && typeof jsPDF.API.autoTable === 'function') {
+      const result = jsPDF.API.autoTable.call(doc, options);
+      return result;
+    }
+    
+    throw new Error('autoTable method not available. jspdf-autotable plugin may not be loaded. Please restart the development server.');
+  };
+  
+  // Helper to get lastAutoTable (set by autoTable plugin after each call)
+  const getLastAutoTable = () => {
+    if (doc.lastAutoTable) {
+      return doc.lastAutoTable;
+    }
+    const proto = Object.getPrototypeOf(doc);
+    if (proto.lastAutoTable) {
+      return proto.lastAutoTable;
+    }
+    // Fallback: return a mock object with finalY
+    return { finalY: yPos };
+  };
+  
+  // Verify autoTable is available before proceeding
   const hasAutoTable = typeof doc.autoTable === 'function' || 
-                      typeof Object.getPrototypeOf(doc).autoTable === 'function';
+                      typeof Object.getPrototypeOf(doc).autoTable === 'function' ||
+                      (typeof jsPDF.API !== 'undefined' && typeof jsPDF.API.autoTable === 'function');
   
   if (!hasAutoTable) {
     // Try to reload the module as a last resort
     try {
       // Force reload by dynamic import
-      const autotableModule = await import('jspdf-autotable');
+      await import('jspdf-autotable');
       // The side-effect should have run, recreate instance
       doc = new jsPDF('p', 'mm', 'a4');
     } catch (importError) {
@@ -67,20 +104,22 @@ export const generateComprehensiveReportPDF = async (
     
     // Final check
     const finalCheck = typeof doc.autoTable === 'function' || 
-                      typeof Object.getPrototypeOf(doc).autoTable === 'function';
+                      typeof Object.getPrototypeOf(doc).autoTable === 'function' ||
+                      (typeof jsPDF.API !== 'undefined' && typeof jsPDF.API.autoTable === 'function');
     
     if (!finalCheck) {
       const errorMsg = 'PDF generation requires jspdf-autotable plugin. ' +
         'The plugin may not be properly loaded. Please try:\n' +
-        '1. Restart the development server\n' +
-        '2. Clear node_modules and reinstall: rm -rf node_modules && npm install\n' +
+        '1. Restart the development server (npm start)\n' +
+        '2. Clear node_modules and reinstall: rm -rf node_modules package-lock.json && npm install\n' +
         '3. Ensure both packages are installed: npm install jspdf@^3.0.3 jspdf-autotable@^5.0.2';
       console.error(errorMsg);
       console.error('Debug info:', {
         jsPDFVersion: jsPDF.version,
         docHasAutoTable: typeof doc.autoTable,
         protoHasAutoTable: typeof Object.getPrototypeOf(doc).autoTable,
-        docMethods: Object.getOwnPropertyNames(doc).filter(n => n.includes('Table'))
+        jsPDFAPIHasAutoTable: typeof jsPDF.API !== 'undefined' ? typeof jsPDF.API.autoTable : 'API undefined',
+        docMethods: Object.getOwnPropertyNames(doc).filter(n => n.includes('Table') || n.includes('auto'))
       });
       throw new Error(errorMsg);
     }
@@ -162,7 +201,7 @@ export const generateComprehensiveReportPDF = async (
     ['AWS Services', reportData.summary.totalServices.toString()]
   ];
 
-  doc.autoTable({
+  callAutoTable({
     startY: yPos,
     head: [['Metric', 'Value']],
     body: summaryData,
@@ -172,7 +211,7 @@ export const generateComprehensiveReportPDF = async (
     styles: { fontSize: 9 }
   });
 
-  yPos = doc.lastAutoTable.finalY + 15;
+  yPos = getLastAutoTable().finalY + 15;
 
   // ==========================================
   // TABLE OF CONTENTS
@@ -233,7 +272,7 @@ export const generateComprehensiveReportPDF = async (
     ['Unassigned', reportData.complexity.unassigned.count.toString(), formatCurrency(reportData.complexity.unassigned.totalCost)]
   ];
 
-  doc.autoTable({
+  callAutoTable({
     startY: yPos,
     head: [['Complexity Level', 'Workloads', 'Monthly Cost']],
     body: complexityData,
@@ -243,7 +282,7 @@ export const generateComprehensiveReportPDF = async (
     styles: { fontSize: 9 }
   });
 
-  yPos = doc.lastAutoTable.finalY + 10;
+  yPos = getLastAutoTable().finalY + 10;
 
   // Readiness Distribution
   checkPageBreak(30);
@@ -259,7 +298,7 @@ export const generateComprehensiveReportPDF = async (
     ['Unassigned', reportData.readiness.unassigned.count.toString(), formatCurrency(reportData.readiness.unassigned.totalCost)]
   ];
 
-  doc.autoTable({
+  callAutoTable({
     startY: yPos,
     head: [['Readiness Level', 'Workloads', 'Monthly Cost']],
     body: readinessData,
@@ -269,7 +308,7 @@ export const generateComprehensiveReportPDF = async (
     styles: { fontSize: 9 }
   });
 
-  yPos = doc.lastAutoTable.finalY + 15;
+  yPos = getLastAutoTable().finalY + 15;
 
   // ==========================================
   // ASSESSMENT AGENT SUMMARY
@@ -310,7 +349,7 @@ export const generateComprehensiveReportPDF = async (
     ]);
   }
 
-  doc.autoTable({
+  callAutoTable({
     startY: yPos,
     head: [['AWS Service', 'Workloads', 'Monthly Cost', 'Avg Complexity', 'Target GCP Service', 'Strategy']],
     body: serviceTableData,
@@ -328,7 +367,7 @@ export const generateComprehensiveReportPDF = async (
     }
   });
 
-  yPos = doc.lastAutoTable.finalY + 15;
+  yPos = getLastAutoTable().finalY + 15;
 
   // ==========================================
   // REGIONAL ANALYSIS SUMMARY
@@ -354,7 +393,7 @@ export const generateComprehensiveReportPDF = async (
     region.averageComplexity ? region.averageComplexity.toFixed(1) : 'N/A'
   ]);
 
-  doc.autoTable({
+  callAutoTable({
     startY: yPos,
     head: [['Region', 'Workloads', 'Monthly Cost', 'Avg Complexity']],
     body: regionTableData,
@@ -370,7 +409,7 @@ export const generateComprehensiveReportPDF = async (
     }
   });
 
-  yPos = doc.lastAutoTable.finalY + 10;
+  yPos = getLastAutoTable().finalY + 10;
 
   // ==========================================
   // COST ANALYSIS AGENT SUMMARY
@@ -409,7 +448,7 @@ export const generateComprehensiveReportPDF = async (
       ];
     });
 
-    doc.autoTable({
+    callAutoTable({
       startY: yPos,
       head: [['AWS Service', 'GCP Service', 'AWS Cost', 'GCP On-Demand', 'GCP 1Y CUD', 'GCP 3Y CUD', 'Savings (3Y)']],
       body: costTableData,
@@ -428,7 +467,7 @@ export const generateComprehensiveReportPDF = async (
       }
     });
 
-    yPos = doc.lastAutoTable.finalY + 10;
+    yPos = getLastAutoTable().finalY + 10;
 
     // Total cost summary
     const totalCosts = costEstimates.reduce((acc, est) => {
@@ -454,7 +493,7 @@ export const generateComprehensiveReportPDF = async (
       ['Potential Savings (3Y CUD)', formatCurrency(totalCosts.aws - totalCosts.gcp3Year)]
     ];
 
-    doc.autoTable({
+    callAutoTable({
       startY: yPos,
       head: [['Cost Type', 'Monthly Cost']],
       body: totalCostData,
@@ -464,7 +503,7 @@ export const generateComprehensiveReportPDF = async (
       styles: { fontSize: 10 }
     });
 
-    yPos = doc.lastAutoTable.finalY + 15;
+    yPos = getLastAutoTable().finalY + 15;
   }
 
   // ==========================================
@@ -489,7 +528,7 @@ export const generateComprehensiveReportPDF = async (
       ['Wave 3 - Complex', (strategyResults.wavePlan.wave3?.length || 0).toString()]
     ];
 
-    doc.autoTable({
+    callAutoTable({
       startY: yPos,
       head: [['Wave', 'Workloads']],
       body: waveData,
@@ -499,7 +538,7 @@ export const generateComprehensiveReportPDF = async (
       styles: { fontSize: 10 }
     });
 
-    yPos = doc.lastAutoTable.finalY + 15;
+    yPos = getLastAutoTable().finalY + 15;
   }
 
   if (strategyResults && strategyResults.migrationPlan) {
@@ -513,7 +552,7 @@ export const generateComprehensiveReportPDF = async (
       const strategyData = Object.entries(strategyResults.migrationPlan.metrics.strategyDistribution)
         .map(([strategy, count]) => [strategy, count.toLocaleString()]);
 
-      doc.autoTable({
+      callAutoTable({
         startY: yPos,
         head: [['Strategy', 'Workloads']],
         body: strategyData,
@@ -523,7 +562,7 @@ export const generateComprehensiveReportPDF = async (
         styles: { fontSize: 10 }
       });
 
-      yPos = doc.lastAutoTable.finalY + 15;
+      yPos = getLastAutoTable().finalY + 15;
     }
     
     // Complete Service Mappings Summary
@@ -562,7 +601,7 @@ export const generateComprehensiveReportPDF = async (
           m.count.toLocaleString()
         ]);
       
-      doc.autoTable({
+      callAutoTable({
         startY: yPos,
         head: [['AWS Service', 'GCP Service', 'GCP API', 'Strategy', 'Effort', 'Workloads']],
         body: allMappings,
@@ -580,7 +619,7 @@ export const generateComprehensiveReportPDF = async (
         }
       });
       
-      yPos = doc.lastAutoTable.finalY + 15;
+      yPos = getLastAutoTable().finalY + 15;
     }
   }
   
@@ -612,7 +651,7 @@ export const generateComprehensiveReportPDF = async (
       ['Total Project Duration', `${totalWeeks} weeks`, (wave1Count + wave2Count + wave3Count).toLocaleString(), '-']
     ];
     
-    doc.autoTable({
+    callAutoTable({
       startY: yPos,
       head: [timelineData[0]],
       body: timelineData.slice(1),
@@ -622,7 +661,7 @@ export const generateComprehensiveReportPDF = async (
       styles: { fontSize: 9 }
     });
     
-    yPos = doc.lastAutoTable.finalY + 15;
+    yPos = getLastAutoTable().finalY + 15;
   }
 
   // Recommendations text
