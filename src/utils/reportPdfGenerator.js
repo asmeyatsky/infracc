@@ -636,6 +636,20 @@ export const generateComprehensiveReportPDF = async (
       ['Net Savings (3 Years)', formatCurrency(netSavings)]
     ];
     
+    // Add note if net savings is negative
+    if (netSavings < 0) {
+      yPos += 5;
+      doc.setFontSize(9);
+      doc.setTextColor(200, 0, 0);
+      doc.text(
+        `Note: Negative net savings indicates GCP TCO exceeds AWS costs over 3 years. ` +
+        `This may be due to high migration costs for large-scale migrations. ` +
+        `Consider phased migration approach or re-evaluate migration cost assumptions.`,
+        margin + 5, yPos, { maxWidth: contentWidth - 10 }
+      );
+      doc.setTextColor(0, 0, 0);
+    }
+    
     callAutoTable({
       startY: yPos,
       head: [['Cost Category', '3-Year Total']],
@@ -852,14 +866,52 @@ export const generateComprehensiveReportPDF = async (
   const top5Cost = top5Services.reduce((sum, s) => sum + (s?.totalCost || 0), 0);
   const top5Percentage = totalMonthlyCost > 0 ? ((top5Cost / totalMonthlyCost) * 100).toFixed(1) : '0.0';
   
-  const recommendations = [
-    `• Prioritize Wave 1 workloads (${wave1Count} workloads) for quick wins and early value realization`,
-    `• Consider 3-year Committed Use Discounts for predictable workloads to maximize cost savings`,
-    `• Plan for ${highComplexityCount} high-complexity workloads requiring additional assessment`,
-    `• ${readyCount} workloads are ready for immediate migration`,
-    `• All ${totalServices} AWS services have been mapped to GCP equivalents and included in TCO calculations`,
-    `• Focus on top 5 services representing ${top5Percentage}% of total cost`
-  ];
+  const recommendations = [];
+  
+  // Only include wave recommendations if waves are populated
+  const wave2Count = strategyResults?.wavePlan?.wave2?.length || 0;
+  const wave3Count = strategyResults?.wavePlan?.wave3?.length || 0;
+  const totalWaveCount = wave1Count + wave2Count + wave3Count;
+  
+  if (totalWaveCount > 0) {
+    if (wave1Count > 0) {
+      recommendations.push(`• Prioritize Wave 1 workloads (${wave1Count.toLocaleString()} workloads) for quick wins and early value realization`);
+    }
+    if (wave2Count > 0) {
+      recommendations.push(`• Plan Wave 2 migration (${wave2Count.toLocaleString()} workloads) for standard complexity workloads`);
+    }
+    if (wave3Count > 0) {
+      recommendations.push(`• Allocate additional time and resources for Wave 3 (${wave3Count.toLocaleString()} complex workloads)`);
+    }
+  } else {
+    recommendations.push(`• Migration wave planning requires completed assessment data. Run Assessment Agent to generate wave plans.`);
+  }
+  
+  // Complexity recommendations
+  const mediumComplexityCount = reportData?.complexity?.medium?.count || 0;
+  const lowComplexityCount = reportData?.complexity?.low?.count || 0;
+  const unassignedCount = reportData?.complexity?.unassigned?.count || 0;
+  const conditionalCount = reportData?.readiness?.conditional?.count || 0;
+  const notReadyCount = reportData?.readiness?.notReady?.count || 0;
+  
+  if (unassignedCount > 0 && unassignedCount === (highComplexityCount + mediumComplexityCount + lowComplexityCount + unassignedCount)) {
+    recommendations.push(`• ⚠️ Assessment data not available: All workloads are unassigned. Run Assessment Agent to generate complexity and readiness scores.`);
+  } else {
+    if (highComplexityCount > 0) {
+      recommendations.push(`• Plan for ${highComplexityCount.toLocaleString()} high-complexity workloads requiring additional assessment and planning`);
+    }
+    if (readyCount > 0) {
+      recommendations.push(`• ${readyCount.toLocaleString()} workloads are ready for immediate migration`);
+    } else if (conditionalCount > 0) {
+      recommendations.push(`• ${conditionalCount.toLocaleString()} workloads are conditionally ready - review requirements before migration`);
+    }
+  }
+  
+  recommendations.push(`• Consider 3-year Committed Use Discounts for predictable workloads to maximize cost savings`);
+  recommendations.push(`• All ${totalServices} AWS services have been mapped to GCP equivalents and included in TCO calculations`);
+  if (top5Percentage > 0) {
+    recommendations.push(`• Focus on top 5 services representing ${top5Percentage}% of total cost`);
+  }
 
   recommendations.forEach(rec => {
     checkPageBreak(8);
