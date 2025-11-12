@@ -540,39 +540,44 @@ function CurUploadButton({ onUploadComplete }) {
           let alreadyExistsCount = 0;
           let skippedCount = 0;
           
-          console.log(`Processing ${dedupeEntries.length} new entries from ${file.name} (${dedupeMap.size} total in dedupeMap, ${savedDedupeKeys.size} already saved)`);
+          // Load all existing workloads into memory once to avoid repeated repository queries
+          await workloadRepository._loadFromStorage();
+          const allExistingWorkloads = await workloadRepository.findAll();
+          const existingWorkloadMap = new Map();
+          allExistingWorkloads.forEach(w => {
+            const dedupeKey = `${w.resourceId || ''}_${w.service || ''}_${w.region || ''}`;
+            existingWorkloadMap.set(dedupeKey, w);
+          });
+          
+          console.log(`Processing ${dedupeEntries.length.toLocaleString()} entries from ${file.name} (${dedupeMap.size.toLocaleString()} total, ${savedDedupeKeys.size.toLocaleString()} already saved)`);
           
           for (let i = 0; i < dedupeEntries.length; i += batchSize) {
             const batch = dedupeEntries.slice(i, i + batchSize);
+            const batchNumber = Math.floor(i / batchSize) + 1;
+            const totalBatches = Math.ceil(dedupeEntries.length / batchSize);
             
-            // Progress updates removed for performance - focus on accurate PDF generation
+            // Log progress every 10 batches to avoid spam
+            if (batchNumber % 10 === 0 || batchNumber === 1) {
+              console.log(`Processing batch ${batchNumber}/${totalBatches} (${batch.length.toLocaleString()} entries)`);
+            }
             
-            // Process batch sequentially to avoid stack overflow
+            // Process batch - use in-memory map instead of repository queries
             for (const [dedupeKey, data] of batch) {
               try {
                 // Normalize values for lookup
                 const lookupResourceId = String(data.id || '').trim();
                 const lookupService = String(data.service || '').trim();
                 const lookupRegion = String(data.region || '').trim();
+                const lookupDedupeKey = `${lookupResourceId}_${lookupService}_${lookupRegion}`;
                 
-                // Always check repository first (it might have been saved from a previous file)
-                const existingWorkload = await workloadRepository.findByDedupeKey(
-                  lookupResourceId,
-                  lookupService,
-                  lookupRegion
-                );
+                // Check in-memory map first (much faster than repository query)
+                const existingWorkload = existingWorkloadMap.get(lookupDedupeKey) || savedDedupeKeys.has(dedupeKey) ? null : null;
 
                 if (existingWorkload) {
-                  // Workload already exists in repository - don't create duplicate
+                  // Workload already exists - update cost if needed
                   alreadyExistsCount++;
-                  savedDedupeKeys.add(dedupeKey); // Mark as saved
+                  savedDedupeKeys.add(dedupeKey);
                   
-                  // Debug: Log first few duplicates to verify matching is working
-                  if (alreadyExistsCount <= 5) {
-                    console.log(`Found existing workload: ${lookupResourceId}_${lookupService}_${lookupRegion} (ID: ${existingWorkload.id})`);
-                  }
-                  
-                  // Optionally update cost if needed (but don't count as new)
                   const currentCost = existingWorkload.monthlyCost.value || 0;
                   const newCost = currentCost + (data.monthlyCost || 0);
                   
@@ -595,11 +600,11 @@ function CurUploadButton({ onUploadComplete }) {
                       awsProductCode: existingWorkload.awsProductCode || data.awsProductCode,
                     });
                     
-                    await workloadRepository.delete(existingWorkload.id);
+                    existingWorkloadMap.set(lookupDedupeKey, updatedWorkload);
                     await workloadRepository.save(updatedWorkload);
                     updatedWorkloadsCount++;
                   }
-                } else {
+                } else if (!savedDedupeKeys.has(dedupeKey)) {
                   // New workload - create and save
                   const workload = new Workload({
                     ...data,
@@ -609,14 +614,18 @@ function CurUploadButton({ onUploadComplete }) {
                       : []
                   });
                   
+                  existingWorkloadMap.set(lookupDedupeKey, workload);
                   await workloadRepository.save(workload);
                   savedDedupeKeys.add(dedupeKey);
                   newWorkloadsCount++;
                   
-                  // Debug: Log first few new workloads to verify they're being saved
-                  if (newWorkloadsCount <= 5) {
-                    console.log(`Saving new workload: ${lookupResourceId}_${lookupService}_${lookupRegion} (ID: ${workload.id})`);
+                  // Only log first 3 to avoid spam
+                  if (newWorkloadsCount <= 3) {
+                    console.log(`Saving new workload: ${lookupDedupeKey} (ID: ${workload.id})`);
                   }
+                } else {
+                  // Already processed
+                  alreadyExistsCount++;
                 }
               } catch (error) {
                 console.warn(`Failed to process workload ${data.id}:`, error);
