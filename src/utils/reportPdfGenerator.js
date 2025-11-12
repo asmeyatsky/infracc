@@ -869,9 +869,86 @@ export const generateComprehensiveReportPDF = async (
   doc.setFontSize(9);
   doc.text(
     'GCP Committed Use Discounts provide:\n' +
-    '• 1-Year CUD: ~25% discount on compute, ~15% on storage, ~20% on databases\n' +
-    '• 3-Year CUD: ~45% discount on compute, ~30% on storage, ~40% on databases\n' +
-    '• All workloads are assumed eligible for CUD pricing',
+    '• Compute Services (EC2, GKE, Cloud Run, Functions):\n' +
+    '  - 1-Year CUD: 25% discount\n' +
+    '  - 3-Year CUD: 45% discount\n' +
+    '• Storage Services (Cloud Storage, Persistent Disk):\n' +
+    '  - 1-Year CUD: 15% discount\n' +
+    '  - 3-Year CUD: 30% discount\n' +
+    '• Database Services (Cloud SQL, Spanner, Firestore):\n' +
+    '  - 1-Year CUD: 20% discount\n' +
+    '  - 3-Year CUD: 40% discount\n' +
+    '• All workloads are assumed eligible for CUD pricing\n' +
+    '• CUD discounts are applied to on-demand pricing',
+    margin + 5, yPos, { maxWidth: contentWidth - 10 }
+  );
+  yPos += 50;
+
+  doc.setFontSize(10);
+  doc.text('D. Service Mapping Methodology', margin, yPos);
+  yPos += 8;
+  doc.setFontSize(9);
+  doc.text(
+    'AWS services are mapped to GCP equivalents using:\n' +
+    '• Direct mappings for equivalent services (EC2 → Compute Engine, S3 → Cloud Storage)\n' +
+    '• Intelligent fallbacks for generic service names:\n' +
+    '  - RDS → Cloud SQL (PostgreSQL/MySQL/SQL Server)\n' +
+    '  - AWS Marketplace → GCP Marketplace\n' +
+    '  - Support services → GCP Support tiers\n' +
+    '  - Data Transfer → Cloud Interconnect\n' +
+    '• Migration strategies (6 R\'s): Rehost, Replatform, Refactor, Repurchase, Retire, Retain\n' +
+    '• Effort levels: Low, Medium, High based on service complexity',
+    margin + 5, yPos, { maxWidth: contentWidth - 10 }
+  );
+  yPos += 50;
+
+  doc.setFontSize(10);
+  doc.text('E. Cost Calculation Methodology', margin, yPos);
+  yPos += 8;
+  doc.setFontSize(9);
+  doc.text(
+    'Cost calculations include:\n' +
+    '• AWS Costs: Aggregated from Cost and Usage Report (CUR) line items\n' +
+    '• GCP Costs: Estimated based on AWS costs with service-specific adjustments\n' +
+    '• On-Demand: Base GCP pricing (typically ~10% less than AWS)\n' +
+    '• CUD Pricing: On-demand pricing with applicable discount applied\n' +
+    '• Savings: Difference between AWS costs and GCP 3-Year CUD costs\n' +
+    '• Negative Costs: Credits/refunds are handled using absolute values\n' +
+    '• All costs are monthly unless otherwise specified',
+    margin + 5, yPos, { maxWidth: contentWidth - 10 }
+  );
+  yPos += 50;
+
+  doc.setFontSize(10);
+  doc.text('F. Migration Cost Assumptions', margin, yPos);
+  yPos += 8;
+  doc.setFontSize(9);
+  doc.text(
+    'One-time migration costs:\n' +
+    '• Data Egress: 2% of monthly AWS cost (estimated AWS egress fees)\n' +
+    '• Migration Consulting: $50 per workload (assessment, planning, execution)\n' +
+    '• Migration Tools: 1% of monthly AWS cost (licensing, migration tools)\n' +
+    '• Training: $10 per workload (knowledge transfer, documentation)\n\n' +
+    'Ongoing operational costs:\n' +
+    '• Licensing: 5% of monthly GCP cost (Custom Solutions, third-party licenses)\n' +
+    '• Management Tools: 3% of monthly GCP cost (monitoring, management platforms)\n\n' +
+    'Note: Actual costs may vary based on specific requirements and vendor negotiations.',
+    margin + 5, yPos, { maxWidth: contentWidth - 10 }
+  );
+  yPos += 60;
+
+  doc.setFontSize(10);
+  doc.text('G. Workload Classification', margin, yPos);
+  yPos += 8;
+  doc.setFontSize(9);
+  doc.text(
+    'Workloads are classified as:\n' +
+    '• With ResourceId: One workload = one actual AWS resource\n' +
+    '  (e.g., EC2 instance i-1234567890, RDS database mydb-instance-1)\n' +
+    '• Without ResourceId: One workload = one service per region\n' +
+    '  (e.g., All S3 charges in us-east-1 = 1 S3 workload)\n' +
+    '• Deduplication: Same resource across different dates/bills = 1 workload\n' +
+    '• Aggregation: All usage types (storage, requests, data transfer) combined per service+region',
     margin + 5, yPos, { maxWidth: contentWidth - 10 }
   );
 
