@@ -64,6 +64,8 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
   const [costAnalysisResults, setCostAnalysisResults] = useState(null);
   const [outputFormat, setOutputFormat] = useState('screen'); // 'screen' or 'pdf'
   const [costEstimates, setCostEstimates] = useState(null);
+  const [autoRunEnabled, setAutoRunEnabled] = useState(true); // Auto-run workflow end-to-end
+  const [isRunning, setIsRunning] = useState(false);
 
   // Debug: Log when uploadSummary changes
   useEffect(() => {
@@ -71,6 +73,87 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
       console.log('MigrationFlow received uploadSummary:', uploadSummary);
     }
   }, [uploadSummary]);
+
+  // Auto-run workflow end-to-end when workloads are available
+  useEffect(() => {
+    // Skip if auto-run is disabled or already running
+    if (!autoRunEnabled || isRunning) {
+      return;
+    }
+
+    // Skip if no workloads or already at last step
+    if (workloadIds.length === 0 || currentStep >= STEPS.length - 1) {
+      return;
+    }
+
+    const runWorkflowEndToEnd = async () => {
+      // Check if current step is completed
+      const currentStepId = STEPS[currentStep].id;
+      const currentStatus = stepStatuses[currentStepId];
+      const isCurrentStepCompleted = currentStatus === 'completed';
+
+      // If current step is not completed and not running, execute it
+      if (!isCurrentStepCompleted && currentStatus !== 'running') {
+        setIsRunning(true);
+        try {
+          const step = STEPS[currentStep];
+          const success = await executeStep(step);
+          if (success) {
+            setStepStatuses(prev => ({ ...prev, [step.id]: 'completed' }));
+            // Small delay before advancing
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            if (currentStep < STEPS.length - 1) {
+              setCurrentStep(currentStep + 1);
+            }
+          } else {
+            setAutoRunEnabled(false); // Stop auto-run if step fails
+          }
+        } catch (error) {
+          console.error('Error executing step in auto-run:', error);
+          setAutoRunEnabled(false); // Stop auto-run on error
+        } finally {
+          setIsRunning(false);
+        }
+      }
+    };
+
+    // Use a small delay to avoid immediate execution on every render
+    const timeoutId = setTimeout(() => {
+      runWorkflowEndToEnd();
+    }, 500);
+
+    return () => clearTimeout(timeoutId);
+  }, [workloadIds.length, currentStep, autoRunEnabled, isRunning]);
+
+  // Watch for step completion and auto-advance
+  useEffect(() => {
+    if (!autoRunEnabled || isRunning) {
+      return;
+    }
+
+    if (workloadIds.length === 0 || currentStep >= STEPS.length - 1) {
+      return;
+    }
+
+    const currentStepId = STEPS[currentStep].id;
+    const isCurrentStepCompleted = stepStatuses[currentStepId] === 'completed';
+
+    // If current step is completed, advance to next step
+    if (isCurrentStepCompleted && currentStep < STEPS.length - 1) {
+      const advanceToNext = async () => {
+        setIsRunning(true);
+        try {
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Brief delay
+          setCurrentStep(currentStep + 1);
+        } catch (error) {
+          console.error('Error advancing to next step:', error);
+        } finally {
+          setIsRunning(false);
+        }
+      };
+      advanceToNext();
+    }
+  }, [stepStatuses, currentStep, autoRunEnabled, isRunning, workloadIds.length]);
 
   const agenticContainer = getAgenticContainer();
   const container = getContainer();
@@ -510,29 +593,42 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
                   <div className="alert alert-success">
                     <h4>✅ Workloads Already Discovered:</h4>
                     <p><strong>{workloadIds.length} workloads</strong> found in repository (from CUR upload or previous discovery).</p>
-                    <p>Discovery step is complete. Click "Next" to run the Assessment Agent.</p>
+                    {autoRunEnabled && !isRunning ? (
+                      <p>🔄 <strong>Auto-running workflow end-to-end...</strong> The migration flow will automatically execute all steps.</p>
+                    ) : isRunning ? (
+                      <p>⏳ <strong>Running workflow...</strong> Please wait while agents process your workloads.</p>
+                    ) : (
+                      <p>Discovery step is complete. Workflow auto-run is disabled.</p>
+                    )}
                     <div className="mt-3">
-                      <button 
-                        className="btn btn-primary me-2"
-                        onClick={async () => {
-                          setStepStatuses(prev => ({ ...prev, discovery: 'completed' }));
-                          setCurrentStep(1);
-                          // Auto-run Assessment agent when moving to next step
-                          setTimeout(async () => {
-                            await handleNextStep();
-                          }, 100);
-                        }}
-                      >
-                        Run Assessment Agent →
-                      </button>
+                      {!autoRunEnabled && (
+                        <button 
+                          className="btn btn-primary me-2"
+                          onClick={() => {
+                            setAutoRunEnabled(true);
+                            setIsRunning(false);
+                          }}
+                        >
+                          ▶️ Resume Auto-Run
+                        </button>
+                      )}
+                      {autoRunEnabled && (
+                        <button 
+                          className="btn btn-warning me-2"
+                          onClick={() => {
+                            setAutoRunEnabled(false);
+                            setIsRunning(false);
+                          }}
+                        >
+                          ⏸️ Pause Auto-Run
+                        </button>
+                      )}
                       <button 
                         className="btn btn-outline-secondary"
-                        onClick={() => {
-                          setCurrentStep(1);
-                          setStepStatuses(prev => ({ ...prev, discovery: 'completed' }));
-                        }}
+                        onClick={handleNextStep}
+                        disabled={isRunning}
                       >
-                        View Assessment Step Only
+                        Manual: Next Step →
                       </button>
                     </div>
                   </div>
@@ -543,9 +639,16 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
                     <h4>📤 Upload CUR Files:</h4>
                     <p>Use the "Upload CUR" button in the main menu to import AWS Cost and Usage Reports.</p>
                     <p>Or click "Next" to use the Discovery Agent to scan your infrastructure.</p>
+                    {autoRunEnabled && (
+                      <p className="mt-2"><strong>Note:</strong> Auto-run is enabled. Once workloads are discovered, the workflow will run automatically.</p>
+                    )}
                   </div>
-                  <button className="btn btn-primary" onClick={handleNextStep}>
-                    Start Discovery Agent
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={handleNextStep}
+                    disabled={isRunning}
+                  >
+                    {isRunning ? '⏳ Running...' : 'Start Discovery Agent'}
                   </button>
                 </div>
               )}
@@ -1209,16 +1312,23 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
 
           {/* Step Actions */}
           <div className="step-actions">
+            {isRunning && (
+              <div className="alert alert-info mb-3">
+                <span className="spinner-border spinner-border-sm me-2" />
+                <strong>Workflow Running:</strong> {STEPS[currentStep].name} in progress... Please wait.
+              </div>
+            )}
             {currentStep < STEPS.length - 1 && (
               <button 
                 className="btn btn-primary" 
                 onClick={handleNextStep}
                 disabled={
+                  isRunning ||
                   stepStatuses[STEPS[currentStep].id] === 'running' ||
                   (STEPS[currentStep + 1]?.required && workloadIds.length === 0 && currentStep >= 0)
                 }
               >
-                {stepStatuses[STEPS[currentStep].id] === 'running' ? (
+                {stepStatuses[STEPS[currentStep].id] === 'running' || isRunning ? (
                   <>
                     <span className="spinner-border spinner-border-sm me-2" />
                     {STEPS[currentStep].name} in Progress...
@@ -1235,10 +1345,20 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
             {currentStep > 0 && (
               <button 
                 className="btn btn-secondary ms-2" 
-                onClick={() => setCurrentStep(currentStep - 1)}
+                onClick={() => {
+                  setAutoRunEnabled(false);
+                  setCurrentStep(currentStep - 1);
+                }}
+                disabled={isRunning}
               >
                 Previous Step
               </button>
+            )}
+            {currentStep === STEPS.length - 1 && (
+              <div className="alert alert-success mt-3">
+                <h5>✅ Workflow Complete!</h5>
+                <p>All migration steps have been completed successfully.</p>
+              </div>
             )}
           </div>
         </div>
