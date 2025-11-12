@@ -276,13 +276,21 @@ export class ReportDataAggregator {
    * @private
    */
   static _extractCost(workloadData) {
-    if (workloadData.monthlyCost !== undefined) {
+    if (workloadData.monthlyCost !== undefined && workloadData.monthlyCost !== null) {
       // Handle Money object (has amount property)
-      if (workloadData.monthlyCost && typeof workloadData.monthlyCost === 'object' && 'amount' in workloadData.monthlyCost) {
-        return parseFloat(workloadData.monthlyCost.amount) || 0;
+      if (workloadData.monthlyCost && typeof workloadData.monthlyCost === 'object') {
+        // Check for Money object with amount property
+        if ('amount' in workloadData.monthlyCost) {
+          return parseFloat(workloadData.monthlyCost.amount) || 0;
+        }
+        // Check for Money object with _amount property (internal)
+        if ('_amount' in workloadData.monthlyCost) {
+          return parseFloat(workloadData.monthlyCost._amount) || 0;
+        }
       }
-      // Handle plain number
-      return parseFloat(workloadData.monthlyCost) || 0;
+      // Handle plain number (including after toJSON conversion)
+      const numValue = parseFloat(workloadData.monthlyCost);
+      return isNaN(numValue) ? 0 : numValue;
     }
     return 0;
   }

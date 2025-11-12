@@ -11,6 +11,7 @@
  * Note: This report contains only summaries - no detailed workload listings
  */
 
+// Import jsPDF - use default import for compatibility
 import jsPDF from 'jspdf';
 // Import jspdf-autotable - it extends jsPDF prototype automatically
 // Must be imported before creating jsPDF instances
@@ -18,13 +19,21 @@ import jsPDF from 'jspdf';
 // This import MUST happen at module load time, not inside functions
 import 'jspdf-autotable';
 
-// Verify plugin is loaded at module initialization
-if (typeof window !== 'undefined') {
-  // In browser, verify the plugin extended the prototype
-  const testDoc = new jsPDF();
-  if (typeof testDoc.autoTable !== 'function' && typeof Object.getPrototypeOf(testDoc).autoTable !== 'function') {
-    console.warn('jspdf-autotable plugin may not be loaded correctly. Please restart the development server.');
+// Force plugin initialization by accessing it
+// This ensures the side-effect import runs
+try {
+  // The side-effect import should extend jsPDF.prototype
+  // Force evaluation by creating a test instance
+  if (typeof window !== 'undefined') {
+    const testDoc = new jsPDF();
+    // Check if plugin loaded - if not, log warning but don't fail
+    if (typeof testDoc.autoTable !== 'function' && typeof Object.getPrototypeOf(testDoc).autoTable !== 'function') {
+      console.warn('jspdf-autotable plugin may not be loaded correctly. Please restart the development server.');
+    }
   }
+} catch (e) {
+  // Ignore errors during module initialization
+  console.warn('Could not verify jspdf-autotable during module load:', e);
 }
 
 /**
@@ -97,27 +106,39 @@ export const generateComprehensiveReportPDF = async (
   };
   
   // Verify autoTable is available before proceeding
-  const hasAutoTable = typeof doc.autoTable === 'function' || 
-                      typeof Object.getPrototypeOf(doc).autoTable === 'function' ||
-                      (typeof jsPDF.API !== 'undefined' && typeof jsPDF.API.autoTable === 'function');
+  // Check multiple ways the plugin might be attached
+  let hasAutoTable = typeof doc.autoTable === 'function';
+  
+  if (!hasAutoTable) {
+    // Check prototype
+    const proto = Object.getPrototypeOf(doc);
+    hasAutoTable = typeof proto.autoTable === 'function';
+  }
+  
+  if (!hasAutoTable) {
+    // Check jsPDF.API
+    if (typeof jsPDF.API !== 'undefined') {
+      hasAutoTable = typeof jsPDF.API.autoTable === 'function';
+    }
+  }
   
   if (!hasAutoTable) {
     // Try to reload the module as a last resort
     try {
-      // Force reload by dynamic import
-      await import('jspdf-autotable');
-      // The side-effect should have run, recreate instance
+      // Force reload by dynamic import - this should trigger the side-effect
+      const autotableModule = await import('jspdf-autotable');
+      // Recreate instance after import
       doc = new jsPDF('p', 'mm', 'a4');
+      
+      // Check again after reload
+      hasAutoTable = typeof doc.autoTable === 'function' || 
+                    typeof Object.getPrototypeOf(doc).autoTable === 'function';
     } catch (importError) {
-      console.error('Failed to load jspdf-autotable:', importError);
+      console.error('Failed to dynamically import jspdf-autotable:', importError);
     }
     
     // Final check
-    const finalCheck = typeof doc.autoTable === 'function' || 
-                      typeof Object.getPrototypeOf(doc).autoTable === 'function' ||
-                      (typeof jsPDF.API !== 'undefined' && typeof jsPDF.API.autoTable === 'function');
-    
-    if (!finalCheck) {
+    if (!hasAutoTable) {
       const errorMsg = 'PDF generation requires jspdf-autotable plugin. ' +
         'The plugin may not be properly loaded. Please try:\n' +
         '1. Restart the development server (npm start)\n' +
@@ -125,11 +146,12 @@ export const generateComprehensiveReportPDF = async (
         '3. Ensure both packages are installed: npm install jspdf@^3.0.3 jspdf-autotable@^5.0.2';
       console.error(errorMsg);
       console.error('Debug info:', {
-        jsPDFVersion: jsPDF.version,
+        jsPDFVersion: jsPDF?.version || 'unknown',
         docHasAutoTable: typeof doc.autoTable,
         protoHasAutoTable: typeof Object.getPrototypeOf(doc).autoTable,
+        jsPDFAPIExists: typeof jsPDF.API !== 'undefined',
         jsPDFAPIHasAutoTable: typeof jsPDF.API !== 'undefined' ? typeof jsPDF.API.autoTable : 'API undefined',
-        docMethods: Object.getOwnPropertyNames(doc).filter(n => n.includes('Table') || n.includes('auto'))
+        docMethods: Object.getOwnPropertyNames(doc).filter(n => n.includes('Table') || n.includes('auto')).slice(0, 10)
       });
       throw new Error(errorMsg);
     }
