@@ -279,11 +279,9 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
       return;
     }
 
-    // If cache is already populated, skip loading
+    // If cache is already populated, skip loading (no logging to avoid spam)
     if (this._cache.size > 0) {
-      console.log(`WorkloadRepository._loadFromStorage() - Cache already populated with ${this._cache.size} workloads, skipping load`);
-      
-      // CRITICAL DEBUG: Warn if cache has suspiciously low count
+      // Only warn if cache has suspiciously low count (potential issue)
       if (this._cache.size <= 255) {
         console.warn(`⚠️ WARNING: Cache only has ${this._cache.size} workloads! This might be incorrect. Checking localStorage...`);
         const storedData = localStorage.getItem(this.storageKey);
