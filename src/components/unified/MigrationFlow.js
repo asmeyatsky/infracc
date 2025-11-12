@@ -963,8 +963,28 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
                 <div>
                   {stepStatuses.assessment !== 'completed' ? (
                     <div className="alert alert-info mb-3">
-                      <p><strong>{workloadIds.length} workloads</strong> ready for assessment.</p>
+                      <p><strong>{workloadIds.length.toLocaleString()} workloads</strong> ready for assessment.</p>
                       <p>Click "Next" below to run the Assessment Agent, or click the button above to auto-run it.</p>
+                      {stepStatuses.assessment !== 'running' && (
+                        <button 
+                          className="btn btn-primary mt-2"
+                          onClick={async () => {
+                            console.log('Manual trigger: Starting Assessment Agent...');
+                            const step = STEPS.find(s => s.id === 'assessment');
+                            if (step) {
+                              await executeStep(step);
+                            }
+                          }}
+                        >
+                          🔄 Run Assessment Agent Now
+                        </button>
+                      )}
+                      {stepStatuses.assessment === 'running' && (
+                        <div className="mt-2">
+                          <div className="spinner-border spinner-border-sm me-2" role="status"></div>
+                          <span>Assessment Agent is running...</span>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div>

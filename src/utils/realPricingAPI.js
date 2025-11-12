@@ -625,7 +625,7 @@ class CloudPricingIntegration {
   static async checkAvailability() {
     const availability = {
       aws: false,
-      azure: false,
+      azure: false, // Not used for AWS to GCP migration
       gcp: false,
       backend: false,
     };
@@ -638,13 +638,9 @@ class CloudPricingIntegration {
       availability.backend = false;
     }
 
-    // Check Azure API (public, no auth needed)
-    try {
-      const response = await fetch(`${PRICING_CONFIG.azurePricingEndpoint}?$top=1`);
-      availability.azure = response.ok;
-    } catch (error) {
-      availability.azure = false;
-    }
+    // Azure API check removed - not needed for AWS to GCP migration
+    // Azure pricing API has CORS restrictions and is not used in this workflow
+    availability.azure = false;
 
     // AWS and GCP require backend proxy
     availability.aws = availability.backend;
