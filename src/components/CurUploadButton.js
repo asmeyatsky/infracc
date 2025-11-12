@@ -557,8 +557,8 @@ function CurUploadButton({ onUploadComplete }) {
             const batchNumber = Math.floor(i / batchSize) + 1;
             const totalBatches = Math.ceil(dedupeEntries.length / batchSize);
             
-            // Log progress every 10 batches to avoid spam
-            if (batchNumber % 10 === 0 || batchNumber === 1) {
+            // Log progress every 100 batches to avoid spam (for very large datasets)
+            if (batchNumber === 1 || batchNumber === totalBatches || (batchNumber % 100 === 0)) {
               console.log(`Processing batch ${batchNumber}/${totalBatches} (${batch.length.toLocaleString()} entries)`);
             }
             
