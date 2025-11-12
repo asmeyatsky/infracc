@@ -464,14 +464,23 @@ export const generateComprehensiveReportPDF = async (
     yPos = getLastAutoTable().finalY + 10;
 
     // Total cost summary - sum ALL services (not just top N)
+    // Use absolute values to handle negative costs (credits) properly
     const totalCosts = (Array.isArray(costEstimates) ? costEstimates : []).reduce((acc, est) => {
       const costs = est?.costEstimate || {};
-      acc.aws += costs.awsCost || 0;
-      acc.gcpOnDemand += costs.gcpOnDemand || 0;
-      acc.gcp1Year += costs.gcp1YearCUD || 0;
-      acc.gcp3Year += costs.gcp3YearCUD || 0;
+      // Use absolute value for AWS cost (handles credits/refunds)
+      acc.aws += Math.abs(costs.awsCost || 0);
+      acc.gcpOnDemand += Math.max(0, costs.gcpOnDemand || 0);
+      acc.gcp1Year += Math.max(0, costs.gcp1YearCUD || 0);
+      acc.gcp3Year += Math.max(0, costs.gcp3YearCUD || 0);
       return acc;
     }, { aws: 0, gcpOnDemand: 0, gcp1Year: 0, gcp3Year: 0 });
+    
+    // If costEstimates total doesn't match reportData total, use reportData total (more accurate)
+    const reportDataTotal = reportData?.summary?.totalMonthlyCost || 0;
+    if (reportDataTotal > 0 && Math.abs(totalCosts.aws - reportDataTotal) > 1000) {
+      console.warn(`PDF Generator - Cost mismatch: costEstimates total (${totalCosts.aws.toFixed(2)}) vs reportData total (${reportDataTotal.toFixed(2)}). Using reportData total.`);
+      totalCosts.aws = reportDataTotal;
+    }
     
     // Debug: Log cost totals
     console.log(`PDF Generator - Cost totals from ${costEstimates.length} services:`, {
@@ -487,11 +496,39 @@ export const generateComprehensiveReportPDF = async (
     yPos += 8;
 
     // Calculate migration costs (one-time)
+    // Use more realistic cost model for large-scale migrations
     const totalWorkloads = reportData?.summary?.totalWorkloads || 0;
     const dataEgressCost = totalCosts.aws * 0.02; // Estimate 2% of monthly cost for data egress
-    const migrationConsulting = totalWorkloads * 50; // $50 per workload for consulting
+    
+    // Realistic migration costs - scale with workload count but with economies of scale
+    // For very large migrations (>100k workloads), use tiered pricing
+    let migrationConsulting;
+    if (totalWorkloads > 100000) {
+      // Large scale: $0.10 per workload (bulk discount)
+      migrationConsulting = totalWorkloads * 0.10;
+    } else if (totalWorkloads > 10000) {
+      // Medium scale: $1 per workload
+      migrationConsulting = totalWorkloads * 1;
+    } else {
+      // Small scale: $50 per workload
+      migrationConsulting = totalWorkloads * 50;
+    }
+    
     const migrationTools = totalCosts.aws * 0.01; // 1% of monthly cost for migration tools
-    const trainingCost = totalWorkloads * 10; // $10 per workload for training
+    
+    // Training costs also scale with workload count
+    let trainingCost;
+    if (totalWorkloads > 100000) {
+      // Large scale: $0.02 per workload (bulk training)
+      trainingCost = totalWorkloads * 0.02;
+    } else if (totalWorkloads > 10000) {
+      // Medium scale: $0.50 per workload
+      trainingCost = totalWorkloads * 0.50;
+    } else {
+      // Small scale: $10 per workload
+      trainingCost = totalWorkloads * 10;
+    }
+    
     const totalMigrationCost = dataEgressCost + migrationConsulting + migrationTools + trainingCost;
     
     // Calculate operational costs (ongoing)
@@ -926,9 +963,15 @@ export const generateComprehensiveReportPDF = async (
   doc.text(
     'One-time migration costs:\n' +
     '• Data Egress: 2% of monthly AWS cost (estimated AWS egress fees)\n' +
-    '• Migration Consulting: $50 per workload (assessment, planning, execution)\n' +
+    '• Migration Consulting: Tiered pricing based on scale:\n' +
+    '  - Small (<10k workloads): $50 per workload\n' +
+    '  - Medium (10k-100k workloads): $1 per workload\n' +
+    '  - Large (>100k workloads): $0.10 per workload (bulk discount)\n' +
     '• Migration Tools: 1% of monthly AWS cost (licensing, migration tools)\n' +
-    '• Training: $10 per workload (knowledge transfer, documentation)\n\n' +
+    '• Training: Tiered pricing based on scale:\n' +
+    '  - Small (<10k workloads): $10 per workload\n' +
+    '  - Medium (10k-100k workloads): $0.50 per workload\n' +
+    '  - Large (>100k workloads): $0.02 per workload (bulk training)\n\n' +
     'Ongoing operational costs:\n' +
     '• Licensing: 5% of monthly GCP cost (Custom Solutions, third-party licenses)\n' +
     '• Management Tools: 3% of monthly GCP cost (monitoring, management platforms)\n\n' +
