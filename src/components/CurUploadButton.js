@@ -545,8 +545,9 @@ function CurUploadButton({ onUploadComplete }) {
           const allExistingWorkloads = await workloadRepository.findAll();
           const existingWorkloadMap = new Map();
           allExistingWorkloads.forEach(w => {
-            const dedupeKey = `${w.resourceId || ''}_${w.service || ''}_${w.region || ''}`;
-            existingWorkloadMap.set(dedupeKey, w);
+            // Use workload.id as the key (it's already the dedupe key format)
+            const dedupeKey = w.id || `${w.resourceId || ''}_${w.service || ''}_${w.region || ''}`;
+            existingWorkloadMap.set(dedupeKey.toLowerCase(), w);
           });
           
           console.log(`Processing ${dedupeEntries.length.toLocaleString()} entries from ${file.name} (${dedupeMap.size.toLocaleString()} total, ${savedDedupeKeys.size.toLocaleString()} already saved)`);
@@ -568,10 +569,10 @@ function CurUploadButton({ onUploadComplete }) {
                 const lookupResourceId = String(data.id || '').trim();
                 const lookupService = String(data.service || '').trim();
                 const lookupRegion = String(data.region || '').trim();
-                const lookupDedupeKey = `${lookupResourceId}_${lookupService}_${lookupRegion}`;
+                const lookupDedupeKey = `${lookupResourceId}_${lookupService}_${lookupRegion}`.toLowerCase();
                 
                 // Check in-memory map first (much faster than repository query)
-                const existingWorkload = existingWorkloadMap.get(lookupDedupeKey) || savedDedupeKeys.has(dedupeKey) ? null : null;
+                const existingWorkload = existingWorkloadMap.get(lookupDedupeKey) || null;
 
                 if (existingWorkload) {
                   // Workload already exists - update cost if needed
