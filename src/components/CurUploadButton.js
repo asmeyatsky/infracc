@@ -602,8 +602,13 @@ function CurUploadButton({ onUploadComplete }) {
                     });
                     
                     existingWorkloadMap.set(lookupDedupeKey, updatedWorkload);
-                    await workloadRepository.save(updatedWorkload);
-                    updatedWorkloadsCount++;
+                    try {
+                      await workloadRepository.save(updatedWorkload);
+                      updatedWorkloadsCount++;
+                    } catch (saveError) {
+                      console.warn(`Failed to save updated workload ${updatedWorkload.id}:`, saveError);
+                      skippedCount++;
+                    }
                   }
                 } else if (!savedDedupeKeys.has(dedupeKey)) {
                   // New workload - create and save
@@ -616,13 +621,19 @@ function CurUploadButton({ onUploadComplete }) {
                   });
                   
                   existingWorkloadMap.set(lookupDedupeKey, workload);
-                  await workloadRepository.save(workload);
-                  savedDedupeKeys.add(dedupeKey);
-                  newWorkloadsCount++;
-                  
-                  // Only log first 3 to avoid spam
-                  if (newWorkloadsCount <= 3) {
-                    console.log(`Saving new workload: ${lookupDedupeKey} (ID: ${workload.id})`);
+                  try {
+                    await workloadRepository.save(workload);
+                    savedDedupeKeys.add(dedupeKey);
+                    newWorkloadsCount++;
+                    
+                    // Only log first 3 to avoid spam
+                    if (newWorkloadsCount <= 3) {
+                      console.log(`Saving new workload: ${lookupDedupeKey} (ID: ${workload.id})`);
+                    }
+                  } catch (saveError) {
+                    console.warn(`Failed to save workload ${workload.id}:`, saveError);
+                    skippedCount++;
+                    // Don't add to savedDedupeKeys if save failed
                   }
                 } else {
                   // Already processed
@@ -744,8 +755,22 @@ function CurUploadButton({ onUploadComplete }) {
 
       // Force final persistence to ensure all workloads are saved
       try {
-        // Give debounced persistence a moment to complete
-        await new Promise(resolve => setTimeout(resolve, 600));
+        // Wait for debounced persistence to complete (increase timeout for large batches)
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Force immediate persistence to ensure everything is saved
+        if (workloadRepository._forcePersist) {
+          await workloadRepository._forcePersist();
+          console.log('Forced final persistence completed');
+        }
+        
+        // Wait a bit more and verify
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Re-check repository count after forced persistence
+        const finalCount = (await workloadRepository.findAll()).length;
+        console.log(`Final repository count after forced persistence: ${finalCount.toLocaleString()}`);
+        
         // Force a final save to ensure everything is persisted
         await workloadRepository._forcePersist();
       } catch (error) {
