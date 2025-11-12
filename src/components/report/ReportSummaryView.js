@@ -53,43 +53,124 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
     
     // Create a map of assessment results by workloadId for fast lookup
     const assessmentMap = new Map();
+    let validAssessmentsCount = 0;
+    let assessmentsWithComplexityCount = 0;
+    
     if (assessmentResults?.results) {
       assessmentResults.results.forEach(assessment => {
         if (assessment && !assessment.error && assessment.workloadId) {
-          assessmentMap.set(assessment.workloadId, assessment);
+          // Handle both Assessment entity and plain objects
+          const assessmentObj = assessment.toJSON ? assessment.toJSON() : assessment;
+          
+          // Extract workloadId - handle both getter and direct property
+          const workloadId = assessment.workloadId || assessmentObj.workloadId;
+          
+          if (workloadId) {
+            validAssessmentsCount++;
+            
+            // Check if assessment has complexityScore
+            const complexityScore = assessmentObj.complexityScore !== undefined ? assessmentObj.complexityScore : 
+                                   (assessment.complexityScore !== undefined ? assessment.complexityScore : null);
+            
+            if (complexityScore !== null && complexityScore !== undefined) {
+              assessmentsWithComplexityCount++;
+            }
+            
+            assessmentMap.set(workloadId, assessment);
+          }
         }
       });
+      
+      // Debug logging
+      if (validAssessmentsCount > 0) {
+        console.log(`ReportSummaryView: Found ${validAssessmentsCount.toLocaleString()} valid assessments`);
+        console.log(`ReportSummaryView: ${assessmentsWithComplexityCount.toLocaleString()} assessments have complexityScore`);
+        
+        // Sample first few assessments to verify structure
+        const sampleAssessments = assessmentResults.results.slice(0, 3).filter(a => a && !a.error);
+        sampleAssessments.forEach((assessment, idx) => {
+          const assessmentObj = assessment.toJSON ? assessment.toJSON() : assessment;
+          console.log(`Sample assessment ${idx + 1}:`, {
+            workloadId: assessmentObj.workloadId || assessment.workloadId,
+            complexityScore: assessmentObj.complexityScore,
+            hasToJSON: typeof assessment.toJSON === 'function',
+            keys: Object.keys(assessmentObj)
+          });
+        });
+      } else {
+        console.warn('⚠️ ReportSummaryView: No valid assessments found in assessmentResults.results');
+        console.log('assessmentResults structure:', {
+          hasResults: !!assessmentResults.results,
+          resultsLength: assessmentResults.results?.length,
+          resultsType: Array.isArray(assessmentResults.results) ? 'array' : typeof assessmentResults.results
+        });
+      }
+    } else {
+      console.warn('⚠️ ReportSummaryView: assessmentResults is null or has no results property');
+      console.log('assessmentResults:', assessmentResults);
     }
     
     // Merge assessments into workloads
-    return workloads.map(workload => {
+    let mergedCount = 0;
+    let mergedWithComplexityCount = 0;
+    let fromWorkloadAssessmentCount = 0;
+    
+    const merged = workloads.map(workload => {
       const workloadData = workload.toJSON ? workload.toJSON() : workload;
-      const assessment = assessmentMap.get(workloadData.id);
+      
+      // First, try to get assessment from assessmentResults
+      let assessment = assessmentMap.get(workloadData.id);
+      
+      // Fallback: Check if workload already has assessment stored on it
+      if (!assessment && workloadData.assessment) {
+        assessment = workloadData.assessment;
+        fromWorkloadAssessmentCount++;
+      }
       
       if (assessment) {
+        mergedCount++;
+        
         // Merge assessment data into workload
         // Handle both Assessment entity (with methods) and plain objects
         const assessmentObj = assessment.toJSON ? assessment.toJSON() : assessment;
+        
+        // Extract complexityScore - check multiple possible locations
+        const complexityScore = assessmentObj.complexityScore !== undefined ? assessmentObj.complexityScore :
+                               (assessment.complexityScore !== undefined ? assessment.complexityScore : 
+                               (assessmentObj.complexity !== undefined ? assessmentObj.complexity : null));
+        
+        if (complexityScore !== null && complexityScore !== undefined) {
+          mergedWithComplexityCount++;
+        }
+        
         const readinessScore = assessment.getReadinessScore ? assessment.getReadinessScore() : 
                               (assessmentObj.readinessScore || 
-                               (assessmentObj.complexityScore !== undefined ? 
-                                Math.max(0, Math.min(100, 100 - ((assessmentObj.complexityScore - 1) * 5) - ((assessmentObj.riskFactors?.length || 0) * 10))) : 
+                               (complexityScore !== null && complexityScore !== undefined ? 
+                                Math.max(0, Math.min(100, 100 - ((complexityScore - 1) * 5) - ((assessmentObj.riskFactors?.length || 0) * 10))) : 
                                 null));
         
         return {
           ...workloadData,
           assessment: {
-            complexityScore: assessmentObj.complexityScore,
+            complexityScore: complexityScore,
             readinessScore: readinessScore,
-            riskFactors: assessmentObj.riskFactors || [],
-            infrastructureAssessment: assessmentObj.infrastructureAssessment,
-            applicationAssessment: assessmentObj.applicationAssessment
+            riskFactors: assessmentObj.riskFactors || assessment.riskFactors || [],
+            infrastructureAssessment: assessmentObj.infrastructureAssessment || assessment.infrastructureAssessment,
+            applicationAssessment: assessmentObj.applicationAssessment || assessment.applicationAssessment
           }
         };
       }
       
       return workloadData;
     });
+    
+    console.log(`ReportSummaryView: Merged ${mergedCount.toLocaleString()}/${workloads.length.toLocaleString()} workloads with assessments`);
+    console.log(`ReportSummaryView: ${mergedWithComplexityCount.toLocaleString()} merged workloads have complexityScore`);
+    if (fromWorkloadAssessmentCount > 0) {
+      console.log(`ReportSummaryView: ${fromWorkloadAssessmentCount.toLocaleString()} assessments loaded from workload.assessment property`);
+    }
+    
+    return merged;
   }, [workloads, assessmentResults]);
 
   // Calculate report data using ReportDataAggregator with merged assessments

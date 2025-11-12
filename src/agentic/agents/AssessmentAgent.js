@@ -139,6 +139,32 @@ export class AssessmentAgent extends BaseAgent {
                 const progress = Math.round((completed / total) * 100);
                 this.updateStatus({ progress, message: `Completed ${completed.toLocaleString()}/${total.toLocaleString()} workloads` });
                 this.emit('workload-completed', { workloadId, index: globalIndex, total, result });
+                
+                // Ensure result includes workloadId explicitly for easier matching
+                // Assessment entity has workloadId as a getter, but we want it as a direct property too
+                if (result && typeof result === 'object') {
+                  // If it's an Assessment entity, ensure workloadId is accessible
+                  if (result.workloadId && !result.hasOwnProperty('workloadId')) {
+                    // Add workloadId as enumerable property for easier access
+                    Object.defineProperty(result, 'workloadId', {
+                      value: result.workloadId,
+                      enumerable: true,
+                      writable: false
+                    });
+                  }
+                  
+                  // Verify complexityScore exists
+                  if (result.complexityScore === undefined && result._complexityScore !== undefined) {
+                    // Ensure complexityScore getter is accessible
+                    if (!result.hasOwnProperty('complexityScore')) {
+                      Object.defineProperty(result, 'complexityScore', {
+                        get: () => result._complexityScore,
+                        enumerable: true
+                      });
+                    }
+                  }
+                }
+                
                 return result;
               })
               .catch(error => {

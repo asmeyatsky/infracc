@@ -950,37 +950,71 @@ export const generateComprehensiveReportPDF = async (
   yPos = margin;
   addSectionHeader('Appendices', [108, 117, 125]);
 
-  doc.setFontSize(10);
-  doc.text('A. Complexity Scoring Methodology', margin, yPos);
-  yPos += 8;
-  doc.setFontSize(9);
-  doc.text(
+  // Helper function to add appendix with proper formatting
+  const addAppendix = (letter, title, content, isLast = false) => {
+    checkPageBreak(30);
+    
+    // Appendix letter and title
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 0, 0);
+    doc.text(`${letter}. ${title}`, margin, yPos);
+    yPos += 8;
+    
+    // Content
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(50, 50, 50);
+    
+    // Split content into lines and add with proper spacing
+    const lines = content.split('\n');
+    lines.forEach((line, index) => {
+      checkPageBreak(6);
+      
+      if (line.trim() === '') {
+        yPos += 3; // Extra space for blank lines
+      } else {
+        // Handle bullet points and indentation
+        const indent = line.startsWith('  -') ? margin + 10 : (line.startsWith('•') ? margin + 5 : margin + 5);
+        doc.text(line.trim(), indent, yPos, { maxWidth: contentWidth - (indent - margin) - 5 });
+        
+        // Calculate height needed for wrapped text
+        const textWidth = contentWidth - (indent - margin) - 5;
+        const wrappedLines = doc.splitTextToSize(line.trim(), textWidth);
+        yPos += wrappedLines.length * 5 + 2;
+      }
+    });
+    
+    // Add spacing after appendix (except last one)
+    if (!isLast) {
+      yPos += 8;
+    }
+  };
+
+  // Appendix A: Complexity Scoring Methodology
+  addAppendix(
+    'A',
+    'Complexity Scoring Methodology',
     'Complexity scores range from 1-10, where:\n' +
     '• Low (1-3): Simple workloads with minimal dependencies\n' +
     '• Medium (4-6): Moderate complexity with some dependencies\n' +
-    '• High (7-10): Complex workloads with significant dependencies or custom configurations',
-    margin + 5, yPos, { maxWidth: contentWidth - 10 }
+    '• High (7-10): Complex workloads with significant dependencies or custom configurations'
   );
-  yPos += 25;
 
-  doc.setFontSize(10);
-  doc.text('B. Migration Readiness Criteria', margin, yPos);
-  yPos += 8;
-  doc.setFontSize(9);
-  doc.text(
+  // Appendix B: Migration Readiness Criteria
+  addAppendix(
+    'B',
+    'Migration Readiness Criteria',
     'Readiness is determined by:\n' +
     '• Ready: Complexity ≤ 3, no risk factors\n' +
     '• Conditional: Complexity ≤ 6, ≤ 2 risk factors\n' +
-    '• Not Ready: Complexity > 6 or > 2 risk factors',
-    margin + 5, yPos, { maxWidth: contentWidth - 10 }
+    '• Not Ready: Complexity > 6 or > 2 risk factors'
   );
-  yPos += 20;
 
-  doc.setFontSize(10);
-  doc.text('C. Committed Use Discounts (CUD)', margin, yPos);
-  yPos += 8;
-  doc.setFontSize(9);
-  doc.text(
+  // Appendix C: Committed Use Discounts (CUD)
+  addAppendix(
+    'C',
+    'Committed Use Discounts (CUD)',
     'GCP Committed Use Discounts provide:\n' +
     '• Compute Services (EC2, GKE, Cloud Run, Functions):\n' +
     '  - 1-Year CUD: 25% discount\n' +
@@ -992,16 +1026,13 @@ export const generateComprehensiveReportPDF = async (
     '  - 1-Year CUD: 20% discount\n' +
     '  - 3-Year CUD: 40% discount\n' +
     '• All workloads are assumed eligible for CUD pricing\n' +
-    '• CUD discounts are applied to on-demand pricing',
-    margin + 5, yPos, { maxWidth: contentWidth - 10 }
+    '• CUD discounts are applied to on-demand pricing'
   );
-  yPos += 50;
 
-  doc.setFontSize(10);
-  doc.text('D. Service Mapping Methodology', margin, yPos);
-  yPos += 8;
-  doc.setFontSize(9);
-  doc.text(
+  // Appendix D: Service Mapping Methodology
+  addAppendix(
+    'D',
+    'Service Mapping Methodology',
     'AWS services are mapped to GCP equivalents using:\n' +
     '• Direct mappings for equivalent services (EC2 → Compute Engine, S3 → Cloud Storage)\n' +
     '• Intelligent fallbacks for generic service names:\n' +
@@ -1010,16 +1041,13 @@ export const generateComprehensiveReportPDF = async (
     '  - Support services → GCP Support tiers\n' +
     '  - Data Transfer → Cloud Interconnect\n' +
     '• Migration strategies (6 R\'s): Rehost, Replatform, Refactor, Repurchase, Retire, Retain\n' +
-    '• Effort levels: Low, Medium, High based on service complexity',
-    margin + 5, yPos, { maxWidth: contentWidth - 10 }
+    '• Effort levels: Low, Medium, High based on service complexity'
   );
-  yPos += 50;
 
-  doc.setFontSize(10);
-  doc.text('E. Cost Calculation Methodology', margin, yPos);
-  yPos += 8;
-  doc.setFontSize(9);
-  doc.text(
+  // Appendix E: Cost Calculation Methodology
+  addAppendix(
+    'E',
+    'Cost Calculation Methodology',
     'Cost calculations include:\n' +
     '• AWS Costs: Aggregated from Cost and Usage Report (CUR) line items\n' +
     '• GCP Costs: Estimated based on AWS costs with service-specific adjustments\n' +
@@ -1027,16 +1055,13 @@ export const generateComprehensiveReportPDF = async (
     '• CUD Pricing: On-demand pricing with applicable discount applied\n' +
     '• Savings: Difference between AWS costs and GCP 3-Year CUD costs\n' +
     '• Negative Costs: Credits/refunds are handled using absolute values\n' +
-    '• All costs are monthly unless otherwise specified',
-    margin + 5, yPos, { maxWidth: contentWidth - 10 }
+    '• All costs are monthly unless otherwise specified'
   );
-  yPos += 50;
 
-  doc.setFontSize(10);
-  doc.text('F. Migration Cost Assumptions', margin, yPos);
-  yPos += 8;
-  doc.setFontSize(9);
-  doc.text(
+  // Appendix F: Migration Cost Assumptions
+  addAppendix(
+    'F',
+    'Migration Cost Assumptions',
     'One-time migration costs:\n' +
     '• Data Egress: 2% of monthly AWS cost (estimated AWS egress fees)\n' +
     '• Migration Consulting: Tiered pricing based on scale:\n' +
@@ -1051,16 +1076,13 @@ export const generateComprehensiveReportPDF = async (
     'Ongoing operational costs:\n' +
     '• Licensing: 5% of monthly GCP cost (Custom Solutions, third-party licenses)\n' +
     '• Management Tools: 3% of monthly GCP cost (monitoring, management platforms)\n\n' +
-    'Note: Actual costs may vary based on specific requirements and vendor negotiations.',
-    margin + 5, yPos, { maxWidth: contentWidth - 10 }
+    'Note: Actual costs may vary based on specific requirements and vendor negotiations.'
   );
-  yPos += 60;
 
-  doc.setFontSize(10);
-  doc.text('G. Workload Classification', margin, yPos);
-  yPos += 8;
-  doc.setFontSize(9);
-  doc.text(
+  // Appendix G: Workload Classification
+  addAppendix(
+    'G',
+    'Workload Classification',
     'Workloads are classified as:\n' +
     '• With ResourceId: One workload = one actual AWS resource\n' +
     '  (e.g., EC2 instance i-1234567890, RDS database mydb-instance-1)\n' +
@@ -1068,7 +1090,7 @@ export const generateComprehensiveReportPDF = async (
     '  (e.g., All S3 charges in us-east-1 = 1 S3 workload)\n' +
     '• Deduplication: Same resource across different dates/bills = 1 workload\n' +
     '• Aggregation: All usage types (storage, requests, data transfer) combined per service+region',
-    margin + 5, yPos, { maxWidth: contentWidth - 10 }
+    true // Last appendix
   );
 
   // ==========================================
