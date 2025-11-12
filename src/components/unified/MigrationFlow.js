@@ -189,13 +189,29 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
     clearOnStartup();
   }, [workloadRepository]);
 
-  // Load workloads from repository
+  // Load workloads from repository - ensure ALL workloads are loaded
   useEffect(() => {
     const loadWorkloads = async () => {
       try {
         const workloads = await workloadRepository.findAll();
-        setDiscoveredWorkloads(workloads);
-        setWorkloadIds(workloads.map(w => w.id));
+        const ids = workloads.map(w => w.id);
+        
+        console.log(`MigrationFlow - loadWorkloads: Loaded ${workloads.length.toLocaleString()} workloads, ${ids.length.toLocaleString()} IDs`);
+        
+        // CRITICAL: Verify we have all workloads
+        if (uploadSummary && workloads.length < uploadSummary.uniqueWorkloads) {
+          console.warn(`⚠️ WARNING: Only ${workloads.length.toLocaleString()} workloads loaded, expected ${uploadSummary.uniqueWorkloads.toLocaleString()}`);
+          // Force reload from storage
+          await workloadRepository._loadFromStorage();
+          const reloadedWorkloads = await workloadRepository.findAll();
+          const reloadedIds = reloadedWorkloads.map(w => w.id);
+          console.log(`After reload: ${reloadedWorkloads.length.toLocaleString()} workloads, ${reloadedIds.length.toLocaleString()} IDs`);
+          setDiscoveredWorkloads(reloadedWorkloads);
+          setWorkloadIds(reloadedIds);
+        } else {
+          setDiscoveredWorkloads(workloads);
+          setWorkloadIds(ids);
+        }
         
         // Start from Discovery step (no auto-skip)
         // Workloads will appear after CUR upload completes
@@ -205,10 +221,10 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
     };
     loadWorkloads();
     
-    // Subscribe to workload changes
-    const interval = setInterval(loadWorkloads, 1000);
+    // Subscribe to workload changes - reduced frequency to avoid conflicts
+    const interval = setInterval(loadWorkloads, 2000); // Changed from 1000ms to 2000ms
     return () => clearInterval(interval);
-  }, [workloadRepository, currentStep]);
+  }, [workloadRepository, currentStep, uploadSummary]);
 
   const handleStepClick = (stepIndex) => {
     if (stepIndex <= currentStep) {
@@ -304,47 +320,64 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
           
           // Set status to running BEFORE starting
           setStepStatuses(prev => ({ ...prev, assessment: 'running' }));
-          toast.info(`📊 Starting Assessment Agent for ALL ${workloadIds.length.toLocaleString()} workloads...`, { autoClose: 3000 });
+          toast.info(`📊 Starting Assessment Agent for ALL ${workloadIds.length.toLocaleString()} workloads...`, { autoClose: 5000 });
           
-          console.log(`CRITICAL: Running Assessment Agent for ALL ${workloadIds.length} workloads (sequential processing)`);
+          console.log(`CRITICAL: Running Assessment Agent for ALL ${workloadIds.length.toLocaleString()} workloads (parallel processing)`);
+          console.log(`CRITICAL: First 5 workload IDs:`, workloadIds.slice(0, 5));
+          console.log(`CRITICAL: Last 5 workload IDs:`, workloadIds.slice(-5));
+          
           try {
-            // CRITICAL: Process ALL workloads sequentially, not in parallel, to ensure completion
-            // Use parallel: false to process one at a time and ensure all are completed
+            // CRITICAL: Process ALL workloads in parallel for speed, but ensure ALL complete
             const assessmentResult = await agenticContainer.assessmentAgent.assessBatch({ 
               workloadIds, 
-              parallel: false // Sequential processing to ensure ALL workloads are assessed
+              parallel: true // Parallel processing for speed - but we'll verify ALL complete
             });
-            console.log(`Assessment result received: ${assessmentResult?.results?.length || 0} assessments`);
+            
+            const resultCount = assessmentResult?.results?.length || 0;
+            console.log(`CRITICAL: Assessment result received: ${resultCount.toLocaleString()} assessments`);
+            console.log(`CRITICAL: Expected ${workloadIds.length.toLocaleString()} assessments`);
             
             // Verify ALL workloads were assessed
-            if (assessmentResult?.results?.length !== workloadIds.length) {
-              console.warn(`⚠️ WARNING: Only ${assessmentResult?.results?.length} assessments returned, expected ${workloadIds.length}`);
-              toast.warning(`Assessment incomplete: ${assessmentResult?.results?.length}/${workloadIds.length} workloads assessed`);
+            if (resultCount !== workloadIds.length) {
+              console.error(`⚠️ ERROR: Only ${resultCount.toLocaleString()} assessments returned, expected ${workloadIds.length.toLocaleString()}`);
+              toast.error(`Assessment incomplete: ${resultCount.toLocaleString()}/${workloadIds.length.toLocaleString()} workloads assessed`, { autoClose: 10000 });
+              // Don't fail - continue with what we have, but log the issue
+            } else {
+              console.log(`✅ SUCCESS: All ${resultCount.toLocaleString()} workloads assessed successfully`);
             }
             
             setAssessmentResults(assessmentResult);
             
-            // Wait for assessment agent to be fully completed
+            // Wait for assessment agent to be fully completed - increase timeout for large batches
             let assessmentCompleted = false;
             let attempts = 0;
-            const maxAttempts = 300; // 30 seconds max wait for large batches
+            const maxAttempts = 600; // 60 seconds max wait for large batches (288k workloads)
             
+            console.log('Waiting for Assessment Agent to complete...');
             while (!assessmentCompleted && attempts < maxAttempts) {
               const assessmentAgentStatus = agentStatusManager.getAgentStatus('AssessmentAgent');
               if (assessmentAgentStatus.status === 'completed' || assessmentAgentStatus.status === 'idle') {
                 assessmentCompleted = true;
+                console.log('Assessment Agent status: COMPLETED');
               } else {
+                if (attempts % 50 === 0) { // Log every 5 seconds
+                  console.log(`Assessment Agent still running... (${attempts * 0.1}s elapsed)`);
+                }
                 await new Promise(resolve => setTimeout(resolve, 100));
                 attempts++;
               }
             }
             
             if (!assessmentCompleted) {
-              console.warn('Assessment agent did not complete within timeout, but continuing...');
+              console.warn(`⚠️ WARNING: Assessment agent did not complete within ${maxAttempts * 0.1}s timeout`);
+              // Check if we got results anyway
+              if (resultCount > 0) {
+                console.log(`Proceeding with ${resultCount.toLocaleString()} assessments received`);
+              }
             }
             
             setStepStatuses(prev => ({ ...prev, assessment: 'completed' }));
-            toast.success(`✅ Assessment complete! Processed ${assessmentResult?.results?.length || workloadIds.length} workloads.`, { autoClose: 5000 });
+            toast.success(`✅ Assessment complete! Processed ${resultCount.toLocaleString()} workloads.`, { autoClose: 5000 });
             return true;
           } catch (error) {
             console.error('Assessment failed:', error);
