@@ -98,38 +98,70 @@ export class AssessmentAgent extends BaseAgent {
     this.think(`Starting batch assessment of ${workloadIds.length} workloads`);
 
     if (parallel) {
-      // Assess all workloads in parallel with progress tracking
+      // Assess workloads in parallel with batching to avoid memory issues
+      // Process in chunks of 1000 to prevent browser crashes with large datasets
+      const BATCH_SIZE = 1000;
       let completed = 0;
       const total = workloadIds.length;
+      const assessments = [];
 
-      const assessments = await Promise.all(
-        workloadIds.map((workloadId, index) => {
-          this.emit('workload-started', { workloadId, index: index + 1, total });
-          
-          return this.execute({ 
-            workloadId, 
-            useAIEnhancement: true
-          })
-            .then(result => {
-              completed++;
-              const progress = Math.round((completed / total) * 100);
-              this.updateStatus({ progress, message: `Completed ${completed}/${total} workloads` });
-              this.emit('workload-completed', { workloadId, index: index + 1, total, result });
-              return result;
+      console.log(`AssessmentAgent: Processing ${total.toLocaleString()} workloads in batches of ${BATCH_SIZE}`);
+
+      // Process workloads in batches
+      for (let i = 0; i < workloadIds.length; i += BATCH_SIZE) {
+        const batch = workloadIds.slice(i, i + BATCH_SIZE);
+        const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(workloadIds.length / BATCH_SIZE);
+        
+        console.log(`AssessmentAgent: Processing batch ${batchNumber}/${totalBatches} (${batch.length.toLocaleString()} workloads)`);
+        
+        this.setExecuting(
+          'Batch Assessment',
+          Math.round((i / total) * 100),
+          `Processing batch ${batchNumber}/${totalBatches}: ${batch.length.toLocaleString()} workloads`
+        );
+
+        // Process batch in parallel
+        const batchAssessments = await Promise.all(
+          batch.map((workloadId, batchIndex) => {
+            const globalIndex = i + batchIndex + 1;
+            this.emit('workload-started', { workloadId, index: globalIndex, total });
+            
+            return this.execute({ 
+              workloadId, 
+              useAIEnhancement: true
             })
-            .catch(error => {
-              completed++;
-              const progress = Math.round((completed / total) * 100);
-              this.updateStatus({ progress });
-              this.emit('workload-error', { workloadId, error: error.message });
-              return {
-                workloadId,
-                error: error.message,
-                success: false
-              };
-            });
-        })
-      );
+              .then(result => {
+                completed++;
+                const progress = Math.round((completed / total) * 100);
+                this.updateStatus({ progress, message: `Completed ${completed.toLocaleString()}/${total.toLocaleString()} workloads` });
+                this.emit('workload-completed', { workloadId, index: globalIndex, total, result });
+                return result;
+              })
+              .catch(error => {
+                completed++;
+                const progress = Math.round((completed / total) * 100);
+                this.updateStatus({ progress });
+                this.emit('workload-error', { workloadId, error: error.message });
+                return {
+                  workloadId,
+                  error: error.message,
+                  success: false
+                };
+              });
+          })
+        );
+
+        // Add batch results to overall assessments
+        Array.prototype.push.apply(assessments, batchAssessments);
+        
+        // Yield to event loop between batches to prevent blocking
+        if (i + BATCH_SIZE < workloadIds.length) {
+          await new Promise(resolve => setTimeout(resolve, 10)); // Small delay between batches
+        }
+      }
+
+      console.log(`AssessmentAgent: Completed processing ${assessments.length.toLocaleString()} assessments`);
 
       const summary = this._generateBatchSummary(assessments);
       this.setCompleted({ results: assessments, summary });
