@@ -15,7 +15,17 @@ import jsPDF from 'jspdf';
 // Import jspdf-autotable - it extends jsPDF prototype automatically
 // Must be imported before creating jsPDF instances
 // Side-effect import for v5 - extends jsPDF.prototype.autoTable
+// This import MUST happen at module load time, not inside functions
 import 'jspdf-autotable';
+
+// Verify plugin is loaded at module initialization
+if (typeof window !== 'undefined') {
+  // In browser, verify the plugin extended the prototype
+  const testDoc = new jsPDF();
+  if (typeof testDoc.autoTable !== 'function' && typeof Object.getPrototypeOf(testDoc).autoTable !== 'function') {
+    console.warn('jspdf-autotable plugin may not be loaded correctly. Please restart the development server.');
+  }
+}
 
 /**
  * Generate comprehensive migration assessment PDF report
