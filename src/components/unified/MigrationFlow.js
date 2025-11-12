@@ -1416,7 +1416,7 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
                 <div className="alert alert-warning">
                   ⚠️ Please complete Discovery, Assessment, Strategy, and Cost Optimization first
                 </div>
-              ) : stepStatuses.assessment !== 'completed' || stepStatuses.strategy !== 'completed' ? (
+              ) : stepStatuses.assessment !== 'completed' || stepStatuses.strategy !== 'completed' || isRunning ? (
                 <div className="alert alert-info">
                   <h5>⏳ Report Generation In Progress</h5>
                   <p>Please wait for all agents to complete before viewing the report.</p>
@@ -1425,13 +1425,23 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
                     <li>Assessment: {stepStatuses.assessment === 'completed' ? '✅ Complete' : stepStatuses.assessment === 'running' ? '⏳ Running...' : '⏸️ Pending'}</li>
                     <li>Strategy: {stepStatuses.strategy === 'completed' ? '✅ Complete' : stepStatuses.strategy === 'running' ? '⏳ Running...' : '⏸️ Pending'}</li>
                     <li>Cost Optimization: {stepStatuses.cost === 'completed' ? '✅ Complete' : stepStatuses.cost === 'running' ? '⏳ Running...' : '⏸️ Pending'}</li>
+                    {isRunning && <li className="text-warning"><strong>⚠️ Workflow is currently running...</strong></li>}
                   </ul>
+                  {isRunning && (
+                    <div className="mt-3">
+                      <div className="spinner-border spinner-border-sm me-2" role="status">
+                        <span className="visually-hidden">Loading...</span>
+                      </div>
+                      <span>Agents are processing workloads. Please wait...</span>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <ReportSummaryView 
                   workloads={discoveredWorkloads}
                   assessmentResults={assessmentResults}
                   strategyResults={strategyResults}
+                  uploadSummary={uploadSummary}
                 />
               )}
             </div>

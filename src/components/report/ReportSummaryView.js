@@ -41,16 +41,25 @@ ChartJS.register(
   Legend
 );
 
-const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyResults = null }) => {
+const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyResults = null, uploadSummary = null }) => {
   const [reportData, setReportData] = useState(null);
   const [targetRegion, setTargetRegion] = useState('us-central1');
 
   useEffect(() => {
     if (workloads && workloads.length > 0) {
       const summary = ReportDataAggregator.generateReportSummary(workloads);
+      
+      // Override totalMonthlyCost with uploadSummary value if available (more accurate)
+      // The uploadSummary has the raw cost sum from all bills, which is correct
+      // The workload-based calculation may be wrong due to deduplication or Money object issues
+      if (uploadSummary && uploadSummary.totalMonthlyCost) {
+        console.log(`ReportSummaryView: Overriding totalMonthlyCost from $${summary.summary.totalMonthlyCost.toFixed(2)} to $${uploadSummary.totalMonthlyCost.toFixed(2)}`);
+        summary.summary.totalMonthlyCost = uploadSummary.totalMonthlyCost;
+      }
+      
       setReportData(summary);
     }
-  }, [workloads]);
+  }, [workloads, uploadSummary]);
 
   if (!reportData) {
     return (
