@@ -12,13 +12,11 @@
 import { WorkloadAssessmentService } from '../../domain/services/WorkloadAssessmentService.js';
 
 // Ports (Interfaces)
-import { CodeModPort } from '../../domain/ports/CodeModPort.js';
 import { ServiceMappingPort } from '../../domain/ports/ServiceMappingPort.js';
 import { WorkloadRepositoryPort } from '../../domain/ports/WorkloadRepositoryPort.js';
 import { PricingPort } from '../../domain/ports/PricingPort.js';
 
 // Infrastructure Adapters
-import { CodeModAdapter } from '../adapters/CodeModAdapter.js';
 import { ServiceMappingRepository } from '../repositories/ServiceMappingRepository.js';
 import { WorkloadRepository } from '../repositories/WorkloadRepository.js';
 import CloudPricingAPI from '../../utils/cloudPricingAPI.js';
@@ -101,7 +99,6 @@ export class Container {
       calculateTCOUseCase: this._calculateTCOUseCase,
       planMigrationWavesUseCase: this._planMigrationWavesUseCase,
       workloadAssessmentService: this._workloadAssessmentService,
-      codeModPort: this._codeModPort,
       serviceMappingPort: this._serviceMappingPort,
       workloadRepository: this._workloadRepository,
       pricingPort: this._pricingPort

@@ -9,7 +9,7 @@
  */
 
 import { BaseAgent } from '../core/BaseAgent.js';
-import { CalculateTCOUseCase } from '../../application/use_cases/CalculateTCOUseCase.js';
+import { CalculateTCOUseCase, TCOInput } from '../../application/use_cases/CalculateTCOUseCase.js';
 
 /**
  * Cost Analysis Agent

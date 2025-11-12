@@ -56,7 +56,7 @@ export class AssessmentAgent extends BaseAgent {
       const assessment = await this.executeStep('Executing assessment use case', async () => {
         return await this.assessWorkloadUseCase.execute({
           workloadId,
-          includeCodeMod
+          includeCodeMod: false // CodeMod removed
         });
       }, 50);
 

@@ -15,7 +15,6 @@ import CostAnalysisAgent from '../agents/CostAnalysisAgent.js';
 import DiscoveryAgent from '../agents/DiscoveryAgent.js';
 import OnboardingAgent from '../agents/OnboardingAgent.js';
 import StrategyAgent from '../agents/StrategyAgent.js';
-import CodeModAgent from '../agents/CodeModAgent.js';
 import AssistantAgent from '../agents/AssistantAgent.js';
 import AgenticOrchestrator from '../orchestration/AgenticOrchestrator.js';
 
@@ -82,11 +81,6 @@ export class AgenticContainer {
       aiConfig: this.aiConfig
     });
 
-    // CodeMod Agent
-    this._codeModAgent = new CodeModAgent({
-      aiConfig: this.aiConfig
-    });
-
     // Assistant Agent
     this._assistantAgent = new AssistantAgent({
       apiConfig: this.aiConfig,
@@ -127,10 +121,6 @@ export class AgenticContainer {
 
   get strategyAgent() {
     return this._strategyAgent;
-  }
-
-  get codeModAgent() {
-    return this._codeModAgent;
   }
 
   get assistantAgent() {
