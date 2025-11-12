@@ -92,6 +92,15 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
       const currentStatus = stepStatuses[currentStepId];
       const isCurrentStepCompleted = currentStatus === 'completed';
 
+      // For discovery step, also check agent status
+      if (currentStepId === 'discovery') {
+        const discoveryAgentStatus = agentStatusManager.getAgentStatus('DiscoveryAgent');
+        if (discoveryAgentStatus.status !== 'completed' && discoveryAgentStatus.status !== 'idle') {
+          // Discovery is still running, wait for it
+          return;
+        }
+      }
+
       // If current step is not completed and not running, execute it
       if (!isCurrentStepCompleted && currentStatus !== 'running') {
         setIsRunning(true);
@@ -100,8 +109,8 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
           const success = await executeStep(step);
           if (success) {
             setStepStatuses(prev => ({ ...prev, [step.id]: 'completed' }));
-            // Small delay before advancing
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            // Small delay before advancing to ensure agent is fully done
+            await new Promise(resolve => setTimeout(resolve, 1500));
             if (currentStep < STEPS.length - 1) {
               setCurrentStep(currentStep + 1);
             }
@@ -120,12 +129,12 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
     // Use a small delay to avoid immediate execution on every render
     const timeoutId = setTimeout(() => {
       runWorkflowEndToEnd();
-    }, 500);
+    }, 1000); // Increased delay to ensure proper sequencing
 
     return () => clearTimeout(timeoutId);
   }, [workloadIds.length, currentStep, autoRunEnabled, isRunning]);
 
-  // Watch for step completion and auto-advance
+  // Watch for step completion and auto-advance - with agent status check
   useEffect(() => {
     if (!autoRunEnabled || isRunning) {
       return;
@@ -138,12 +147,22 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
     const currentStepId = STEPS[currentStep].id;
     const isCurrentStepCompleted = stepStatuses[currentStepId] === 'completed';
 
+    // For discovery step, verify agent is actually completed
+    if (currentStepId === 'discovery') {
+      const discoveryAgentStatus = agentStatusManager.getAgentStatus('DiscoveryAgent');
+      if (discoveryAgentStatus.status !== 'completed' && discoveryAgentStatus.status !== 'idle') {
+        // Discovery agent is still running, don't advance yet
+        return;
+      }
+    }
+
     // If current step is completed, advance to next step
     if (isCurrentStepCompleted && currentStep < STEPS.length - 1) {
       const advanceToNext = async () => {
         setIsRunning(true);
         try {
-          await new Promise(resolve => setTimeout(resolve, 1000)); // Brief delay
+          // Wait a bit longer to ensure agent is fully done
+          await new Promise(resolve => setTimeout(resolve, 1500));
           setCurrentStep(currentStep + 1);
         } catch (error) {
           console.error('Error advancing to next step:', error);
@@ -166,10 +185,19 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
       STEPS.forEach(step => {
         const agentStatus = statuses.agents.get(step.agent);
         if (agentStatus) {
-          newStatuses[step.id] = agentStatus.status;
+          // Map agent status to step status
+          let stepStatus = 'pending';
+          if (agentStatus.status === 'completed' || agentStatus.status === 'idle') {
+            stepStatus = 'completed';
+          } else if (agentStatus.status === 'executing' || agentStatus.status === 'thinking') {
+            stepStatus = 'running';
+          } else if (agentStatus.status === 'error') {
+            stepStatus = 'failed';
+          }
+          newStatuses[step.id] = stepStatus;
         }
       });
-      setStepStatuses(newStatuses);
+      setStepStatuses(prev => ({ ...prev, ...newStatuses }));
     });
 
     // Don't load test data automatically - start with 0 workloads
@@ -237,23 +265,56 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
       switch (step.id) {
         case 'discovery':
           // Step 1: Discovery - must run first
+          // Set status to running
+          setStepStatuses(prev => ({ ...prev, discovery: 'running' }));
+          
           // DiscoveryAgent already saves workloads to repository
           const discoveryResult = await agenticContainer.discoveryAgent.execute({}, { scanType: 'full' });
+          
+          // Wait for discovery agent to be fully completed
+          let discoveryCompleted = false;
+          let attempts = 0;
+          const maxAttempts = 50; // 5 seconds max wait
+          
+          while (!discoveryCompleted && attempts < maxAttempts) {
+            const discoveryStatus = agentStatusManager.getAgentStatus('DiscoveryAgent');
+            if (discoveryStatus.status === 'completed' || discoveryStatus.status === 'idle') {
+              discoveryCompleted = true;
+            } else {
+              await new Promise(resolve => setTimeout(resolve, 100));
+              attempts++;
+            }
+          }
           
           // Reload workloads after discovery
           const workloads = await workloadRepository.findAll();
           setDiscoveredWorkloads(workloads);
           setWorkloadIds(workloads.map(w => w.id));
           
+          // Mark discovery as completed
+          setStepStatuses(prev => ({ ...prev, discovery: 'completed' }));
+          
           return true;
 
         case 'assessment':
           // Step 2: Assessment - requires workloads from discovery
+          // First ensure discovery is fully completed
+          const discoveryStatus = agentStatusManager.getAgentStatus('DiscoveryAgent');
+          if (discoveryStatus.status !== 'completed' && discoveryStatus.status !== 'idle') {
+            console.warn('Assessment requires Discovery to be completed first.');
+            toast.warning('Please wait for Discovery to complete before starting Assessment.');
+            return false;
+          }
+          
           if (workloadIds.length === 0) {
             console.warn('Assessment requires workloads. Please complete Discovery first.');
             toast.warning('No workloads found. Please complete Discovery first.');
             return false;
           }
+          
+          // Set status to running
+          setStepStatuses(prev => ({ ...prev, assessment: 'running' }));
+          
           console.log(`Running Assessment Agent for ${workloadIds.length} workloads...`);
           try {
             const assessmentResult = await agenticContainer.assessmentAgent.assessBatch({ 
@@ -262,22 +323,50 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
             });
             console.log('Assessment result received:', assessmentResult);
             setAssessmentResults(assessmentResult);
+            
+            // Wait for assessment agent to be fully completed
+            let assessmentCompleted = false;
+            let attempts = 0;
+            const maxAttempts = 100; // 10 seconds max wait
+            
+            while (!assessmentCompleted && attempts < maxAttempts) {
+              const assessmentAgentStatus = agentStatusManager.getAgentStatus('AssessmentAgent');
+              if (assessmentAgentStatus.status === 'completed' || assessmentAgentStatus.status === 'idle') {
+                assessmentCompleted = true;
+              } else {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                attempts++;
+              }
+            }
+            
             setStepStatuses(prev => ({ ...prev, assessment: 'completed' }));
             toast.success(`Assessment complete! Processed ${assessmentResult?.results?.length || workloadIds.length} workloads.`);
             return true;
           } catch (error) {
             console.error('Assessment failed:', error);
             toast.error(`Assessment failed: ${error.message}`);
+            setStepStatuses(prev => ({ ...prev, assessment: 'failed' }));
             return false;
           }
 
         case 'strategy':
-          // Step 3: Strategy - requires workloads from discovery
+          // Step 3: Strategy - requires workloads and assessment to be completed
+          const assessmentStatus = agentStatusManager.getAgentStatus('AssessmentAgent');
+          if (assessmentStatus.status !== 'completed' && assessmentStatus.status !== 'idle') {
+            console.warn('Strategy requires Assessment to be completed first.');
+            toast.warning('Please wait for Assessment to complete before starting Strategy.');
+            return false;
+          }
+          
           if (workloadIds.length === 0) {
             console.warn('Strategy requires workloads. Please complete Discovery first.');
             toast.warning('No workloads found. Please complete Discovery first.');
             return false;
           }
+          
+          // Set status to running
+          setStepStatuses(prev => ({ ...prev, strategy: 'running' }));
+          
           console.log(`Running Planning Agent for ${workloadIds.length} workloads...`);
           try {
             const strategyResult = await agenticContainer.planningAgent.generateAutonomousStrategy({ 
@@ -285,12 +374,29 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
             });
             console.log('Strategy result received:', strategyResult);
             setStrategyResults(strategyResult);
+            
+            // Wait for planning agent to be fully completed
+            let strategyCompleted = false;
+            let attempts = 0;
+            const maxAttempts = 100; // 10 seconds max wait
+            
+            while (!strategyCompleted && attempts < maxAttempts) {
+              const planningStatus = agentStatusManager.getAgentStatus('PlanningAgent');
+              if (planningStatus.status === 'completed' || planningStatus.status === 'idle') {
+                strategyCompleted = true;
+              } else {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                attempts++;
+              }
+            }
+            
             setStepStatuses(prev => ({ ...prev, strategy: 'completed' }));
             toast.success(`Strategy planning complete! Generated plans for ${workloadIds.length} workloads.`);
             return true;
           } catch (error) {
             console.error('Strategy planning failed:', error);
             toast.error(`Strategy planning failed: ${error.message}`);
+            setStepStatuses(prev => ({ ...prev, strategy: 'failed' }));
             return false;
           }
 
@@ -598,39 +704,8 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
                     ) : isRunning ? (
                       <p>⏳ <strong>Running workflow...</strong> Please wait while agents process your workloads.</p>
                     ) : (
-                      <p>Discovery step is complete. Workflow auto-run is disabled.</p>
+                      <p>Discovery step is complete. Workflow will continue automatically.</p>
                     )}
-                    <div className="mt-3">
-                      {!autoRunEnabled && (
-                        <button 
-                          className="btn btn-primary me-2"
-                          onClick={() => {
-                            setAutoRunEnabled(true);
-                            setIsRunning(false);
-                          }}
-                        >
-                          ▶️ Resume Auto-Run
-                        </button>
-                      )}
-                      {autoRunEnabled && (
-                        <button 
-                          className="btn btn-warning me-2"
-                          onClick={() => {
-                            setAutoRunEnabled(false);
-                            setIsRunning(false);
-                          }}
-                        >
-                          ⏸️ Pause Auto-Run
-                        </button>
-                      )}
-                      <button 
-                        className="btn btn-outline-secondary"
-                        onClick={handleNextStep}
-                        disabled={isRunning}
-                      >
-                        Manual: Next Step →
-                      </button>
-                    </div>
                   </div>
                 </div>
               ) : (
@@ -638,18 +713,11 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
                   <div className="alert alert-info">
                     <h4>📤 Upload CUR Files:</h4>
                     <p>Use the "Upload CUR" button in the main menu to import AWS Cost and Usage Reports.</p>
-                    <p>Or click "Next" to use the Discovery Agent to scan your infrastructure.</p>
+                    <p>Once workloads are discovered, the workflow will run automatically end-to-end.</p>
                     {autoRunEnabled && (
                       <p className="mt-2"><strong>Note:</strong> Auto-run is enabled. Once workloads are discovered, the workflow will run automatically.</p>
                     )}
                   </div>
-                  <button 
-                    className="btn btn-primary" 
-                    onClick={handleNextStep}
-                    disabled={isRunning}
-                  >
-                    {isRunning ? '⏳ Running...' : 'Start Discovery Agent'}
-                  </button>
                 </div>
               )}
             </div>
@@ -1310,78 +1378,78 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
           )}
 
 
-          {/* Step Actions */}
-          <div className="step-actions">
-            {isRunning && (
-              <div className="alert alert-info mb-3">
-                <span className="spinner-border spinner-border-sm me-2" />
-                <strong>Workflow Running:</strong> {STEPS[currentStep].name} in progress... Please wait.
-              </div>
-            )}
-            {currentStep < STEPS.length - 1 && (
-              <button 
-                className="btn btn-primary" 
-                onClick={handleNextStep}
-                disabled={
-                  isRunning ||
-                  stepStatuses[STEPS[currentStep].id] === 'running' ||
-                  (STEPS[currentStep + 1]?.required && workloadIds.length === 0 && currentStep >= 0)
-                }
-              >
-                {stepStatuses[STEPS[currentStep].id] === 'running' || isRunning ? (
-                  <>
-                    <span className="spinner-border spinner-border-sm me-2" />
-                    {STEPS[currentStep].name} in Progress...
-                  </>
-                ) : (
-                  (() => {
-                    // Find next non-skipped step
-                    let nextStepIndex = currentStep + 1;
-                    return nextStepIndex < STEPS.length ? `Continue to ${STEPS[nextStepIndex].name}` : 'Complete';
-                  })()
-                )}
-              </button>
-            )}
-            {currentStep > 0 && (
-              <button 
-                className="btn btn-secondary ms-2" 
-                onClick={() => {
-                  setAutoRunEnabled(false);
-                  setCurrentStep(currentStep - 1);
-                }}
-                disabled={isRunning}
-              >
-                Previous Step
-              </button>
-            )}
-            {currentStep === STEPS.length - 1 && (
-              <div className="alert alert-success mt-3">
-                <h5>✅ Workflow Complete!</h5>
-                <p>All migration steps have been completed successfully.</p>
-              </div>
-            )}
-          </div>
+          {/* Step Actions - Only show in Discovery step, otherwise use Agent Dashboard */}
+          {currentStep === 0 && (
+            <div className="step-actions">
+              {isRunning && (
+                <div className="alert alert-info mb-3">
+                  <span className="spinner-border spinner-border-sm me-2" />
+                  <strong>Workflow Running:</strong> {STEPS[currentStep].name} in progress... Please wait.
+                </div>
+              )}
+              {!isRunning && workloadIds.length === 0 && (
+                <div className="alert alert-info">
+                  <p>Use the "Upload CUR" button in the main menu to import workloads, or wait for Discovery Agent to complete.</p>
+                  {autoRunEnabled && (
+                    <p className="mt-2 mb-0"><strong>Note:</strong> Auto-run is enabled. Once workloads are discovered, the workflow will run automatically.</p>
+                  )}
+                </div>
+              )}
+              {workloadIds.length > 0 && !isRunning && (
+                <div className="alert alert-success">
+                  <p><strong>Discovery Complete!</strong> Workflow will continue automatically.</p>
+                  {!autoRunEnabled && (
+                    <button 
+                      className="btn btn-primary mt-2"
+                      onClick={() => {
+                        setAutoRunEnabled(true);
+                        setIsRunning(false);
+                      }}
+                    >
+                      ▶️ Resume Auto-Run
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          
+          {/* Completion message */}
+          {currentStep === STEPS.length - 1 && stepStatuses[STEPS[currentStep].id] === 'completed' && (
+            <div className="alert alert-success mt-3">
+              <h5>✅ Workflow Complete!</h5>
+              <p>All migration steps have been completed successfully.</p>
+            </div>
+          )}
         </div>
 
-        {/* Agent Dashboard */}
-        {showAgents && (
-          <div className="flow-agents">
-            <div className="agent-toggle">
-              <button
-                className="btn btn-sm"
-                onClick={() => setShowAgents(!showAgents)}
-              >
-                {showAgents ? 'Hide' : 'Show'} Agents
-              </button>
-            </div>
-            {showAgents && (
-              <>
-                <AgentStatusDashboard />
-                <AgentActivityLog />
-              </>
-            )}
+        {/* Agent Dashboard - Always visible, contains all controls */}
+        <div className="flow-agents">
+          <div className="agent-toggle">
+            <button
+              className="btn btn-sm"
+              onClick={() => setShowAgents(!showAgents)}
+            >
+              {showAgents ? 'Hide' : 'Show'} Agents
+            </button>
           </div>
-        )}
+          {showAgents && (
+            <>
+              <AgentStatusDashboard 
+                autoRunEnabled={autoRunEnabled}
+                isRunning={isRunning}
+                onAutoRunToggle={(enabled) => {
+                  setAutoRunEnabled(enabled);
+                  setIsRunning(false);
+                }}
+                currentStep={currentStep}
+                workloadIds={workloadIds}
+                onManualStep={() => handleNextStep()}
+              />
+              <AgentActivityLog />
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

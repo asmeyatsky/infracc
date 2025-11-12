@@ -9,7 +9,14 @@ import React, { useState, useEffect } from 'react';
 import { agentStatusManager, AgentStatus } from '../../agentic/core/AgentStatusManager.js';
 import { agentEventEmitter } from '../../agentic/core/AgentEventEmitter.js';
 
-function AgentStatusDashboard() {
+function AgentStatusDashboard({ 
+  autoRunEnabled = true, 
+  isRunning = false, 
+  onAutoRunToggle = null,
+  currentStep = 0,
+  workloadIds = [],
+  onManualStep = null
+}) {
   const [agentStates, setAgentStates] = useState(new Map());
   const [activityLog, setActivityLog] = useState([]);
   const [expandedAgent, setExpandedAgent] = useState(null);
@@ -159,6 +166,60 @@ function AgentStatusDashboard() {
                                 style={{ width: `${status.progress}%` }}
                               />
                             </div>
+                          </div>
+                        )}
+
+                        {/* Discovery Agent Controls - Only show for Discovery agent */}
+                        {agentId === 'DiscoveryAgent' && currentStep === 0 && (
+                          <div className="mt-3 border-top pt-3">
+                            <h6>Workflow Controls</h6>
+                            {workloadIds.length > 0 ? (
+                              <div className="alert alert-success mb-2">
+                                <small><strong>{workloadIds.length} workloads</strong> discovered</small>
+                              </div>
+                            ) : (
+                              <div className="alert alert-info mb-2">
+                                <small>Waiting for workloads to be discovered...</small>
+                              </div>
+                            )}
+                            {onAutoRunToggle && (
+                              <div className="d-flex gap-2 flex-wrap">
+                                {!autoRunEnabled ? (
+                                  <button
+                                    className="btn btn-sm btn-primary"
+                                    onClick={() => onAutoRunToggle(true)}
+                                    disabled={isRunning}
+                                  >
+                                    ▶️ Resume Auto-Run
+                                  </button>
+                                ) : (
+                                  <button
+                                    className="btn btn-sm btn-warning"
+                                    onClick={() => onAutoRunToggle(false)}
+                                    disabled={isRunning}
+                                  >
+                                    ⏸️ Pause Auto-Run
+                                  </button>
+                                )}
+                                {onManualStep && (
+                                  <button
+                                    className="btn btn-sm btn-outline-secondary"
+                                    onClick={onManualStep}
+                                    disabled={isRunning || workloadIds.length === 0}
+                                  >
+                                    Manual: Next Step →
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                            {isRunning && (
+                              <div className="alert alert-info mt-2 mb-0">
+                                <small>
+                                  <span className="spinner-border spinner-border-sm me-2" />
+                                  Workflow running... Please wait.
+                                </small>
+                              </div>
+                            )}
                           </div>
                         )}
 
