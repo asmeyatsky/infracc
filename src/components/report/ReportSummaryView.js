@@ -23,7 +23,6 @@ import {
   Tooltip,
   Legend
 } from 'chart.js';
-import { ReportDataAggregator } from '../../domain/services/ReportDataAggregator.js';
 import { GCPCostEstimator } from '../../domain/services/GCPCostEstimator.js';
 import { generateComprehensiveReportPDF } from '../../utils/reportPdfGenerator.js';
 import TechnologySummary from './TechnologySummary.js';
