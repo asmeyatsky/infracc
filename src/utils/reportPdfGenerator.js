@@ -224,6 +224,22 @@ export const generateComprehensiveReportPDF = async (
   yPos += 8;
 
   const complexity = reportData?.complexity || {};
+  const totalComplexityCount = (complexity.low?.count || 0) + (complexity.medium?.count || 0) + (complexity.high?.count || 0) + (complexity.unassigned?.count || 0);
+  const unassignedCount = complexity.unassigned?.count || 0;
+  
+  // Warn if all workloads are unassigned
+  if (unassignedCount > 0 && unassignedCount === totalComplexityCount) {
+    doc.setFontSize(9);
+    doc.setTextColor(200, 0, 0);
+    doc.text(
+      `⚠️ WARNING: All ${unassignedCount.toLocaleString()} workloads are unassigned. ` +
+      `Assessment Agent must complete successfully to generate complexity and readiness scores.`,
+      margin, yPos, { maxWidth: contentWidth }
+    );
+    doc.setTextColor(0, 0, 0);
+    yPos += 10;
+  }
+  
   const complexityData = [
     ['Low (1-3)', (complexity.low?.count || 0).toString(), formatCurrency(complexity.low?.totalCost || 0)],
     ['Medium (4-6)', (complexity.medium?.count || 0).toString(), formatCurrency(complexity.medium?.totalCost || 0)],
@@ -251,6 +267,14 @@ export const generateComprehensiveReportPDF = async (
   yPos += 8;
 
   const readiness = reportData?.readiness || {};
+  const totalReadinessCount = (readiness.ready?.count || 0) + (readiness.conditional?.count || 0) + (readiness.notReady?.count || 0) + (readiness.unassigned?.count || 0);
+  const unassignedReadinessCount = readiness.unassigned?.count || 0;
+  
+  // Warn if all workloads are unassigned for readiness
+  if (unassignedReadinessCount > 0 && unassignedReadinessCount === totalReadinessCount && unassignedReadinessCount === unassignedCount) {
+    // Warning already shown above for complexity, skip duplicate
+  }
+  
   const readinessData = [
     ['Ready', (readiness.ready?.count || 0).toString(), formatCurrency(readiness.ready?.totalCost || 0)],
     ['Conditional', (readiness.conditional?.count || 0).toString(), formatCurrency(readiness.conditional?.totalCost || 0)],
