@@ -29,8 +29,6 @@ const MigrationTimelineGantt = ({ workloads = [], strategyResults = null, assess
       </div>
     </div>
   );
-  
-  /* DISABLED FOR PERFORMANCE - Original code below
   // Calculate timeline data
   const timelineData = useMemo(() => {
     if (!strategyResults || !strategyResults.wavePlan) {
@@ -361,12 +359,6 @@ const MigrationTimelineGantt = ({ workloads = [], strategyResults = null, assess
                 <small className="text-muted">Wave 3 Workloads</small>
               </div>
             </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-  */
 };
 
 export default MigrationTimelineGantt;
