@@ -258,15 +258,19 @@ function CurUploadButton({ onUploadComplete }) {
         }
       }
 
+      const zipTotalAggregatedCost = allData.reduce((sum, workload) => sum + (workload.monthlyCost || 0), 0);
+
       // Attach total raw cost metadata to combined result (sum of ALL CSV files in ZIP)
       allData._metadata = {
         totalRawCost: zipTotalRawCost,
+        totalAggregatedCost: zipTotalAggregatedCost,
         totalRows: allData.length,
         uniqueWorkloads: allData.length,
         csvFilesProcessed: csvFiles.length
       };
 
       console.log(`ZIP file ${file.name}: Total raw cost from ${csvFiles.length} CSV files: $${zipTotalRawCost.toFixed(2)}`);
+      console.log(`ZIP file ${file.name}: Total aggregated cost from ${csvFiles.length} CSV files: $${zipTotalAggregatedCost.toFixed(2)}`);
       return allData;
     } catch (error) {
       if (error.message.includes('Cannot find module')) {
@@ -797,7 +801,6 @@ function CurUploadButton({ onUploadComplete }) {
             duplicatesMerged: totalDuplicatesRemoved,
             workloadsSaved: actualUniqueCount,
             totalMonthlyCost: totalAggregatedCost || 0, // Use aggregated cost
-            totalAggregatedCost: totalAggregatedCost || 0, // Deduplicated cost for reference
             fileStats: fileStats || [] // Ensure fileStats is an array
           };
           

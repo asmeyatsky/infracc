@@ -12,7 +12,7 @@
  */
 
 import jsPDF from 'jspdf';
-import 'jspdf-autotable'; // This import extends jsPDF prototype with autoTable
+import autoTable from 'jspdf-autotable';
 
 /**
  * Generate comprehensive migration assessment PDF report
@@ -35,15 +35,12 @@ export const generateComprehensiveReportPDF = async (
     includeCharts = true
   } = options;
 
-  // Create jsPDF instance AFTER jspdf-autotable has been imported
+  // Create jsPDF instance
   const doc = new jsPDF('p', 'mm', 'a4');
   
   // Helper function to safely call autoTable
   const callAutoTable = (options) => {
-    if (typeof doc.autoTable !== 'function') {
-      throw new Error('autoTable method not available. jspdf-autotable plugin may not be loaded. Please restart the development server.');
-    }
-    doc.autoTable(options);
+    autoTable(doc, options);
   };
   
   // Helper to get lastAutoTable (set by autoTable plugin after each call)

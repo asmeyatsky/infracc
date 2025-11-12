@@ -343,9 +343,12 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
               }
               
               const result = Array.from(workloadMap.values());
+              const totalAggregatedCost = result.reduce((sum, workload) => sum + workload.monthlyCost, 0);
+              
               // Attach metadata with raw total cost (sum of ALL rows before aggregation)
               result._metadata = {
                 totalRawCost: totalRawCost,
+                totalAggregatedCost: totalAggregatedCost,
                 totalRows: lineNumber - 1, // Exclude header
                 uniqueWorkloads: result.length
               };
@@ -380,9 +383,12 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
       }
       
       const result = Array.from(workloadMap.values());
+      const totalAggregatedCost = result.reduce((sum, workload) => sum + workload.monthlyCost, 0);
+      
       // Attach metadata with raw total cost (sum of ALL rows before aggregation)
       result._metadata = {
         totalRawCost: totalRawCost,
+        totalAggregatedCost: totalAggregatedCost,
         totalRows: lineNumber - 1, // Exclude header
         uniqueWorkloads: result.length
       };
