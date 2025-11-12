@@ -428,7 +428,6 @@ function CurUploadButton({ onUploadComplete }) {
               }
               
               const cost = parseFloat(data.monthlyCost || 0);
-              fileRawCost += cost; // Sum ALL raw costs from file (before deduplication)
               fileCost += cost; // Also track deduplicated cost for reference
               
               if (dedupeMap.has(dedupeKey)) {
