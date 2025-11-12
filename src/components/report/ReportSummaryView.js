@@ -321,29 +321,10 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
                 <i className="bi bi-info-circle me-2"></i>
                 Complexity distribution chart available in PDF report.
               </div>
-              {/* <Doughnut 
-                data={complexityChartData}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: true,
-                  plugins: {
-                    legend: {
-                      position: 'bottom'
-                    },
-                    tooltip: {
-                      callbacks: {
-                        label: function(context) {
-                          const label = context.label || '';
-                          const value = context.parsed || 0;
-                          const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                          const percentage = ((value / total) * 100).toFixed(1);
-                          return `${label}: ${value} (${percentage}%)`;
-                        }
-                      }
-                    }
-                  }
-                }}
-              />
+              {/*               <div className="alert alert-info">
+                <i className="bi bi-info-circle me-2"></i>
+                Complexity distribution chart available in PDF report.
+              </div>
             </div>
           </div>
         </div>
@@ -353,29 +334,10 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
               <h5 className="mb-0">Migration Readiness</h5>
             </div>
             <div className="card-body">
-              <Doughnut 
-                data={readinessChartData}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: true,
-                  plugins: {
-                    legend: {
-                      position: 'bottom'
-                    },
-                    tooltip: {
-                      callbacks: {
-                        label: function(context) {
-                          const label = context.label || '';
-                          const value = context.parsed || 0;
-                          const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                          const percentage = ((value / total) * 100).toFixed(1);
-                          return `${label}: ${value} (${percentage}%)`;
-                        }
-                      }
-                    }
-                  }
-                }}
-              />
+              <div className="alert alert-info">
+                <i className="bi bi-info-circle me-2"></i>
+                Migration readiness chart available in PDF report.
+              </div>
             </div>
           </div>
         </div>
