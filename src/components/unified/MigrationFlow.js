@@ -97,12 +97,25 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
         const discoveryAgentStatus = agentStatusManager.getAgentStatus('DiscoveryAgent');
         if (discoveryAgentStatus.status !== 'completed' && discoveryAgentStatus.status !== 'idle') {
           // Discovery is still running, wait for it
+          console.log('Auto-run: Waiting for Discovery agent to complete...', discoveryAgentStatus);
+          return;
+        }
+        // If discovery is complete but step status isn't set, mark it
+        if ((discoveryAgentStatus.status === 'completed' || discoveryAgentStatus.status === 'idle') && !isCurrentStepCompleted) {
+          console.log('Auto-run: Discovery agent completed, marking step as completed');
+          setStepStatuses(prev => ({ ...prev, discovery: 'completed' }));
+          // Small delay then advance
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          if (currentStep < STEPS.length - 1) {
+            setCurrentStep(currentStep + 1);
+          }
           return;
         }
       }
 
       // If current step is not completed and not running, execute it
       if (!isCurrentStepCompleted && currentStatus !== 'running') {
+        console.log(`Auto-run: Executing step ${currentStepId}...`);
         setIsRunning(true);
         try {
           const step = STEPS[currentStep];
@@ -110,11 +123,13 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
           if (success) {
             setStepStatuses(prev => ({ ...prev, [step.id]: 'completed' }));
             // Small delay before advancing to ensure agent is fully done
-            await new Promise(resolve => setTimeout(resolve, 1500));
+            await new Promise(resolve => setTimeout(resolve, 2000));
             if (currentStep < STEPS.length - 1) {
+              console.log(`Auto-run: Step ${currentStepId} completed, advancing to next step`);
               setCurrentStep(currentStep + 1);
             }
           } else {
+            console.error(`Auto-run: Step ${currentStepId} failed, stopping auto-run`);
             setAutoRunEnabled(false); // Stop auto-run if step fails
           }
         } catch (error) {
@@ -129,10 +144,10 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
     // Use a small delay to avoid immediate execution on every render
     const timeoutId = setTimeout(() => {
       runWorkflowEndToEnd();
-    }, 1000); // Increased delay to ensure proper sequencing
+    }, 1500); // Increased delay to ensure proper sequencing
 
     return () => clearTimeout(timeoutId);
-  }, [workloadIds.length, currentStep, autoRunEnabled, isRunning]);
+  }, [workloadIds.length, currentStep, autoRunEnabled, isRunning, stepStatuses]);
 
   // Watch for step completion and auto-advance - with agent status check
   useEffect(() => {

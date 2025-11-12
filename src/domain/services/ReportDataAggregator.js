@@ -308,20 +308,46 @@ export class ReportDataAggregator {
     const topServices = this.getTopServicesWithOther(serviceAgg, 15);
 
     const totalWorkloads = workloads.length;
-    const totalCost = workloads.reduce((sum, w) => {
+    let totalCost = 0;
+    let costExtractionIssues = 0;
+    
+    workloads.forEach((w, idx) => {
       const workloadData = w.toJSON ? w.toJSON() : w;
       const cost = this._extractCost(workloadData);
-      // Debug: Log if cost seems incorrect (very small compared to expected)
-      if (cost > 0 && cost < 1 && workloads.length > 1000) {
-        console.warn('Very small cost detected:', { 
-          cost, 
+      
+      // Debug: Log first few costs and any issues
+      if (idx < 5) {
+        console.log(`Cost extraction sample ${idx}:`, {
+          cost,
           monthlyCost: workloadData.monthlyCost,
+          monthlyCostType: typeof workloadData.monthlyCost,
           hasToJSON: !!w.toJSON,
           workloadType: w.constructor?.name || typeof w
         });
       }
-      return sum + cost;
-    }, 0);
+      
+      // Track if cost seems incorrect (very small compared to expected)
+      if (cost > 0 && cost < 1 && workloads.length > 1000) {
+        costExtractionIssues++;
+        if (costExtractionIssues <= 5) {
+          console.warn('Very small cost detected:', { 
+            cost, 
+            monthlyCost: workloadData.monthlyCost,
+            monthlyCostType: typeof workloadData.monthlyCost,
+            hasToJSON: !!w.toJSON,
+            workloadType: w.constructor?.name || typeof w
+          });
+        }
+      }
+      
+      totalCost += cost;
+    });
+    
+    if (costExtractionIssues > 0) {
+      console.warn(`Cost extraction: Found ${costExtractionIssues} workloads with very small costs (< $1)`);
+    }
+    
+    console.log(`ReportDataAggregator: Calculated totalMonthlyCost = $${totalCost.toFixed(2)} from ${totalWorkloads} workloads`);
 
     const complexities = workloads
       .map(w => {
