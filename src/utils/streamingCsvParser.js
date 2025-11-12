@@ -68,21 +68,15 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
       const productCode = (values[headerIndices.productCode] || '').toUpperCase();
       const rawResourceId = values[headerIndices.resourceId]?.trim();
       const cost = parseFloat(values[headerIndices.cost] || '0');
-      const instanceType = values[headerIndices.instanceType] || '';
-      const os = (values[headerIndices.os] || 'linux').toLowerCase();
-      const rawRegion = values[headerIndices.region]?.trim();
-      const region = rawRegion ? rawRegion.split('-').slice(0, 2).join('-') : 'us-east-1';
-      const usageType = values[headerIndices.usageType] || '';
-      const usageStartDate = headerIndices.usageStartDate !== -1 ? values[headerIndices.usageStartDate] : null;
-      const usageEndDate = headerIndices.usageEndDate !== -1 ? values[headerIndices.usageEndDate] : null;
+      const roundedCost = Math.round(cost * 100) / 100;
 
       // Track raw cost from EVERY row (before any filtering or aggregation)
-      if (!isNaN(cost) && cost > 0) {
-        totalRawCost += cost;
+      if (!isNaN(roundedCost) && roundedCost > 0) {
+        totalRawCost += roundedCost;
       }
 
       // Skip if not a billable service
-      if (!productCode || productCode === 'TAX' || cost === 0) return;
+      if (!productCode || productCode === 'TAX' || roundedCost === 0) return;
       
       // For rows without ResourceId, create a composite key from productCode + usageType + region
       // This groups similar charges together instead of creating unique workloads for each row
@@ -154,7 +148,7 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
       // Note: This sums costs for the same resource across different dates
       // For daily CUR files, this gives monthly total. For monthly files, this aggregates them.
       const workload = workloadMap.get(dedupeKey);
-      workload.monthlyCost += cost;
+      workload.monthlyCost += roundedCost;
       
       // Track date range (expand if needed)
       if (usageStartDate) {
