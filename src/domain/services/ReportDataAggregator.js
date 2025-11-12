@@ -277,6 +277,10 @@ export class ReportDataAggregator {
    */
   static _extractCost(workloadData) {
     if (workloadData.monthlyCost !== undefined && workloadData.monthlyCost !== null) {
+      // If it's a Workload instance, monthlyCost will be a Money object
+      if (typeof workloadData.monthlyCost.value === 'number') {
+        return workloadData.monthlyCost.value;
+      }
       // Handle Money object (has amount property)
       if (workloadData.monthlyCost && typeof workloadData.monthlyCost === 'object') {
         // Check for Money object with amount property

@@ -12,18 +12,7 @@
  */
 
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
-
-// Function to apply the autoTable plugin to a jsPDF instance
-function applyPlugin(jsPDF) {
-  // This is a workaround for a bug in some versions of jspdf-autotable
-  // where the plugin is not automatically applied to the jsPDF prototype.
-  if (typeof jsPDF.API.autoTable !== 'function') {
-    // Manually apply the plugin
-    const { autoTable } = require('jspdf-autotable');
-    autoTable(jsPDF.API);
-  }
-}
+import 'jspdf-autotable'; // This import extends jsPDF prototype with autoTable
 
 /**
  * Generate comprehensive migration assessment PDF report
@@ -46,12 +35,14 @@ export const generateComprehensiveReportPDF = async (
     includeCharts = true
   } = options;
 
-  // Create jsPDF instance
+  // Create jsPDF instance AFTER jspdf-autotable has been imported
   const doc = new jsPDF('p', 'mm', 'a4');
-  applyPlugin(doc);
   
   // Helper function to safely call autoTable
   const callAutoTable = (options) => {
+    if (typeof doc.autoTable !== 'function') {
+      throw new Error('autoTable method not available. jspdf-autotable plugin may not be loaded. Please restart the development server.');
+    }
     doc.autoTable(options);
   };
   
