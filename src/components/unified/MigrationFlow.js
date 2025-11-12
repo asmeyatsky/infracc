@@ -1401,6 +1401,17 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
                 <div className="alert alert-warning">
                   ⚠️ Please complete Discovery, Assessment, Strategy, and Cost Optimization first
                 </div>
+              ) : stepStatuses.assessment !== 'completed' || stepStatuses.strategy !== 'completed' ? (
+                <div className="alert alert-info">
+                  <h5>⏳ Report Generation In Progress</h5>
+                  <p>Please wait for all agents to complete before viewing the report.</p>
+                  <ul className="mb-0">
+                    <li>Discovery: {stepStatuses.discovery === 'completed' ? '✅ Complete' : stepStatuses.discovery === 'running' ? '⏳ Running...' : '⏸️ Pending'}</li>
+                    <li>Assessment: {stepStatuses.assessment === 'completed' ? '✅ Complete' : stepStatuses.assessment === 'running' ? '⏳ Running...' : '⏸️ Pending'}</li>
+                    <li>Strategy: {stepStatuses.strategy === 'completed' ? '✅ Complete' : stepStatuses.strategy === 'running' ? '⏳ Running...' : '⏸️ Pending'}</li>
+                    <li>Cost Optimization: {stepStatuses.cost === 'completed' ? '✅ Complete' : stepStatuses.cost === 'running' ? '⏳ Running...' : '⏸️ Pending'}</li>
+                  </ul>
+                </div>
               ) : (
                 <ReportSummaryView 
                   workloads={discoveredWorkloads}
