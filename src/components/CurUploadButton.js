@@ -339,6 +339,7 @@ function CurUploadButton({ onUploadComplete }) {
       const dedupeMap = new Map(); // Track deduplication keys across all files
       const savedDedupeKeys = new Set(); // Track which dedupe keys we've already saved
       const batchSize = 25; // Smaller batch size to prevent stack overflow
+      let totalSkippedCount = 0; // Track total skipped workloads across all files
       
       // Process files incrementally - deduplicate and save as we go
       for (const file of files) {
@@ -652,6 +653,7 @@ function CurUploadButton({ onUploadComplete }) {
           }
           
           totalWorkloadsSaved += newWorkloadsCount; // Only count NEW workloads, not updates
+          totalSkippedCount += skippedCount; // Accumulate skipped workloads across all files
           
           // Calculate file statistics
           const fileEndUnique = dedupeMap.size;
