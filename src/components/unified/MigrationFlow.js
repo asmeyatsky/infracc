@@ -74,7 +74,7 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
     }
   }, [uploadSummary]);
 
-  // Auto-run workflow end-to-end when workloads are available
+  // Simplified sequential auto-run workflow - ensures ALL workloads processed before advancing
   useEffect(() => {
     // Skip if auto-run is disabled or already running
     if (!autoRunEnabled || isRunning) {
@@ -86,108 +86,59 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
       return;
     }
 
-    const runWorkflowEndToEnd = async () => {
-      // Check if current step is completed
+    const runWorkflowSequentially = async () => {
       const currentStepId = STEPS[currentStep].id;
       const currentStatus = stepStatuses[currentStepId];
-      const isCurrentStepCompleted = currentStatus === 'completed';
-
-      // For discovery step, also check agent status
-      if (currentStepId === 'discovery') {
-        const discoveryAgentStatus = agentStatusManager.getAgentStatus('DiscoveryAgent');
-        if (discoveryAgentStatus.status !== 'completed' && discoveryAgentStatus.status !== 'idle') {
-          // Discovery is still running, wait for it
-          console.log('Auto-run: Waiting for Discovery agent to complete...', discoveryAgentStatus);
-          return;
+      
+      // If current step is already completed, advance to next step
+      if (currentStatus === 'completed') {
+        // Wait to ensure agent is fully done
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        if (currentStep < STEPS.length - 1) {
+          console.log(`Auto-run: Step ${currentStepId} completed, advancing to next step`);
+          setCurrentStep(currentStep + 1);
         }
-        // If discovery is complete but step status isn't set, mark it
-        if ((discoveryAgentStatus.status === 'completed' || discoveryAgentStatus.status === 'idle') && !isCurrentStepCompleted) {
-          console.log('Auto-run: Discovery agent completed, marking step as completed');
-          setStepStatuses(prev => ({ ...prev, discovery: 'completed' }));
-          // Small delay then advance
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          if (currentStep < STEPS.length - 1) {
-            setCurrentStep(currentStep + 1);
-          }
-          return;
-        }
+        return;
       }
 
-      // If current step is not completed and not running, execute it
-      if (!isCurrentStepCompleted && currentStatus !== 'running') {
-        console.log(`Auto-run: Executing step ${currentStepId}...`);
-        setIsRunning(true);
-        try {
-          const step = STEPS[currentStep];
-          const success = await executeStep(step);
-          if (success) {
-            setStepStatuses(prev => ({ ...prev, [step.id]: 'completed' }));
-            // Small delay before advancing to ensure agent is fully done
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            if (currentStep < STEPS.length - 1) {
-              console.log(`Auto-run: Step ${currentStepId} completed, advancing to next step`);
-              setCurrentStep(currentStep + 1);
-            }
-          } else {
-            console.error(`Auto-run: Step ${currentStepId} failed, stopping auto-run`);
-            setAutoRunEnabled(false); // Stop auto-run if step fails
+      // If current step is running, wait for it
+      if (currentStatus === 'running') {
+        return;
+      }
+
+      // Execute current step if not started
+      console.log(`Auto-run: Executing step ${currentStepId} for ${workloadIds.length} workloads...`);
+      setIsRunning(true);
+      try {
+        const step = STEPS[currentStep];
+        const success = await executeStep(step);
+        if (success) {
+          setStepStatuses(prev => ({ ...prev, [step.id]: 'completed' }));
+          // Wait to ensure agent is fully done before advancing
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          if (currentStep < STEPS.length - 1) {
+            console.log(`Auto-run: Step ${currentStepId} completed, advancing to next step`);
+            setCurrentStep(currentStep + 1);
           }
-        } catch (error) {
-          console.error('Error executing step in auto-run:', error);
-          setAutoRunEnabled(false); // Stop auto-run on error
-        } finally {
-          setIsRunning(false);
+        } else {
+          console.error(`Auto-run: Step ${currentStepId} failed, stopping auto-run`);
+          setAutoRunEnabled(false);
         }
+      } catch (error) {
+        console.error('Error executing step in auto-run:', error);
+        setAutoRunEnabled(false);
+      } finally {
+        setIsRunning(false);
       }
     };
 
-    // Use a small delay to avoid immediate execution on every render
+    // Use a delay to avoid immediate execution on every render
     const timeoutId = setTimeout(() => {
-      runWorkflowEndToEnd();
-    }, 1500); // Increased delay to ensure proper sequencing
+      runWorkflowSequentially();
+    }, 2000);
 
     return () => clearTimeout(timeoutId);
   }, [workloadIds.length, currentStep, autoRunEnabled, isRunning, stepStatuses]);
-
-  // Watch for step completion and auto-advance - with agent status check
-  useEffect(() => {
-    if (!autoRunEnabled || isRunning) {
-      return;
-    }
-
-    if (workloadIds.length === 0 || currentStep >= STEPS.length - 1) {
-      return;
-    }
-
-    const currentStepId = STEPS[currentStep].id;
-    const isCurrentStepCompleted = stepStatuses[currentStepId] === 'completed';
-
-    // For discovery step, verify agent is actually completed
-    if (currentStepId === 'discovery') {
-      const discoveryAgentStatus = agentStatusManager.getAgentStatus('DiscoveryAgent');
-      if (discoveryAgentStatus.status !== 'completed' && discoveryAgentStatus.status !== 'idle') {
-        // Discovery agent is still running, don't advance yet
-        return;
-      }
-    }
-
-    // If current step is completed, advance to next step
-    if (isCurrentStepCompleted && currentStep < STEPS.length - 1) {
-      const advanceToNext = async () => {
-        setIsRunning(true);
-        try {
-          // Wait a bit longer to ensure agent is fully done
-          await new Promise(resolve => setTimeout(resolve, 1500));
-          setCurrentStep(currentStep + 1);
-        } catch (error) {
-          console.error('Error advancing to next step:', error);
-        } finally {
-          setIsRunning(false);
-        }
-      };
-      advanceToNext();
-    }
-  }, [stepStatuses, currentStep, autoRunEnabled, isRunning, workloadIds.length]);
 
   const agenticContainer = getAgenticContainer();
   const container = getContainer();
@@ -307,26 +258,27 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
           // Artificial delay to show pipeline working (3 seconds)
           await new Promise(resolve => setTimeout(resolve, 3000));
           
-          // Reload workloads after discovery
+          // Reload workloads after discovery - ensure ALL workloads are loaded
           const workloads = await workloadRepository.findAll();
-          console.log(`MigrationFlow - Discovery: Loaded ${workloads.length} workloads from repository (should be ~19.5k, not 255)`);
+          console.log(`MigrationFlow - Discovery: Loaded ${workloads.length.toLocaleString()} workloads from repository`);
           
-          // CRITICAL DEBUG: Check if workloads are being limited
-          if (workloads.length <= 255) {
-            console.error(`⚠️ WARNING: Only ${workloads.length} workloads loaded! Expected ~19.5k. Checking repository cache...`);
-            const cacheSize = workloadRepository._cache?.size || 0;
-            console.error(`Repository cache size: ${cacheSize}`);
-            
-            // Try to reload from storage
+          // CRITICAL: Ensure ALL workloads are loaded, not limited
+          if (workloads.length < uploadSummary?.uniqueWorkloads) {
+            console.warn(`⚠️ WARNING: Only ${workloads.length.toLocaleString()} workloads loaded, expected ${uploadSummary?.uniqueWorkloads?.toLocaleString() || 'unknown'}. Reloading...`);
+            // Force reload from storage
             await workloadRepository._loadFromStorage();
             const reloadedWorkloads = await workloadRepository.findAll();
-            console.error(`After reload: ${reloadedWorkloads.length} workloads`);
+            console.log(`After reload: ${reloadedWorkloads.length.toLocaleString()} workloads`);
+            setDiscoveredWorkloads(reloadedWorkloads);
+            const reloadedIds = reloadedWorkloads.map(w => w.id);
+            console.log(`MigrationFlow - Discovery: Setting ${reloadedIds.length.toLocaleString()} workload IDs`);
+            setWorkloadIds(reloadedIds);
+          } else {
+            setDiscoveredWorkloads(workloads);
+            const ids = workloads.map(w => w.id);
+            console.log(`MigrationFlow - Discovery: Setting ${ids.length.toLocaleString()} workload IDs (ALL workloads)`);
+            setWorkloadIds(ids);
           }
-          
-          setDiscoveredWorkloads(workloads);
-          const ids = workloads.map(w => w.id);
-          console.log(`MigrationFlow - Discovery: Setting ${ids.length} workload IDs`);
-          setWorkloadIds(ids);
           
           // Mark discovery as completed
           setStepStatuses(prev => ({ ...prev, discovery: 'completed' }));
@@ -350,27 +302,32 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
             return false;
           }
           
-          // Artificial delay before starting next agent (2 seconds)
-          toast.info('⏳ Preparing Assessment Agent...', { autoClose: 2000 });
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          
-          // Set status to running
+          // Set status to running BEFORE starting
           setStepStatuses(prev => ({ ...prev, assessment: 'running' }));
-          toast.info('📊 Starting Assessment Agent...', { autoClose: 2000 });
+          toast.info(`📊 Starting Assessment Agent for ALL ${workloadIds.length.toLocaleString()} workloads...`, { autoClose: 3000 });
           
-          console.log(`Running Assessment Agent for ${workloadIds.length} workloads...`);
+          console.log(`CRITICAL: Running Assessment Agent for ALL ${workloadIds.length} workloads (sequential processing)`);
           try {
+            // CRITICAL: Process ALL workloads sequentially, not in parallel, to ensure completion
+            // Use parallel: false to process one at a time and ensure all are completed
             const assessmentResult = await agenticContainer.assessmentAgent.assessBatch({ 
               workloadIds, 
-              parallel: true 
+              parallel: false // Sequential processing to ensure ALL workloads are assessed
             });
-            console.log('Assessment result received:', assessmentResult);
+            console.log(`Assessment result received: ${assessmentResult?.results?.length || 0} assessments`);
+            
+            // Verify ALL workloads were assessed
+            if (assessmentResult?.results?.length !== workloadIds.length) {
+              console.warn(`⚠️ WARNING: Only ${assessmentResult?.results?.length} assessments returned, expected ${workloadIds.length}`);
+              toast.warning(`Assessment incomplete: ${assessmentResult?.results?.length}/${workloadIds.length} workloads assessed`);
+            }
+            
             setAssessmentResults(assessmentResult);
             
             // Wait for assessment agent to be fully completed
             let assessmentCompleted = false;
             let attempts = 0;
-            const maxAttempts = 100; // 10 seconds max wait
+            const maxAttempts = 300; // 30 seconds max wait for large batches
             
             while (!assessmentCompleted && attempts < maxAttempts) {
               const assessmentAgentStatus = agentStatusManager.getAgentStatus('AssessmentAgent');
@@ -382,11 +339,12 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
               }
             }
             
-            // Artificial delay to show pipeline working (4 seconds)
-            await new Promise(resolve => setTimeout(resolve, 4000));
+            if (!assessmentCompleted) {
+              console.warn('Assessment agent did not complete within timeout, but continuing...');
+            }
             
             setStepStatuses(prev => ({ ...prev, assessment: 'completed' }));
-            toast.success(`✅ Assessment complete! Processed ${assessmentResult?.results?.length || workloadIds.length} workloads.`, { autoClose: 3000 });
+            toast.success(`✅ Assessment complete! Processed ${assessmentResult?.results?.length || workloadIds.length} workloads.`, { autoClose: 5000 });
             return true;
           } catch (error) {
             console.error('Assessment failed:', error);
