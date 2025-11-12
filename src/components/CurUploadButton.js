@@ -39,14 +39,7 @@ function CurUploadButton({ onUploadComplete }) {
         const importedData = await parseAwsCurStreaming(file, (progress) => {
           if (progress.percent % 10 === 0) { // Update every 10%
             console.log(`Processing ${file.name}: ${progress.percent}% (${progress.linesProcessed} lines)`);
-            
-            // Update Discovery Agent status during streaming parse
-            agentStatusManager.updateAgentStatus('DiscoveryAgent', {
-              status: AgentStatus.EXECUTING,
-              currentStep: 'Parsing CUR File',
-              progress: Math.round(progress.percent * 0.3), // Parsing is ~30% of total
-              message: `Parsing ${file.name}: ${progress.percent}% (${progress.linesProcessed.toLocaleString()} lines)`
-            });
+            // Progress updates removed for performance - focus on accurate PDF generation
           }
         });
         
@@ -330,19 +323,7 @@ function CurUploadButton({ onUploadComplete }) {
     setUploading(true);
     setUploadProgress({ current: 0, total: files.length, currentFile: '' });
 
-    // Update Discovery Agent status to show CUR import is starting
-    agentStatusManager.updateAgentStatus('DiscoveryAgent', {
-      agentName: 'Discovery Agent',
-      status: AgentStatus.EXECUTING,
-      currentStep: 'Importing CUR Files',
-      progress: 0,
-      message: `Starting import of ${files.length} file(s)...`
-    });
-    agentEventEmitter.emit('DiscoveryAgent', 'step-started', {
-      step: 'Importing CUR Files',
-      progress: 0,
-      message: `Starting import of ${files.length} file(s)...`
-    });
+    // Progress updates removed for performance - focus on accurate PDF generation
 
     try {
       let totalWorkloadsSaved = 0;
@@ -371,18 +352,7 @@ function CurUploadButton({ onUploadComplete }) {
           status: currentStatus
         });
 
-        // Update Discovery Agent status
-        agentStatusManager.updateAgentStatus('DiscoveryAgent', {
-          status: AgentStatus.EXECUTING,
-          currentStep: 'Importing CUR Files',
-          progress: fileProgress,
-          message: currentStatus
-        });
-        agentEventEmitter.emit('DiscoveryAgent', 'step-started', {
-          step: 'Importing CUR Files',
-          progress: fileProgress,
-          message: currentStatus
-        });
+        // Progress updates removed for performance - focus on accurate PDF generation
 
         // Initialize file-level variables outside try block so they're accessible in finally
         let fileData = [];
@@ -436,19 +406,7 @@ function CurUploadButton({ onUploadComplete }) {
             status: dedupeStatus
           });
 
-          // Update Discovery Agent status
-          const dedupeProgress = Math.round(((processedCount + 0.3) / files.length) * 100);
-          agentStatusManager.updateAgentStatus('DiscoveryAgent', {
-            status: AgentStatus.EXECUTING,
-            currentStep: 'Deduplicating Workloads',
-            progress: dedupeProgress,
-            message: dedupeStatus
-          });
-          agentEventEmitter.emit('DiscoveryAgent', 'step-started', {
-            step: 'Deduplicating Workloads',
-            progress: dedupeProgress,
-            message: dedupeStatus
-          });
+          // Progress updates removed for performance - focus on accurate PDF generation
 
           // Track which dedupe keys are NEW from this file (before deduplication)
           const newKeysThisFile = new Set();
@@ -547,19 +505,7 @@ function CurUploadButton({ onUploadComplete }) {
             status: saveStatus
           });
 
-          // Update Discovery Agent status
-          const saveProgress = Math.round(((processedCount + 0.6) / files.length) * 100);
-          agentStatusManager.updateAgentStatus('DiscoveryAgent', {
-            status: AgentStatus.EXECUTING,
-            currentStep: 'Saving Workloads',
-            progress: saveProgress,
-            message: saveStatus
-          });
-          agentEventEmitter.emit('DiscoveryAgent', 'step-started', {
-            step: 'Saving Workloads',
-            progress: saveProgress,
-            message: saveStatus
-          });
+          // Progress updates removed for performance - focus on accurate PDF generation
 
           // Process only NEW entries from THIS FILE that we haven't saved yet
           // This ensures we don't reprocess workloads from previous files
@@ -599,15 +545,7 @@ function CurUploadButton({ onUploadComplete }) {
           for (let i = 0; i < dedupeEntries.length; i += batchSize) {
             const batch = dedupeEntries.slice(i, i + batchSize);
             
-            // Update progress during batch saving
-            const batchProgress = Math.round(((processedCount + 0.6 + (i / dedupeEntries.length) * 0.3) / files.length) * 100);
-            const batchStatus = `Saving batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(dedupeEntries.length / batchSize)} from ${file.name}...`;
-            agentStatusManager.updateAgentStatus('DiscoveryAgent', {
-              status: AgentStatus.EXECUTING,
-              currentStep: 'Saving Workloads',
-              progress: Math.min(99, batchProgress),
-              message: batchStatus
-            });
+            // Progress updates removed for performance - focus on accurate PDF generation
             
             // Process batch sequentially to avoid stack overflow
             for (const [dedupeKey, data] of batch) {
@@ -736,16 +674,7 @@ function CurUploadButton({ onUploadComplete }) {
       if (totalWorkloadsSaved === 0) {
         toast.error('No valid data found in uploaded files');
         
-        // Update Discovery Agent status - error
-        agentStatusManager.updateAgentStatus('DiscoveryAgent', {
-          status: AgentStatus.ERROR,
-          currentStep: 'Import Failed',
-          progress: 0,
-          message: 'No valid data found in uploaded files'
-        });
-        agentEventEmitter.emit('DiscoveryAgent', 'error', {
-          message: 'No valid data found in uploaded files'
-        });
+        // Progress updates removed for performance - focus on accurate PDF generation
         
         setUploading(false);
         setUploadProgress(null);
@@ -818,20 +747,12 @@ function CurUploadButton({ onUploadComplete }) {
         ? `Successfully imported ${totalWorkloadsSaved} unique workloads from ${files.length} file(s) (${totalDuplicatesRemoved} duplicates merged across dates)`
         : `Successfully imported ${totalWorkloadsSaved} workloads from ${files.length} file(s)!`;
       
-      // Update Discovery Agent status - completed
+      // Final status update only - minimal overhead for workflow completion
       agentStatusManager.updateAgentStatus('DiscoveryAgent', {
         status: AgentStatus.COMPLETED,
         currentStep: 'Discovery Complete',
         progress: 100,
-        message: `Imported ${totalWorkloadsSaved} workloads from ${files.length} file(s)`
-      });
-      agentEventEmitter.emit('DiscoveryAgent', 'step-completed', {
-        step: 'Importing CUR Files',
-        result: {
-          workloadsImported: totalWorkloadsSaved,
-          filesProcessed: files.length,
-          duplicatesRemoved: totalDuplicatesRemoved
-        }
+        message: `Imported ${totalWorkloadsSaved} workloads`
       });
       
       toast.success(summaryMessage);
@@ -869,17 +790,7 @@ function CurUploadButton({ onUploadComplete }) {
     } catch (error) {
       console.error('Upload error:', error);
       
-      // Update Discovery Agent status - error
-      agentStatusManager.updateAgentStatus('DiscoveryAgent', {
-        status: AgentStatus.ERROR,
-        currentStep: 'Import Failed',
-        progress: 0,
-        message: `Upload failed: ${error.message}`
-      });
-      agentEventEmitter.emit('DiscoveryAgent', 'error', {
-        message: `Upload failed: ${error.message}`,
-        error: error.message
-      });
+      // Progress updates removed for performance - focus on accurate PDF generation
       
       toast.error('Error importing files: ' + error.message);
     } finally {
