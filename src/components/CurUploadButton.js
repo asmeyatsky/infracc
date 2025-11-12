@@ -804,14 +804,7 @@ function CurUploadButton({ onUploadComplete }) {
             fileStats: fileStats || [] // Ensure fileStats is an array
           };
           
-          console.log('Passing summary to onUploadComplete:', summaryData);
-          console.log('Summary data validation:', {
-            totalFiles: typeof summaryData.totalFiles,
-            totalRows: typeof summaryData.totalRows,
-            totalMonthlyCost: typeof summaryData.totalMonthlyCost,
-            fileStatsIsArray: Array.isArray(summaryData.fileStats),
-            fileStatsLength: summaryData.fileStats.length
-          });
+          console.log('CurUploadButton.js: summaryData', summaryData);
           
           onUploadComplete({ 
             count: totalWorkloadsSaved,

@@ -353,6 +353,9 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
                 uniqueWorkloads: result.length
               };
               
+              console.log('streamingCsvParser.js: totalRawCost', totalRawCost);
+              console.log('streamingCsvParser.js: totalAggregatedCost', totalAggregatedCost);
+
               resolve(result);
               return;
             }
@@ -393,6 +396,9 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
         uniqueWorkloads: result.length
       };
       
+      console.log('streamingCsvParser.js: totalRawCost', totalRawCost);
+      console.log('streamingCsvParser.js: totalAggregatedCost', totalAggregatedCost);
+
       resolve(result);
     }
   });
