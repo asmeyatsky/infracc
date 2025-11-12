@@ -189,17 +189,21 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
     clearOnStartup();
   }, [workloadRepository]);
 
-  // Load workloads from repository - ensure ALL workloads are loaded
+  // Load workloads from repository ONCE on mount or when uploadSummary changes
+  // DO NOT poll - workloads are loaded after discovery completes
   useEffect(() => {
     const loadWorkloads = async () => {
       try {
         const workloads = await workloadRepository.findAll();
         const ids = workloads.map(w => w.id);
         
-        console.log(`MigrationFlow - loadWorkloads: Loaded ${workloads.length.toLocaleString()} workloads, ${ids.length.toLocaleString()} IDs`);
+        // Only log if we actually have workloads (avoid spam)
+        if (workloads.length > 0) {
+          console.log(`MigrationFlow - loadWorkloads: Loaded ${workloads.length.toLocaleString()} workloads, ${ids.length.toLocaleString()} IDs`);
+        }
         
-        // CRITICAL: Verify we have all workloads
-        if (uploadSummary && workloads.length < uploadSummary.uniqueWorkloads) {
+        // CRITICAL: Verify we have all workloads only if uploadSummary exists
+        if (uploadSummary && workloads.length > 0 && workloads.length < uploadSummary.uniqueWorkloads) {
           console.warn(`⚠️ WARNING: Only ${workloads.length.toLocaleString()} workloads loaded, expected ${uploadSummary.uniqueWorkloads.toLocaleString()}`);
           // Force reload from storage
           await workloadRepository._loadFromStorage();
@@ -208,23 +212,31 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
           console.log(`After reload: ${reloadedWorkloads.length.toLocaleString()} workloads, ${reloadedIds.length.toLocaleString()} IDs`);
           setDiscoveredWorkloads(reloadedWorkloads);
           setWorkloadIds(reloadedIds);
-        } else {
-          setDiscoveredWorkloads(workloads);
-          setWorkloadIds(ids);
+        } else if (workloads.length > 0) {
+          // Only update state if workloads exist and state is different
+          setDiscoveredWorkloads(prev => {
+            if (prev.length !== workloads.length) {
+              return workloads;
+            }
+            return prev;
+          });
+          setWorkloadIds(prev => {
+            if (prev.length !== ids.length) {
+              return ids;
+            }
+            return prev;
+          });
         }
-        
-        // Start from Discovery step (no auto-skip)
-        // Workloads will appear after CUR upload completes
       } catch (error) {
         console.error('Error loading workloads:', error);
       }
     };
+    
+    // Only load on mount or when uploadSummary changes (not on every currentStep change)
     loadWorkloads();
     
-    // Subscribe to workload changes - reduced frequency to avoid conflicts
-    const interval = setInterval(loadWorkloads, 2000); // Changed from 1000ms to 2000ms
-    return () => clearInterval(interval);
-  }, [workloadRepository, currentStep, uploadSummary]);
+    // NO POLLING - workloads are loaded once and updated after discovery completes
+  }, [workloadRepository, uploadSummary]); // Removed currentStep from dependencies
 
   const handleStepClick = (stepIndex) => {
     if (stepIndex <= currentStep) {

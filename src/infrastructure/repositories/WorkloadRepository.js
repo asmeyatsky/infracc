@@ -106,9 +106,8 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
   async findAll() {
     await this._loadFromStorage();
     const allWorkloads = Array.from(this._cache.values());
-    console.log(`WorkloadRepository.findAll() - Returning ${allWorkloads.length} workloads from cache (cache size: ${this._cache.size})`);
     
-    // CRITICAL DEBUG: Warn if only 255 workloads
+    // Only log if there's an issue or on first load (avoid console spam)
     if (allWorkloads.length <= 255 && this._cache.size > 255) {
       console.error(`⚠️ WARNING: findAll() returning only ${allWorkloads.length} workloads but cache has ${this._cache.size}!`);
     }
