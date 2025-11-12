@@ -1345,7 +1345,98 @@ export const azureToGcpMapping = {
  * Get GCP service mapping for an AWS service
  */
 export function getAwsToGcpMapping(awsService) {
-  return awsToGcpMapping[awsService] || {
+  // Normalize service name for lookup
+  const normalizedService = String(awsService || '').trim();
+  
+  // Check exact match first
+  if (awsToGcpMapping[normalizedService]) {
+    return awsToGcpMapping[normalizedService];
+  }
+  
+  // Handle generic service names with intelligent fallbacks
+  const serviceLower = normalizedService.toLowerCase();
+  
+  // RDS - generic mapping (if specific type not found)
+  if (serviceLower === 'rds' || serviceLower.startsWith('rds ')) {
+    return {
+      gcpService: 'Cloud SQL (PostgreSQL/MySQL/SQL Server)',
+      gcpApi: 'sqladmin.googleapis.com',
+      migrationStrategy: 'Rehost',
+      effort: 'Low',
+      notes: 'Managed database service - specific engine type determines exact GCP service',
+      considerations: [
+        'Identify database engine type (PostgreSQL, MySQL, SQL Server)',
+        'Map to Cloud SQL for PostgreSQL, Cloud SQL for MySQL, or Cloud SQL for SQL Server',
+        'Evaluate if AlloyDB is needed for PostgreSQL workloads requiring higher performance'
+      ]
+    };
+  }
+  
+  // AWS Marketplace - map to GCP Marketplace or specific service
+  if (serviceLower.includes('marketplace') || serviceLower === 'aws marketplace') {
+    return {
+      gcpService: 'GCP Marketplace / Cloud Marketplace',
+      gcpApi: 'cloudbilling.googleapis.com',
+      migrationStrategy: 'Repurchase',
+      effort: 'Medium',
+      notes: 'Third-party software licenses - evaluate equivalent solutions in GCP Marketplace',
+      considerations: [
+        'Check GCP Marketplace for equivalent solutions',
+        'Review licensing terms and costs',
+        'Consider alternative GCP-native solutions'
+      ]
+    };
+  }
+  
+  // Support services
+  if (serviceLower.includes('support') || serviceLower.includes('enterprise')) {
+    return {
+      gcpService: 'GCP Support (Enterprise/Standard)',
+      gcpApi: 'cloudsupport.googleapis.com',
+      migrationStrategy: 'Repurchase',
+      effort: 'Low',
+      notes: 'Support subscription - select appropriate GCP support tier',
+      considerations: [
+        'Map AWS support tier to equivalent GCP support tier',
+        'Review support SLAs and response times'
+      ]
+    };
+  }
+  
+  // Data Transfer
+  if (serviceLower.includes('datatransfer') || serviceLower === 'data transfer') {
+    return {
+      gcpService: 'Cloud Interconnect / Direct Peering',
+      gcpApi: 'compute.googleapis.com',
+      migrationStrategy: 'Rehost',
+      effort: 'Low',
+      notes: 'Network data transfer costs - optimize with Cloud Interconnect for high-volume transfers',
+      considerations: [
+        'Use Cloud Interconnect for predictable egress costs',
+        'Consider Direct Peering for high-volume workloads',
+        'Plan data migration strategy to minimize transfer costs'
+      ]
+    };
+  }
+  
+  // AWS Service Fee - generic billing
+  if (serviceLower.includes('service fee') || serviceLower.includes('aws service fee')) {
+    return {
+      gcpService: 'GCP Billing / Service Usage',
+      gcpApi: 'cloudbilling.googleapis.com',
+      migrationStrategy: 'Rehost',
+      effort: 'Low',
+      notes: 'Generic service fees - review detailed billing to identify specific services',
+      considerations: [
+        'Review detailed AWS billing to identify specific services',
+        'Map individual services to GCP equivalents',
+        'Optimize service usage to reduce fees'
+      ]
+    };
+  }
+  
+  // Default fallback
+  return {
     gcpService: 'Custom Solution Required',
     gcpApi: null,
     migrationStrategy: 'Refactor',

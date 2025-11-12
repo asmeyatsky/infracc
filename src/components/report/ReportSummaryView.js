@@ -11,6 +11,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { ReportDataAggregator } from '../../domain/services/ReportDataAggregator.js';
 import { Bar, Doughnut } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -45,43 +46,69 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
   const [reportData, setReportData] = useState(null);
   const [targetRegion, setTargetRegion] = useState('us-central1');
 
-  // Performance optimization: Only calculate report data when needed for display
-  // Use useMemo to prevent recalculation on every render
-  const reportDataMemo = useMemo(() => {
+  // Merge assessment results into workloads for accurate reporting
+  const workloadsWithAssessments = useMemo(() => {
     if (!workloads || workloads.length === 0) {
+      return [];
+    }
+    
+    // Create a map of assessment results by workloadId for fast lookup
+    const assessmentMap = new Map();
+    if (assessmentResults?.results) {
+      assessmentResults.results.forEach(assessment => {
+        if (assessment && !assessment.error && assessment.workloadId) {
+          assessmentMap.set(assessment.workloadId, assessment);
+        }
+      });
+    }
+    
+    // Merge assessments into workloads
+    return workloads.map(workload => {
+      const workloadData = workload.toJSON ? workload.toJSON() : workload;
+      const assessment = assessmentMap.get(workloadData.id);
+      
+      if (assessment) {
+        // Merge assessment data into workload
+        return {
+          ...workloadData,
+          assessment: {
+            complexityScore: assessment.complexityScore,
+            readinessScore: assessment.readinessScore,
+            riskFactors: assessment.riskFactors || [],
+            infrastructureAssessment: assessment.infrastructureAssessment,
+            applicationAssessment: assessment.applicationAssessment
+          }
+        };
+      }
+      
+      return workloadData;
+    });
+  }, [workloads, assessmentResults]);
+
+  // Calculate report data using ReportDataAggregator with merged assessments
+  const reportDataMemo = useMemo(() => {
+    if (!workloadsWithAssessments || workloadsWithAssessments.length === 0) {
       return null;
     }
     
-    // Only calculate minimal data needed for summary cards
-    // Full aggregation happens during PDF generation
-    // CRITICAL: Do NOT iterate through workloads array - use length only
-    const summary = {
-      summary: {
-        totalWorkloads: workloads.length,
-        totalMonthlyCost: uploadSummary?.totalMonthlyCost || 0,
-        totalRegions: uploadSummary?.totalRegions || 1, // Use from uploadSummary or default to 1
-        averageComplexity: null // Skip heavy calculation
-      },
-      complexity: {
-        low: { count: 0, totalCost: 0 },
-        medium: { count: 0, totalCost: 0 },
-        high: { count: 0, totalCost: 0 },
-        unassigned: { count: workloads.length, totalCost: uploadSummary?.totalMonthlyCost || 0 }
-      },
-      readiness: {
-        ready: { count: 0, totalCost: 0 },
-        conditional: { count: 0, totalCost: 0 },
-        notReady: { count: 0, totalCost: 0 },
-        unassigned: { count: workloads.length, totalCost: uploadSummary?.totalMonthlyCost || 0 }
-      },
-      services: {
-        topServices: [] // Empty - not needed for UI
-      },
-      regions: [] // Empty - not needed for UI
-    };
+    // Use ReportDataAggregator to calculate actual complexity and readiness
+    const complexity = ReportDataAggregator.aggregateByComplexity(workloadsWithAssessments);
+    const readiness = ReportDataAggregator.aggregateByReadiness(workloadsWithAssessments);
+    const services = ReportDataAggregator.aggregateByService(workloadsWithAssessments);
+    const regions = ReportDataAggregator.aggregateByRegion(workloadsWithAssessments);
+    const summary = ReportDataAggregator.generateSummary(workloadsWithAssessments);
     
-    return summary;
-  }, [workloads.length, uploadSummary?.totalMonthlyCost]); // Only depend on length and cost, not full workloads array
+    return {
+      summary: {
+        ...summary.summary,
+        totalRegions: uploadSummary?.totalRegions || summary.summary.totalRegions || 1
+      },
+      complexity,
+      readiness,
+      services,
+      regions
+    };
+  }, [workloadsWithAssessments, uploadSummary]);
 
   useEffect(() => {
     setReportData(reportDataMemo);
