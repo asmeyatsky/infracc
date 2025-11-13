@@ -37,9 +37,9 @@ function AppUnified() {
       <div className="header-left">
         <div className="app-logo">
           <div className="app-logo-icon">I</div>
-          <span className="app-logo-text">InfraCC</span>
+          <span className="app-logo-text">AWS to GCP Migration Tool</span>
         </div>
-        <div className="app-subtitle">AWS & Azure to GCP Migration Accelerator</div>
+        <div className="app-subtitle">Comprehensive Cloud Migration Assessment & Planning</div>
       </div>
       <div className="header-right">
         <div className="view-switcher">

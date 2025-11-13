@@ -30,7 +30,7 @@ export const SearcheHeader = ({ projectName, onProjectNameChange }) => {
           </div>
           <div className="brand-text">
             <h1 className="brand-name">Searce</h1>
-            <span className="brand-tagline">Cloud Migration Accelerator</span>
+            <span className="brand-tagline">AWS to GCP Migration Tool</span>
           </div>
         </div>
 

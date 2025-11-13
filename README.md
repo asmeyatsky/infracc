@@ -1,8 +1,8 @@
-# InfraCC - AWS & Azure to GCP Migration Accelerator
+# AWS to GCP Migration Tool
 
-> **Premier cloud-to-cloud migration tool** with Infrastructure Assessment, Application Assessment (Google Cloud CodeMod), accurate service mapping, and comprehensive migration planning.
+> **Comprehensive cloud migration tool** with Infrastructure Assessment, Application Assessment (Google Cloud CodeMod), accurate service mapping, and comprehensive migration planning.
 
-This project is a comprehensive cloud-to-cloud migration accelerator designed to help organizations migrate workloads from AWS or Azure to Google Cloud Platform (GCP). It provides assessment, planning, cost analysis, and migration execution tools.
+This project is a comprehensive cloud migration tool designed to help organizations migrate workloads from AWS to Google Cloud Platform (GCP). It provides assessment, planning, cost analysis, and migration execution tools.
 
 ## ??? Architecture
 
@@ -18,10 +18,10 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for complete architecture documentation
 ## ? Features
 
 ### Pillar 1: Assess ??
-1. **Cloud Workload Discovery Tool** - Discover and inventory AWS/Azure workloads for migration
+1. **Cloud Workload Discovery Tool** - Discover and inventory AWS workloads for migration
 2. **Dependency Visualization Map** - Interactive network graph showing workload relationships
 3. **Migration Strategy Recommender** - 6 R's framework-based migration recommendations with service mapping
-4. **Cost Comparison Calculator** - Compare current AWS/Azure costs with projected GCP costs
+4. **Cost Comparison Calculator** - Compare current AWS costs with projected GCP costs
 
 ### Pillar 2: Mobilize ??
 5. **Landing Zone Builder** - 5-step wizard for GCP infrastructure configuration
@@ -35,7 +35,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for complete architecture documentation
 ### Cross-Cutting Features ??
 10. **Infrastructure Assessment** - Complexity scoring, risk identification, resource compatibility
 11. **Application Assessment** - Google Cloud CodeMod integration for code analysis
-12. **Service Mapping** - Comprehensive AWS?GCP and Azure?GCP service mappings with migration strategies
+12. **Service Mapping** - Comprehensive AWS to GCP service mappings with migration strategies
 13. **Migration Planning** - Wave planning, effort estimation, strategy distribution
 14. **Project Manager** - Save/load/demo/import/export functionality with localStorage persistence
 15. **Auto-save** - Automatic project saving every 2 seconds

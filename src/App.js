@@ -269,7 +269,7 @@ function App() {
             <div className="app-header-top">
               <div className="app-logo">
                 <div className="app-logo-icon">X</div>
-                <span>XToGCP</span>
+                <span>AWS to GCP Migration Tool</span>
               </div>
               <div className="app-header-actions">
                 <button className="btn btn-outline-primary" onClick={() => setRunTour(true)} style={{background: 'rgba(255,255,255,0.2)', borderColor: 'rgba(255,255,255,0.3)', color: 'white'}}>

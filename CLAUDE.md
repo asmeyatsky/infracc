@@ -4,13 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This repository contains the **AWS & Azure to GCP Migration Accelerator** - a comprehensive web application for cloud-to-cloud migration assessment, planning, and execution. The suite helps organizations migrate workloads from AWS or Azure to Google Cloud Platform.
+This repository contains the **AWS to GCP Migration Tool** - a comprehensive web application for cloud-to-cloud migration assessment, planning, and execution. The suite helps organizations migrate workloads from AWS to Google Cloud Platform.
 
 ### **Pillar 1: Assess** ✅
 1. **Cloud Workload Discovery Tool** - Discover and inventory AWS/Azure workloads for migration
 2. **Dependency Visualization Map** - Interactive network graph showing workload relationships
 3. **Migration Strategy Recommender** - 6 R's framework-based migration recommendations with service mapping
-4. **Cost Comparison Calculator** - Compare current AWS/Azure costs with projected GCP costs
+4. **Cost Comparison Calculator** - Compare current AWS costs with projected GCP costs
 
 ### **Pillar 2: Mobilize** ✅
 5. **Landing Zone Builder** - 5-step wizard for GCP infrastructure configuration
@@ -22,7 +22,7 @@ This repository contains the **AWS & Azure to GCP Migration Accelerator** - a co
 9. **Policy Compliance** - Governance dashboard with 20+ rules across 5 policy categories
 
 ### **Cross-Cutting Features** ✅
-10. **Service Mapping** - Comprehensive AWS→GCP and Azure→GCP service mappings with migration strategies
+10. **Service Mapping** - Comprehensive AWS→GCP service mappings with migration strategies
 11. **Project Manager** - Save/load/demo/import/export functionality with localStorage persistence
 12. **Auto-save** - Automatic project saving every 2 seconds
 13. **Demo Mode** - Pre-configured cloud workloads for demonstration
