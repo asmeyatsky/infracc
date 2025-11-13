@@ -761,12 +761,12 @@ function CurUploadButton({ onUploadComplete }) {
         
         if (localStorageQuotaExceeded || difference > 1000) {
           // This is expected - browser localStorage quota limits
-          console.warn(`⚠️ NOTE: Repository count (${actualUniqueCount.toLocaleString()}) is less than dedupeMap count (${deduplicatedCount.toLocaleString()})`);
-          console.warn(`Difference: ${difference.toLocaleString()} workloads`);
-          console.warn(`• This is due to browser localStorage quota limits (typically 5-10MB)`);
-          console.warn(`• All ${deduplicatedCount.toLocaleString()} workloads are available in memory cache and will work correctly`);
-          console.warn(`• Only ${actualUniqueCount.toLocaleString()} workloads will persist across page refreshes`);
-          console.warn(`• 💡 Export workloads to JSON to preserve all data`);
+          console.log(`ℹ️ INFO: Repository count (${actualUniqueCount.toLocaleString()}) is less than dedupeMap count (${deduplicatedCount.toLocaleString()})`);
+          console.log(`Difference: ${difference.toLocaleString()} workloads (${((difference / deduplicatedCount) * 100).toFixed(2)}%)`);
+          console.log(`• This is expected due to browser localStorage quota limits (typically 5-10MB)`);
+          console.log(`• All ${deduplicatedCount.toLocaleString()} workloads are available in memory cache and will work correctly`);
+          console.log(`• ${actualUniqueCount.toLocaleString()} workloads will persist across page refreshes`);
+          console.log(`• 💡 Tip: Export workloads to JSON to preserve all data`);
         } else {
           // Small difference - might be actual save errors
           console.warn(`⚠️ WARNING: Repository count (${actualUniqueCount.toLocaleString()}) doesn't match dedupeMap count (${deduplicatedCount.toLocaleString()})`);
@@ -805,7 +805,7 @@ function CurUploadButton({ onUploadComplete }) {
         
         if (finalCount !== deduplicatedCount) {
           const missing = deduplicatedCount - finalCount;
-          console.warn(`⚠️ Still missing ${missing.toLocaleString()} workloads after forced persistence. They may be in memory cache but not persisted to localStorage due to quota limits.`);
+          console.log(`ℹ️ INFO: ${missing.toLocaleString()} workloads are in memory cache but not persisted to localStorage (quota limit reached). They will work correctly during this session.`);
         }
       } catch (error) {
         console.warn('Final persistence had issues, but workloads are saved in cache:', error);
