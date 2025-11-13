@@ -382,11 +382,16 @@ function CurUploadButton({ onUploadComplete }) {
           const parserMetadata = fileData._metadata;
           if (parserMetadata && parserMetadata.totalRawCost !== undefined) {
             fileRawCost = parserMetadata.totalRawCost;
-            console.log(`File ${file.name}: Raw cost from parser metadata: $${fileRawCost.toFixed(2)} (${parserMetadata.totalRows} rows, ${parserMetadata.uniqueWorkloads} unique workloads)`);
-            console.log(`File ${file.name}: Parser metadata - processedRows: ${parserMetadata.processedRows}, skippedRows:`, parserMetadata.skippedRows);
+            // Only log essential info, skip undefined fields
+            const metadataInfo = [
+              `Raw cost: $${fileRawCost.toFixed(2)}`,
+              parserMetadata.totalRows ? `Rows: ${parserMetadata.totalRows.toLocaleString()}` : null,
+              parserMetadata.uniqueWorkloads ? `Unique workloads: ${parserMetadata.uniqueWorkloads.toLocaleString()}` : null
+            ].filter(Boolean).join(', ');
+            console.log(`File ${file.name}: ${metadataInfo}`);
           } else {
             // Fallback: sum costs from parsed data (already aggregated, but better than nothing)
-            console.warn(`No metadata found for ${file.name}, falling back to aggregated costs`);
+            console.log(`File ${file.name}: Using aggregated costs (metadata not available)`);
             for (const data of fileData) {
               const cost = parseFloat(data.monthlyCost || 0);
               if (!isNaN(cost)) {

@@ -286,16 +286,19 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
 
     // If cache is already populated, skip loading (no logging to avoid spam)
     if (this._cache.size > 0) {
-      // Only warn if cache has suspiciously low count (potential issue)
-      if (this._cache.size <= 255) {
-        console.warn(`⚠️ WARNING: Cache only has ${this._cache.size} workloads! This might be incorrect. Checking localStorage...`);
+      // For large datasets, localStorage quota may be exceeded - this is expected
+      // Only check if cache seems suspiciously empty AND we're not in a large dataset scenario
+      if (this._cache.size <= 100 && this._cache.size > 0) {
         const storedData = localStorage.getItem(this.storageKey);
         if (storedData) {
           try {
             const workloadsData = JSON.parse(storedData);
-            console.warn(`localStorage has ${workloadsData.length} workloads. Cache might be stale.`);
+            // Only warn if localStorage has significantly more than cache (potential sync issue)
+            if (workloadsData.length > this._cache.size * 2) {
+              console.log(`WorkloadRepository: Cache has ${this._cache.size} workloads, localStorage has ${workloadsData.length} (localStorage may be quota-limited)`);
+            }
           } catch (e) {
-            console.warn('Could not parse localStorage data');
+            // Ignore parse errors
           }
         }
       }
@@ -315,11 +318,12 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
 
       // Parse JSON
       const workloadsData = JSON.parse(storedData);
-      console.log(`WorkloadRepository._loadFromStorage() - Found ${workloadsData.length} workloads in localStorage`);
       
-      // CRITICAL DEBUG: Check if localStorage only has 255 workloads
-      if (workloadsData.length <= 255) {
-        console.warn(`⚠️ WARNING: localStorage only contains ${workloadsData.length} workloads! This might be due to quota exceeded. All workloads should be in memory cache during current session.`);
+      // For large datasets, localStorage quota may be exceeded - this is expected
+      // Workloads are kept in memory cache during the session
+      if (workloadsData.length <= 255 && workloadsData.length < 1000) {
+        // Only warn if we expected more workloads but got very few
+        console.log(`WorkloadRepository: Found ${workloadsData.length} workloads in localStorage (may be limited by quota for large datasets)`);
       }
       
       // For large datasets, process in chunks to avoid stack overflow
