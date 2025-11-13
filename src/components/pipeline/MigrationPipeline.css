@@ -1,0 +1,131 @@
+.migration-pipeline {
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.pipeline-step-container {
+  background: #f8f9fa;
+  border-radius: 10px;
+  padding: 40px;
+  text-align: center;
+}
+
+.pipeline-step-container h2 {
+  margin-bottom: 15px;
+  color: #333;
+}
+
+.step-description {
+  color: #666;
+  margin-bottom: 30px;
+  font-size: 16px;
+}
+
+.output-format-selection {
+  display: flex;
+  gap: 30px;
+  justify-content: center;
+  margin-top: 40px;
+}
+
+.format-button {
+  background: white;
+  border: 2px solid #e9ecef;
+  border-radius: 12px;
+  padding: 30px;
+  min-width: 200px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-align: center;
+}
+
+.format-button:hover {
+  border-color: #007bff;
+  box-shadow: 0 4px 12px rgba(0, 123, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+.format-button.selected {
+  border-color: #007bff;
+  background: #f0f7ff;
+  box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
+}
+
+.format-icon {
+  font-size: 48px;
+  margin-bottom: 15px;
+}
+
+.format-label {
+  font-size: 20px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 8px;
+}
+
+.format-description {
+  font-size: 14px;
+  color: #666;
+}
+
+.pipeline-results {
+  background: white;
+  border-radius: 10px;
+  padding: 20px;
+}
+
+.results-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #e9ecef;
+}
+
+.results-header h2 {
+  margin: 0;
+  color: #333;
+}
+
+.btn {
+  padding: 10px 20px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.btn-primary {
+  background: #007bff;
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #0056b3;
+}
+
+.alert {
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.alert-success {
+  background: #d4edda;
+  border: 1px solid #c3e6cb;
+  color: #155724;
+}
+
+.alert-danger {
+  background: #f8d7da;
+  border: 1px solid #f5c6cb;
+  color: #721c24;
+}
+
+.mt-3 {
+  margin-top: 15px;
+}

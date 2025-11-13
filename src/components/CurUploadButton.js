@@ -844,7 +844,8 @@ function CurUploadButton({ onUploadComplete }) {
           
           onUploadComplete({ 
             count: totalWorkloadsSaved,
-            summary: summaryData
+            summary: summaryData,
+            files: files // Include files for UUID generation
           });
         } catch (error) {
           console.error('Error passing summary to onUploadComplete:', error);
@@ -852,7 +853,8 @@ function CurUploadButton({ onUploadComplete }) {
           // Still call onUploadComplete with minimal data
           onUploadComplete({ 
             count: totalWorkloadsSaved,
-            summary: null
+            summary: null,
+            files: files // Include files even on error
           });
         }
       }

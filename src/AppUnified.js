@@ -10,10 +10,9 @@ import { TCOProvider } from './context/TCOContext';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import Layout from './components/unified/Layout';
-import MigrationFlow from './components/unified/MigrationFlow';
+import MigrationPipeline from './components/pipeline/MigrationPipeline';
 import AgentStatusDashboard from './presentation/components/AgentStatusDashboard';
 import AgentActivityLog from './presentation/components/AgentActivityLog';
-import CurUploadButton from './components/CurUploadButton';
 import { getAgenticContainer } from './agentic/dependency_injection/AgenticContainer.js';
 // Test data loading removed - start with 0 workloads until upload completes
 import './styles/unified.css';
@@ -30,28 +29,8 @@ function AppUnified() {
     setTestDataLoaded(false);
   }, []);
 
-  const handleCurUploadComplete = (result) => {
-    // Workloads are automatically saved to repository
-    // MigrationFlow component polls repository every second, so new workloads will appear automatically
-    const count = result?.count || (Array.isArray(result) ? result.length : 0);
-    console.log(`CUR upload complete: ${count} workloads imported`);
-    
-    // Store upload summary for display in MigrationFlow
-    if (result?.summary) {
-      setUploadSummary(result.summary);
-    }
-    
-    // Switch to Migration Flow view to show the imported workloads
-    setView('flow');
-    
-    // Show success message
-    if (count > 0) {
-      setTimeout(() => {
-        // Small delay to ensure view has switched
-        toast.success(`✅ ${count} workloads imported! Migration flow will start from Assessment step.`);
-      }, 500);
-    }
-  };
+  // MigrationPipeline handles file upload internally, so this is no longer needed
+  // Keeping for backward compatibility if needed elsewhere
 
   const header = (
     <div className="unified-header-content">
@@ -83,7 +62,6 @@ function AppUnified() {
             Agents
           </button>
         </div>
-        <CurUploadButton onUploadComplete={handleCurUploadComplete} />
         {testDataLoaded && (
           <div className="test-data-badge">
             <span className="badge-icon">✓</span>
@@ -98,10 +76,7 @@ function AppUnified() {
     console.log('AppUnified renderContent - view:', view, 'uploadSummary:', uploadSummary);
     switch (view) {
       case 'flow':
-        return <MigrationFlow uploadSummary={uploadSummary} onSummaryDismiss={() => {
-          console.log('Dismissing summary');
-          setUploadSummary(null);
-        }} />;
+        return <MigrationPipeline />;
       case 'dashboard':
         return (
           <div className="dashboard-view">
@@ -139,7 +114,7 @@ function AppUnified() {
           </div>
         );
       default:
-        return <MigrationFlow />;
+        return <MigrationPipeline />;
     }
   };
 
