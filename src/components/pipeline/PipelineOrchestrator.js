@@ -394,8 +394,11 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
 
     try {
       const progressInterval = setInterval(() => {
-        setAgentProgress(prev => Math.min(prev + 5, 100));
-        setOverallProgress(Math.round((4 / AGENTS.length) * 100 + (prev / AGENTS.length)));
+        setAgentProgress(prev => {
+          const newProgress = Math.min(prev + 5, 100);
+          setOverallProgress(Math.round((4 / AGENTS.length) * 100 + (newProgress / AGENTS.length)));
+          return newProgress;
+        });
       }, 300);
 
       const costResult = await agenticContainer.current.costAnalysisAgent.execute({
