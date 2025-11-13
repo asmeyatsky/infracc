@@ -285,20 +285,45 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         }
       });
 
-      const assessmentResult = await agenticContainer.current.assessmentAgent.assessBatch({
-        workloadIds,
-        parallel: true
-      });
+      console.log(`Assessment Agent: Starting assessment of ${workloadIds.length.toLocaleString()} workloads`);
+      
+      let assessmentResult;
+      try {
+        assessmentResult = await agenticContainer.current.assessmentAgent.assessBatch({
+          workloadIds,
+          parallel: true
+        });
+      } catch (error) {
+        console.error('Assessment Agent assessBatch failed:', error);
+        // Unsubscribe before throwing
+        if (progressUnsubscribe) {
+          progressUnsubscribe();
+        }
+        throw error;
+      }
 
       // Unsubscribe from progress updates
       if (progressUnsubscribe) {
         progressUnsubscribe();
       }
 
+      // Validate assessment result structure
+      if (!assessmentResult) {
+        console.error('Assessment Agent returned null/undefined result');
+        throw new Error('Assessment Agent returned no result');
+      }
+
+      if (!assessmentResult.results || !Array.isArray(assessmentResult.results)) {
+        console.error('Assessment Agent returned invalid result structure:', assessmentResult);
+        throw new Error('Assessment Agent returned invalid result structure');
+      }
+
       // Process results - handle partial success
-      const results = assessmentResult?.results || [];
+      const results = assessmentResult.results;
       const successful = results.filter(r => !r.error);
       const failed = results.filter(r => r.error);
+      
+      console.log(`Assessment Agent: Processed ${results.length.toLocaleString()} results (${successful.length.toLocaleString()} successful, ${failed.length.toLocaleString()} failed)`);
 
       setAgentProgress(100);
       setOverallProgress(Math.round((2 / AGENTS.length) * 100));
@@ -529,11 +554,14 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       }
     } catch (error) {
       console.error(`✗ ${agent.name} failed:`, error.message);
+      console.error('Full error:', error);
+      console.error('Stack trace:', error.stack);
       setAgentStatus('failed');
       onError?.(error, agent.id);
       
       // If assessment fails and it's required, stop pipeline
       if (agent.required && agent.id === 'assessment') {
+        console.error('Assessment Agent is required - stopping pipeline. Please fix and rerun.');
         setNeedsRerun(prev => [...prev, agent.id]);
         return;
       }
