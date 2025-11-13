@@ -3,3 +3,17 @@
 // expect(element).toHaveTextContent(/react/i)
 // learn more: https://github.com/testing-library/jest-dom
 import '@testing-library/jest-dom';
+
+// Polyfill for TextEncoder/TextDecoder and crypto.subtle in Node.js test environment
+import { TextEncoder, TextDecoder } from 'util';
+import { webcrypto } from 'crypto';
+
+global.TextEncoder = TextEncoder;
+global.TextDecoder = TextDecoder;
+
+// Polyfill crypto.subtle for Node.js
+if (!global.crypto) {
+  global.crypto = webcrypto;
+} else if (!global.crypto.subtle) {
+  global.crypto.subtle = webcrypto.subtle;
+}
