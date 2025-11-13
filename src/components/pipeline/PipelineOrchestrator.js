@@ -313,11 +313,23 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       };
 
       // Save to cache
-      await saveAgentOutput(fileUUID, 'assessment', output, {
+      const saveSuccess = await saveAgentOutput(fileUUID, 'assessment', output, {
         totalProcessed: results.length,
         successfulCount: successful.length,
         failedCount: failed.length
       });
+      
+      if (!saveSuccess) {
+        console.error('Failed to save assessment output to cache');
+        throw new Error('Failed to save assessment output to cache');
+      }
+      
+      // Verify it was saved
+      const verifyCache = await getAgentOutput(fileUUID, 'assessment');
+      if (!verifyCache) {
+        console.error('Assessment output was not saved correctly to cache');
+        throw new Error('Assessment output was not saved correctly to cache');
+      }
 
       if (failed.length > 0) {
         console.warn(`⚠ Assessment Agent: ${successful.length.toLocaleString()} succeeded, ${failed.length.toLocaleString()} failed`);
@@ -449,14 +461,37 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         case 'assessment':
           const discoveryOutput = await getAgentOutput(fileUUID, 'discovery');
           if (!discoveryOutput) {
-            throw new Error('Discovery output not found');
+            console.error('Discovery output not found in cache. Available agents:', await getCachedAgentIds(fileUUID));
+            throw new Error('Discovery output not found. Please ensure the Discovery Agent completed successfully.');
+          }
+          if (!discoveryOutput.workloadIds || discoveryOutput.workloadIds.length === 0) {
+            console.warn('Discovery output found but has no workloadIds:', discoveryOutput);
+            throw new Error('Discovery output is empty. Please rerun the Discovery Agent.');
           }
           output = await executeAssessmentAgent(discoveryOutput);
+          
+          // Verify assessment output was saved and matches what was returned
+          const verifyAssessment = await getAgentOutput(fileUUID, 'assessment');
+          if (!verifyAssessment) {
+            console.error('Assessment output was not saved after execution');
+            throw new Error('Assessment output was not saved. Please rerun the Assessment Agent.');
+          }
+          if (!output || !output.results || output.results.length === 0) {
+            console.error('Assessment agent returned empty output:', output);
+            throw new Error('Assessment agent returned empty output. Please rerun the Assessment Agent.');
+          }
+          // Use the cached version to ensure consistency
+          output = verifyAssessment;
           break;
         case 'strategy':
           const assessmentOutput = await getAgentOutput(fileUUID, 'assessment');
           if (!assessmentOutput) {
-            throw new Error('Assessment output not found');
+            console.error('Assessment output not found in cache. Available agents:', await getCachedAgentIds(fileUUID));
+            throw new Error('Assessment output not found. Please ensure the Assessment Agent completed successfully.');
+          }
+          if (!assessmentOutput.results || assessmentOutput.results.length === 0) {
+            console.warn('Assessment output found but has no results:', assessmentOutput);
+            throw new Error('Assessment output is empty. Please rerun the Assessment Agent.');
           }
           output = await executeStrategyAgent(assessmentOutput);
           break;
