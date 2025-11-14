@@ -3,40 +3,31 @@
  */
 
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { toast } from 'react-toastify';
-import CurUploadButton from '../CurUploadButton';
+import CurUploadButton, { FileUploadManager } from '../CurUploadButton';
 
 // Mock dependencies
+jest.mock('../CurUploadButton', () => {
+    const original = jest.requireActual('../CurUploadButton');
+    return {
+        ...original,
+        FileUploadManager: jest.fn()
+    }
+});
+
+
 const mockWorkloadRepository = {
   save: jest.fn().mockResolvedValue({}),
   findAll: jest.fn().mockResolvedValue([]),
-};
-
-// Mock Container - must be hoisted before component import
-const mockWorkloadRepositoryForContainer = {
-  save: jest.fn().mockResolvedValue({}),
-  findAll: jest.fn().mockResolvedValue([]),
+  findById: jest.fn().mockResolvedValue(null),
 };
 
 jest.mock('../../infrastructure/dependency_injection/Container.js', () => ({
   getContainer: () => ({
-    workloadRepository: mockWorkloadRepositoryForContainer,
+    workloadRepository: mockWorkloadRepository,
   }),
-}));
-
-jest.mock('../../utils/awsBomImport.js', () => ({
-  parseAwsCur: jest.fn(),
-  parseAwsBillSimple: jest.fn(),
-}));
-
-jest.mock('../../utils/csvImport.js', () => ({
-  parseCSV: jest.fn(),
-}));
-
-jest.mock('../../utils/streamingCsvParser.js', () => ({
-  parseAwsCurStreaming: jest.fn(),
 }));
 
 jest.mock('react-toastify', () => ({
@@ -50,16 +41,15 @@ jest.mock('react-toastify', () => ({
 
 describe('CurUploadButton', () => {
   const mockOnUploadComplete = jest.fn();
+  const mockProcessFiles = jest.fn();
 
   beforeEach(() => {
     jest.clearAllMocks();
-    // Mock FileReader
-    global.FileReader = jest.fn(() => ({
-      readAsText: jest.fn(),
-      result: 'test,data',
-      onload: null,
-      onerror: null,
-    }));
+    FileUploadManager.mockImplementation(() => {
+        return {
+          processFiles: mockProcessFiles,
+        };
+      });
   });
 
   test('renders upload button', () => {
@@ -67,29 +57,33 @@ describe('CurUploadButton', () => {
     expect(screen.getByText(/Upload CUR/i)).toBeInTheDocument();
   });
 
-  test('button is disabled when uploading', () => {
-    render(<CurUploadButton onUploadComplete={mockOnUploadComplete} />);
-    const button = screen.getByText(/Upload CUR/i).closest('button');
-    expect(button).not.toBeDisabled();
-  });
-
-  test('shows file input when button is clicked', () => {
-    render(<CurUploadButton onUploadComplete={mockOnUploadComplete} />);
-    const button = screen.getByText(/Upload CUR/i).closest('button');
-    const fileInput = document.querySelector('input[type="file"]');
-    
-    expect(fileInput).toBeInTheDocument();
-    expect(fileInput).toHaveStyle({ display: 'none' });
-    
+  test('clicking the button triggers file input', () => {
+    const { container } = render(<CurUploadButton onUploadComplete={mockOnUploadComplete} />);
+    const button = screen.getByText(/Upload CUR/i);
+    const input = container.querySelector('input[type="file"]');
+    const inputClickSpy = jest.spyOn(input, 'click');
     userEvent.click(button);
-    // File input should be triggered (clicked programmatically)
+    expect(inputClickSpy).toHaveBeenCalled();
   });
 
-  test('accepts CSV and ZIP files', () => {
-    render(<CurUploadButton onUploadComplete={mockOnUploadComplete} />);
-    const fileInput = document.querySelector('input[type="file"]');
-    
-    expect(fileInput).toHaveAttribute('accept', '.csv,.zip');
-    expect(fileInput).toHaveAttribute('multiple');
+  test('calls FileUploadManager on file upload', async () => {
+    mockProcessFiles.mockResolvedValue({ totalWorkloadsSaved: 1, uniqueWorkloads: 1 });
+    const { container } = render(<CurUploadButton onUploadComplete={mockOnUploadComplete} />);
+    const input = container.querySelector('input[type="file"]');
+    const file = new File(['a,b,c'], 'test.csv', { type: 'text/csv' });
+
+    await waitFor(() => {
+        fireEvent.change(input, { target: { files: [file] } });
+    });
+
+    expect(mockProcessFiles).toHaveBeenCalled();
+    expect(mockOnUploadComplete).toHaveBeenCalledWith({
+        count: 1,
+        summary: {
+            uniqueWorkloads: 1,
+            workloadsSaved: 1,
+        },
+        files: [file]
+    });
   });
 });

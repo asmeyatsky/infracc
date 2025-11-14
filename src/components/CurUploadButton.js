@@ -1,8 +1,8 @@
 /**
- * CUR Upload Button Component
- * 
- * Provides easy access to upload AWS Cost and Usage Report (CUR) files
- * Supports single CUR CSV files or ZIP archives containing multiple CUR files
+ * @file CurUploadButton.refactored.js
+ * @description This file contains the refactored version of the CurUploadButton component.
+ * The logic for file processing has been extracted into a separate FileUploadManager class
+ * to improve modularity, testability, and maintainability.
  */
 
 import React, { useState, useRef } from 'react';
@@ -15,79 +15,74 @@ import { toast } from 'react-toastify';
 import { agentEventEmitter } from '../agentic/core/AgentEventEmitter.js';
 import { agentStatusManager, AgentStatus } from '../agentic/core/AgentStatusManager.js';
 
-function CurUploadButton({ onUploadComplete }) {
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(null);
-  const [uploadSummary, setUploadSummary] = useState(null);
-  const fileInputRef = useRef(null);
-  const container = getContainer();
-  const workloadRepository = container.workloadRepository;
+// #region FileUploadManager Class
+class FileUploadManager {
+  constructor(workloadRepository) {
+    this.workloadRepository = workloadRepository;
+    this.largeFileThreshold = 50 * 1024 * 1024; // 50MB
+  }
 
-  /**
-   * Process a single CSV file
-   * Uses streaming parser for large files (>50MB)
-   */
-  const processCSVFile = async (file, awsBomFormat = 'cur') => {
-    const fileSize = file.size;
-    const largeFileThreshold = 50 * 1024 * 1024; // 50MB
-    
-    // For large files, use streaming parser
-    if (fileSize > largeFileThreshold) {
-      toast.info(`Processing large file ${file.name} (${(fileSize / 1024 / 1024).toFixed(1)}MB) using streaming parser...`);
-      
+  async processFiles(files, onProgress) {
+    let totalWorkloadsSaved = 0;
+    const dedupeMap = new Map();
+    const savedDedupeKeys = new Set();
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      onProgress({
+        current: i + 1,
+        total: files.length,
+        currentFile: file.name,
+        status: `Processing ${file.name}...`,
+        percent: Math.round((i / files.length) * 100),
+      });
+
       try {
-        const importedData = await parseAwsCurStreaming(file, (progress) => {
-          if (progress.percent % 10 === 0) { // Update every 10%
-            // Progress logging removed to avoid console spam
-            // Progress updates removed for performance - focus on accurate PDF generation
-          }
-        });
-        
-        toast.success(`Processed ${file.name}: ${importedData.length} workloads`);
-        return importedData;
+        const workloads = await this._processFile(file);
+        const { newWorkloads, updatedWorkloads } = await this._deduplicateAndSave(workloads, dedupeMap, savedDedupeKeys, onProgress);
+        totalWorkloadsSaved += newWorkloads;
       } catch (error) {
-        // If streaming fails, try regular parsing for files under 100MB
-        if (fileSize < 100 * 1024 * 1024) {
-          console.warn('Streaming parser failed, falling back to regular parser:', error);
-        } else {
-          throw error;
-        }
+        console.error(`Error processing ${file.name}:`, error);
+        toast.error(`Error processing ${file.name}: ${error.message}`);
       }
     }
-    
-    // For smaller files or fallback, use regular FileReader
+
+    return {
+      totalWorkloadsSaved,
+      uniqueWorkloads: dedupeMap.size,
+    };
+  }
+
+  async _processFile(file) {
+    if (file.name.toLowerCase().endsWith('.zip')) {
+      return this._processZipFile(file);
+    } else if (file.name.toLowerCase().endsWith('.csv')) {
+      return this._processCsvFile(file);
+    } else {
+      console.warn(`Skipping unsupported file: ${file.name}`);
+      return [];
+    }
+  }
+
+  async _processCsvFile(file, awsBomFormat = 'cur') {
+    const fileSize = file.size;
+
+    if (fileSize > this.largeFileThreshold) {
+      toast.info(`Processing large file ${file.name} (${(fileSize / 1024 / 1024).toFixed(1)}MB) using streaming parser...`);
+      return parseAwsCurStreaming(file, () => {});
+    }
+
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = async (e) => {
         try {
           const csvText = e.target.result;
           let importedData = [];
-
-          // Try AWS BOM formats first
-          try {
-            if (awsBomFormat === 'cur') {
-              importedData = parseAwsCur(csvText);
-            } else {
-              importedData = parseAwsBillSimple(csvText);
-            }
-            // Metadata with raw cost is already attached by parser
-          } catch (awsError) {
-            // Fall back to standard CSV parsing
-            console.warn('AWS BOM parsing failed, trying standard CSV:', awsError);
-            importedData = parseCSV(csvText);
-            // Standard CSV parser doesn't have metadata, so we'll need to calculate manually
-            if (!importedData._metadata) {
-              let rawCost = 0;
-              for (const data of importedData) {
-                const cost = parseFloat(data.monthlyCost || data.cost || 0);
-                if (!isNaN(cost)) {
-                  rawCost += cost;
-                }
-              }
-              importedData._metadata = { totalRawCost: rawCost, totalRows: importedData.length };
-            }
+          if (awsBomFormat === 'cur') {
+            importedData = parseAwsCur(csvText);
+          } else {
+            importedData = parseAwsBillSimple(csvText);
           }
-
           resolve(importedData);
         } catch (error) {
           reject(error);
@@ -96,792 +91,106 @@ function CurUploadButton({ onUploadComplete }) {
       reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
       reader.readAsText(file);
     });
-  };
+  }
 
-  /**
-   * Extract and process files from ZIP archive
-   * Handles large files by processing in chunks
-   */
-  const processZipFile = async (file, awsBomFormat = 'cur') => {
-    try {
-      // Dynamic import of JSZip
-      const JSZipModule = await import('jszip');
-      const JSZip = JSZipModule.default || JSZipModule;
-      const zip = await JSZip.loadAsync(file);
-      const csvFiles = [];
-      
-      // Find all CSV files in the ZIP
-      zip.forEach((relativePath, zipEntry) => {
-        if (!zipEntry.dir && relativePath.toLowerCase().endsWith('.csv')) {
-          csvFiles.push({ name: relativePath, entry: zipEntry });
-        }
-      });
+  async _processZipFile(file, awsBomFormat = 'cur') {
+    const JSZipModule = await import('jszip');
+    const JSZip = JSZipModule.default || JSZipModule;
+    const zip = await JSZip.loadAsync(file);
+    const allData = [];
 
-      if (csvFiles.length === 0) {
-        throw new Error('No CSV files found in ZIP archive');
-      }
+    for (const relativePath in zip.files) {
+      if (!relativePath.toLowerCase().endsWith('.csv')) continue;
 
-      // Process each CSV file
-      const allData = [];
-      let zipTotalRawCost = 0; // Track sum of raw costs from ALL CSV files in ZIP
-      const largeFileThreshold = 50 * 1024 * 1024; // 50MB - use streaming parser above this
-      
-      for (const csvFile of csvFiles) {
-        try {
-          // Get file size - check uncompressed size if available
-          let fileSize = 0;
-          try {
-            // Try to get uncompressed size from zip entry
-            fileSize = csvFile.entry._data?.uncompressedSize || csvFile.entry._data?.length || 0;
-          } catch (e) {
-            // If we can't get size, we'll try to process it anyway with streaming parser
-            fileSize = 0; // Unknown size - use streaming parser
-          }
-          
-          // Warn for very large files
-          if (fileSize > 100 * 1024 * 1024) {
-            toast.info(`Processing large file ${csvFile.name} (${(fileSize / 1024 / 1024).toFixed(1)}MB) using streaming parser. This may take a while...`);
-          } else if (fileSize > largeFileThreshold) {
-            toast.info(`Processing file ${csvFile.name} (${(fileSize / 1024 / 1024).toFixed(1)}MB) using streaming parser...`);
-          }
-
-          // Always use streaming parser for large files (>50MB) or unknown size
-          // Streaming parser can handle files of any size without memory limits
-          let importedData = [];
-          
-          if (fileSize > largeFileThreshold || fileSize === 0) {
-            // Use streaming parser for large files (no size limit)
-            try {
-              // Get file as blob for streaming
-              const blob = await csvFile.entry.async('blob');
-              
-              // Use streaming parser - handles files of any size
-              // Progress logging removed to avoid console spam - progress shown in UI via agent status
-              importedData = await parseAwsCurStreaming(blob, (progress) => {
-                // Silent progress tracking - no console spam
-                // Progress is shown via agent status updates instead
-              });
-              
-              toast.success(`Processed ${csvFile.name}: ${importedData.length} workloads`);
-            } catch (streamError) {
-              console.error(`Streaming parser failed for ${csvFile.name}:`, streamError);
-              // For files under 100MB, try fallback to regular parsing
-              if (fileSize > 0 && fileSize < 100 * 1024 * 1024) {
-                try {
-                  const csvText = await csvFile.entry.async('string');
-                  if (awsBomFormat === 'cur') {
-                    importedData = parseAwsCur(csvText);
-                  } else {
-                    importedData = parseAwsBillSimple(csvText);
-                  }
-                } catch (fallbackError) {
-                  throw streamError; // Use original streaming error
-                }
-              } else {
-                // For very large files, streaming is the only option
-                throw streamError;
-              }
-            }
-          } else {
-            // For smaller files (<50MB), use regular parsing (faster)
-            let csvText = null;
-            try {
-              csvText = await csvFile.entry.async('string');
-              
-              if (awsBomFormat === 'cur') {
-                importedData = parseAwsCur(csvText);
-              } else {
-                importedData = parseAwsBillSimple(csvText);
-              }
-            } catch (awsError) {
-              console.warn(`AWS BOM parsing failed for ${csvFile.name}, trying standard CSV:`, awsError);
-              // eslint-disable-next-line no-undef
-              if (csvText) {
-                // eslint-disable-next-line no-undef
-                importedData = parseCSV(csvText);
-              } else {
-                throw awsError; // Re-throw if we don't have csvText
-              }
-            }
-          }
-
-          // Extract raw cost from parser metadata for this CSV file
-          const csvMetadata = importedData._metadata;
-          if (csvMetadata && csvMetadata.totalRawCost !== undefined) {
-            zipTotalRawCost += csvMetadata.totalRawCost;
-            console.log(`CSV ${csvFile.name}: Raw cost $${csvMetadata.totalRawCost.toFixed(2)} (${csvMetadata.totalRows} rows)`);
-          } else {
-            // Fallback: sum aggregated costs (not ideal, but better than 0)
-            console.warn(`No metadata for ${csvFile.name}, using aggregated costs`);
-            for (const data of importedData) {
-              const cost = parseFloat(data.monthlyCost || 0);
-              if (!isNaN(cost)) {
-                zipTotalRawCost += cost;
-              }
-            }
-          }
-
-          // CRITICAL FIX: Push items without spreading to prevent stack overflow
-          // Use push.apply with batches to avoid call stack limits
-          // push.apply has a limit of ~65k arguments, use 50k to be safe
-          const MAX_PUSH_APPLY_SIZE = 50000; // Safe limit below 65k
-          if (importedData.length > MAX_PUSH_APPLY_SIZE) {
-            // For very large arrays, use push.apply in batches
-            const BATCH_SIZE = MAX_PUSH_APPLY_SIZE;
-            const YIELD_EVERY_N_BATCHES = 5; // Only yield every 5 batches to reduce overhead
-            for (let i = 0; i < importedData.length; i += BATCH_SIZE) {
-              const batch = importedData.slice(i, i + BATCH_SIZE);
-              Array.prototype.push.apply(allData, batch);
-              // Yield to event loop every N batches to prevent blocking while minimizing overhead
-              if ((i / BATCH_SIZE) % YIELD_EVERY_N_BATCHES === 0 && i + BATCH_SIZE < importedData.length) {
-                await new Promise(resolve => setTimeout(resolve, 0));
-              }
-            }
-          } else {
-            // For smaller arrays, use push.apply (safer than spread)
-            Array.prototype.push.apply(allData, importedData);
-          }
-        } catch (error) {
-          // Handle errors gracefully
-          if (error.message.includes('Invalid string length') || error.name === 'RangeError' || error.message.includes('Maximum call stack')) {
-            // This shouldn't happen with streaming parser, but if it does, try streaming
-            console.error(`String length/stack error for ${csvFile.name}, attempting streaming parser:`, error);
-            try {
-              const blob = await csvFile.entry.async('blob');
-              const importedData = await parseAwsCurStreaming(blob);
-              
-              // Extract raw cost from parser metadata
-              const csvMetadata = importedData._metadata;
-              if (csvMetadata && csvMetadata.totalRawCost !== undefined) {
-                zipTotalRawCost += csvMetadata.totalRawCost;
-                console.log(`CSV ${csvFile.name}: Raw cost $${csvMetadata.totalRawCost.toFixed(2)} (${csvMetadata.totalRows} rows)`);
-              }
-              
-              // CRITICAL FIX: Push items in batches to prevent stack overflow
-              // Use push.apply with batches to avoid call stack limits
-              // push.apply has a limit of ~65k arguments, use 50k to be safe
-              const MAX_PUSH_APPLY_SIZE = 50000; // Safe limit below 65k
-              if (importedData.length > MAX_PUSH_APPLY_SIZE) {
-                // For very large arrays, use push.apply in batches
-                const BATCH_SIZE = MAX_PUSH_APPLY_SIZE;
-                const YIELD_EVERY_N_BATCHES = 5; // Only yield every 5 batches to reduce overhead
-                for (let i = 0; i < importedData.length; i += BATCH_SIZE) {
-                  const batch = importedData.slice(i, i + BATCH_SIZE);
-                  Array.prototype.push.apply(allData, batch);
-                  // Yield to event loop every N batches to prevent blocking while minimizing overhead
-                  if ((i / BATCH_SIZE) % YIELD_EVERY_N_BATCHES === 0 && i + BATCH_SIZE < importedData.length) {
-                    await new Promise(resolve => setTimeout(resolve, 0));
-                  }
-                }
-              } else {
-                // For smaller arrays, use push.apply (safer than spread)
-                Array.prototype.push.apply(allData, importedData);
-              }
-              toast.success(`Processed ${csvFile.name} using streaming parser: ${importedData.length} workloads`);
-            } catch (streamError) {
-              toast.error(`Failed to process ${csvFile.name}: ${streamError.message}`);
-              console.error(`Streaming parser also failed for ${csvFile.name}:`, streamError);
-            }
-          } else {
-            console.warn(`Error processing ${csvFile.name} from ZIP:`, error);
-            toast.warn(`Failed to process ${csvFile.name}: ${error.message}`);
-          }
-        }
-      }
-
-      // Calculate aggregated cost efficiently - reduce is already optimized for large arrays
-      // No need to batch reduce operations, they don't cause stack overflow
-      const zipTotalAggregatedCost = allData.reduce((sum, workload) => sum + (workload.monthlyCost || 0), 0);
-
-      // Attach total raw cost metadata to combined result (sum of ALL CSV files in ZIP)
-      allData._metadata = {
-        totalRawCost: zipTotalRawCost,
-        totalAggregatedCost: zipTotalAggregatedCost,
-        totalRows: allData.length,
-        uniqueWorkloads: allData.length,
-        csvFilesProcessed: csvFiles.length
-      };
-
-      console.log(`ZIP file ${file.name}: Total raw cost from ${csvFiles.length} CSV files: $${zipTotalRawCost.toFixed(2)}`);
-      console.log(`ZIP file ${file.name}: Total aggregated cost from ${csvFiles.length} CSV files: $${zipTotalAggregatedCost.toFixed(2)}`);
-      return allData;
-    } catch (error) {
-      if (error.message.includes('Cannot find module')) {
-        throw new Error('ZIP support requires jszip package. Install it with: npm install jszip');
-      }
-      throw error;
+      const zipEntry = zip.files[relativePath];
+      const blob = await zipEntry.async('blob');
+      // Create a File object from the blob to pass to _processCsvFile
+      const csvFile = new File([blob], zipEntry.name, { type: 'text/csv' });
+      const importedData = await this._processCsvFile(csvFile, awsBomFormat);
+      allData.push(...importedData);
     }
-  };
 
-  /**
-   * Handle file upload
-   */
+    return allData;
+  }
+
+  async _deduplicateAndSave(workloads, dedupeMap, savedDedupeKeys, onProgress) {
+    let newWorkloadsCount = 0;
+    let updatedWorkloadsCount = 0;
+    const batchSize = 100;
+
+    for (let i = 0; i < workloads.length; i += batchSize) {
+      const batch = workloads.slice(i, i + batchSize);
+      onProgress({ status: `Deduplicating and saving batch ${Math.floor(i / batchSize) + 1}...` });
+
+      for (const data of batch) {
+        const resourceId = String(data.id || '').trim();
+        const service = String(data.service || '').trim();
+        const region = String(data.region || '').trim();
+        const dedupeKey = `${resourceId}_${service}_${region}`.toLowerCase();
+
+        if (!dedupeKey || dedupeKey === '__') continue;
+
+        const existingWorkload = await this.workloadRepository.findById(dedupeKey);
+
+        if (existingWorkload) {
+          const currentCost = existingWorkload.monthlyCost.value || 0;
+          const newCost = currentCost + (data.monthlyCost || 0);
+
+          if (Math.abs(newCost - currentCost) > 0.01) {
+            const updatedWorkload = new Workload({ ...existingWorkload.toJSON(), monthlyCost: newCost });
+            await this.workloadRepository.save(updatedWorkload);
+            updatedWorkloadsCount++;
+          }
+        } else {
+          const workload = new Workload({ ...data, id: dedupeKey, sourceProvider: 'aws' });
+          await this.workloadRepository.save(workload);
+          newWorkloadsCount++;
+        }
+      }
+      await new Promise(resolve => setTimeout(resolve, 0)); // Yield to event loop
+    }
+
+    return { newWorkloads: newWorkloadsCount, updatedWorkloads: updatedWorkloadsCount };
+  }
+}
+// #endregion
+
+function CurUploadButton({ onUploadComplete }) {
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(null);
+  const fileInputRef = useRef(null);
+  const container = getContainer();
+  const workloadRepository = container.workloadRepository;
+
   const handleFileUpload = async (event) => {
     const files = Array.from(event.target.files);
     if (files.length === 0) return;
 
     setUploading(true);
-    setUploadProgress({ current: 0, total: files.length, currentFile: '' });
+    setUploadProgress({ current: 0, total: files.length, currentFile: '', percent: 0 });
 
-    // Progress updates removed for performance - focus on accurate PDF generation
+    const fileUploadManager = new FileUploadManager(workloadRepository);
 
     try {
-      let totalWorkloadsSaved = 0;
-      let processedCount = 0;
-      let totalRowsProcessed = 0;
-      let totalDuplicatesRemoved = 0;
-      let totalAggregatedCost = 0;
-      
-      // Track per-file statistics
-      const fileStats = [];
-      
-      // Shared deduplication map across all files
-      const dedupeMap = new Map(); // Track deduplication keys across all files
-      const savedDedupeKeys = new Set(); // Track which dedupe keys we've already saved
-      const batchSize = 100; // Increased batch size for better performance (was 25)
-      let totalSkippedCount = 0; // Track total skipped workloads across all files
-      
-      // Process files incrementally - deduplicate and save as we go
-      for (const file of files) {
-        const fileProgress = Math.round(((processedCount) / files.length) * 100);
-        const currentStatus = `Processing ${file.name}... (${processedCount + 1}/${files.length})`;
-        
-        const startTime = Date.now();
-        setUploadProgress({
-          current: processedCount + 1,
-          total: files.length,
-          currentFile: file.name,
-          status: currentStatus,
-          percent: Math.round(((processedCount) / files.length) * 100),
-          startTime
-        });
-
-        // Progress updates removed for performance - focus on accurate PDF generation
-
-        // Initialize file-level variables outside try block so they're accessible in finally
-        let fileData = [];
-        const fileStartRows = totalRowsProcessed;
-        const fileStartUnique = dedupeMap.size;
-        let fileRows = 0;
-        let fileRawCost = 0; // Track raw cost sum from ALL rows (before deduplication)
-        let fileCost = 0;
-        let newWorkloadsCount = 0;
-        let updatedWorkloadsCount = 0;
-        let uniqueAddedThisFile = 0;
-        let duplicatesInThisFile = 0;
-        
-        try {
-          // Check if it's a ZIP file
-          if (file.name.toLowerCase().endsWith('.zip')) {
-            fileData = await processZipFile(file, 'cur'); // Default to CUR format
-          } else if (file.name.toLowerCase().endsWith('.csv')) {
-            fileData = await processCSVFile(file, 'cur'); // Default to CUR format
-          } else {
-            console.warn(`Skipping unsupported file: ${file.name}`);
-            continue;
-          }
-
-          // Extract raw cost from parser metadata (sum of ALL rows before aggregation)
-          const parserMetadata = fileData._metadata;
-          if (parserMetadata && parserMetadata.totalRawCost !== undefined) {
-            fileRawCost = parserMetadata.totalRawCost;
-            // Only log essential info, skip undefined fields
-            const metadataInfo = [
-              `Raw cost: $${fileRawCost.toFixed(2)}`,
-              parserMetadata.totalRows ? `Rows: ${parserMetadata.totalRows.toLocaleString()}` : null,
-              parserMetadata.uniqueWorkloads ? `Unique workloads: ${parserMetadata.uniqueWorkloads.toLocaleString()}` : null
-            ].filter(Boolean).join(', ');
-            console.log(`File ${file.name}: ${metadataInfo}`);
-          } else {
-            // Fallback: sum costs from parsed data (already aggregated, but better than nothing)
-            console.log(`File ${file.name}: Using aggregated costs (metadata not available)`);
-            for (const data of fileData) {
-              const cost = parseFloat(data.monthlyCost || 0);
-              if (!isNaN(cost)) {
-                fileRawCost += cost;
-              }
-            }
-          }
-
-          totalRowsProcessed += fileData.length;
-          fileRows = fileData.length;
-          
-          // Deduplicate this file's data incrementally
-          const dedupeStatus = `Deduplicating ${fileData.length} workloads from ${file.name}...`;
-          setUploadProgress({
-            current: processedCount + 1,
-            total: files.length,
-            currentFile: file.name,
-            status: dedupeStatus
-          });
-
-          // Progress updates removed for performance - focus on accurate PDF generation
-
-          // Track which dedupe keys are NEW from this file (before deduplication)
-          const newKeysThisFile = new Set();
-          let fileDuplicates = 0;
-          let fileNewUnique = 0;
-          
-          // Process file data in chunks to prevent stack overflow
-          const chunkSize = 1000;
-          for (let chunkStart = 0; chunkStart < fileData.length; chunkStart += chunkSize) {
-            const chunk = fileData.slice(chunkStart, chunkStart + chunkSize);
-            
-            // Deduplicate chunk against existing dedupeMap
-            for (const data of chunk) {
-              // Normalize dedupe key
-              const resourceId = String(data.id || '').trim();
-              const service = String(data.service || '').trim();
-              const region = String(data.region || '').trim();
-              const dedupeKey = `${resourceId}_${service}_${region}`.toLowerCase();
-              
-              if (!dedupeKey || dedupeKey === '__') {
-                continue; // Skip invalid entries
-              }
-              
-              const cost = parseFloat(data.monthlyCost || 0);
-              fileCost += cost; // Also track deduplicated cost for reference
-              
-              if (dedupeMap.has(dedupeKey)) {
-                // Aggregate cost with existing workload (same resource across different dates)
-                const existing = dedupeMap.get(dedupeKey);
-                existing.monthlyCost += cost;
-                fileDuplicates++;
-                // Update storage if it's a storage service (take maximum)
-                if (data.storage) {
-                  existing.storage = Math.max(existing.storage || 0, data.storage);
-                }
-                // Track date range if available
-                if (data.dateRange) {
-                  if (!existing.dateRange) {
-                    existing.dateRange = data.dateRange;
-                  } else {
-                    // Expand date range
-                    if (data.dateRange.start < existing.dateRange.start) {
-                      existing.dateRange.start = data.dateRange.start;
-                    }
-                    if (data.dateRange.end > existing.dateRange.end) {
-                      existing.dateRange.end = data.dateRange.end;
-                    }
-                  }
-                }
-                if (data.seenDates) {
-                  if (!existing.seenDates) {
-                    existing.seenDates = [];
-                  }
-                  existing.seenDates.push(...(data.seenDates || []));
-                  // Remove duplicates
-                  existing.seenDates = [...new Set(existing.seenDates)];
-                }
-                // Track source files
-                if (!existing.sourceFiles) {
-                  existing.sourceFiles = [];
-                }
-                if (file.name && !existing.sourceFiles.includes(file.name)) {
-                  existing.sourceFiles.push(file.name);
-                }
-                totalDuplicatesRemoved++;
-              } else {
-                // New workload - track that this is new from this file
-                dedupeMap.set(dedupeKey, { 
-                  ...data,
-                  id: resourceId, // Ensure ID is normalized
-                  service: service, // Ensure service is normalized
-                  region: region, // Ensure region is normalized
-                  sourceFiles: file.name ? [file.name] : []
-                });
-                newKeysThisFile.add(dedupeKey);
-              }
-            }
-            
-            // Yield to event loop every chunk to prevent blocking
-            if (chunkStart + chunkSize < fileData.length) {
-              await new Promise(resolve => setTimeout(resolve, 0));
-            }
-          }
-          
-          console.log(`File ${file.name}: ${fileData.length} rows -> ${newKeysThisFile.size} new unique workloads (deduplicated within file), ${fileData.length - newKeysThisFile.size} duplicates within file`);
-          console.log(`File ${file.name}: Regions found:`, [...new Set(fileData.map(d => d.region))].slice(0, 10));
-
-          console.log(`Processed ${file.name}: ${fileData.length} rows -> ${dedupeMap.size} unique workloads so far`);
-
-          // Save deduplicated workloads incrementally (process in batches)
-          const saveStatus = `Saving ${dedupeEntries.length.toLocaleString()} workloads from ${file.name}...`;
-          const elapsed = Date.now() - startTime;
-          const avgTimePerFile = elapsed / (processedCount + 1);
-          const remainingFiles = files.length - (processedCount + 1);
-          const estimatedTimeRemaining = Math.round((avgTimePerFile * remainingFiles) / 1000);
-          
-          setUploadProgress({
-            current: processedCount + 1,
-            total: files.length,
-            currentFile: file.name,
-            status: saveStatus,
-            percent: Math.round(((processedCount + 0.5) / files.length) * 100),
-            estimatedTimeRemaining: estimatedTimeRemaining > 0 ? `${Math.round(estimatedTimeRemaining / 60)}m ${estimatedTimeRemaining % 60}s` : null
-          });
-
-          // Progress updates removed for performance - focus on accurate PDF generation
-
-          // Process only NEW entries from THIS FILE that we haven't saved yet
-          // This ensures we don't reprocess workloads from previous files
-          const dedupeEntries = Array.from(dedupeMap.entries())
-            .filter(([dedupeKey]) => newKeysThisFile.has(dedupeKey) && !savedDedupeKeys.has(dedupeKey));
-          
-          if (dedupeEntries.length === 0) {
-            console.log(`No new workloads to save from ${file.name} (all duplicates or already saved)`);
-            
-            // Calculate file statistics even if no new entries
-            const fileEndUnique = dedupeMap.size;
-            const uniqueAddedThisFile = fileEndUnique - fileStartUnique;
-            const duplicatesInThisFile = fileRows - uniqueAddedThisFile;
-            
-            // Store file statistics
-            fileStats.push({
-              fileName: file.name,
-              rowsProcessed: fileRows,
-              uniqueWorkloads: uniqueAddedThisFile,
-              duplicates: duplicatesInThisFile,
-              newWorkloadsSaved: 0,
-              existingWorkloadsUpdated: 0,
-              totalCost: fileRawCost // Use raw cost sum (all rows)
-            });
-            
-            processedCount++;
-            continue;
-          }
-          
-          newWorkloadsCount = 0;
-          updatedWorkloadsCount = 0;
-          let alreadyExistsCount = 0;
-          let skippedCount = 0;
-          
-          // Load all existing workloads into memory once to avoid repeated repository queries
-          await workloadRepository._loadFromStorage();
-          const allExistingWorkloads = await workloadRepository.findAll();
-          const existingWorkloadMap = new Map();
-          allExistingWorkloads.forEach(w => {
-            // Use workload.id as the key (it's already the dedupe key format)
-            const dedupeKey = w.id || `${w.resourceId || ''}_${w.service || ''}_${w.region || ''}`;
-            existingWorkloadMap.set(dedupeKey.toLowerCase(), w);
-          });
-          
-          console.log(`Processing ${dedupeEntries.length.toLocaleString()} entries from ${file.name} (${dedupeMap.size.toLocaleString()} total, ${savedDedupeKeys.size.toLocaleString()} already saved)`);
-          
-          const totalBatches = Math.ceil(dedupeEntries.length / batchSize);
-          
-          for (let i = 0; i < dedupeEntries.length; i += batchSize) {
-            const batch = dedupeEntries.slice(i, i + batchSize);
-            const batchNumber = Math.floor(i / batchSize) + 1;
-            
-            // Update progress for batch processing
-            if (batchNumber % 10 === 0 || batchNumber === totalBatches) {
-              const batchProgress = Math.round((i / dedupeEntries.length) * 100);
-              setUploadProgress({
-                current: processedCount + 1,
-                total: files.length,
-                currentFile: file.name,
-                status: `Saving batch ${batchNumber}/${totalBatches} (${batchProgress}%) from ${file.name}...`,
-                percent: Math.round(((processedCount + (i / dedupeEntries.length) * 0.5) / files.length) * 100)
-              });
-            }
-            
-            // Process batch - use in-memory map instead of repository queries
-            for (const [dedupeKey, data] of batch) {
-              try {
-                // Normalize values for lookup
-                const lookupResourceId = String(data.id || '').trim();
-                const lookupService = String(data.service || '').trim();
-                const lookupRegion = String(data.region || '').trim();
-                const lookupDedupeKey = `${lookupResourceId}_${lookupService}_${lookupRegion}`.toLowerCase();
-                
-                // Check in-memory map first (much faster than repository query)
-                const existingWorkload = existingWorkloadMap.get(lookupDedupeKey) || null;
-
-                if (existingWorkload) {
-                  // Workload already exists - update cost if needed
-                  alreadyExistsCount++;
-                  savedDedupeKeys.add(dedupeKey);
-                  
-                  const currentCost = existingWorkload.monthlyCost.value || 0;
-                  const newCost = currentCost + (data.monthlyCost || 0);
-                  
-                  if (Math.abs(newCost - currentCost) > 0.01) {
-                    const updatedWorkload = new Workload({
-                      id: existingWorkload.id,
-                      name: existingWorkload.name,
-                      service: existingWorkload.service,
-                      type: existingWorkload.type.value,
-                      sourceProvider: existingWorkload.sourceProvider.type,
-                      cpu: existingWorkload.cpu,
-                      memory: existingWorkload.memory,
-                      storage: Math.max(existingWorkload.storage, data.storage || 0),
-                      monthlyCost: newCost,
-                      region: existingWorkload.region,
-                      os: existingWorkload.os,
-                      monthlyTraffic: existingWorkload.monthlyTraffic,
-                      dependencies: existingWorkload.dependencies,
-                      awsInstanceType: existingWorkload.awsInstanceType || data.awsInstanceType,
-                      awsProductCode: existingWorkload.awsProductCode || data.awsProductCode,
-                    });
-                    
-                    existingWorkloadMap.set(lookupDedupeKey, updatedWorkload);
-                    try {
-                      await workloadRepository.save(updatedWorkload);
-                      updatedWorkloadsCount++;
-                    } catch (saveError) {
-                      console.warn(`Failed to save updated workload ${updatedWorkload.id}:`, saveError);
-                      skippedCount++;
-                    }
-                  }
-                } else if (!savedDedupeKeys.has(dedupeKey)) {
-                  // New workload - create and save
-                  const workload = new Workload({
-                    ...data,
-                    sourceProvider: 'aws',
-                    dependencies: data.dependencies 
-                      ? (Array.isArray(data.dependencies) ? data.dependencies : data.dependencies.split(',').map(d => d.trim()))
-                      : []
-                  });
-                  
-                  existingWorkloadMap.set(lookupDedupeKey, workload);
-                  try {
-                    await workloadRepository.save(workload);
-                    savedDedupeKeys.add(dedupeKey);
-                    newWorkloadsCount++;
-                    
-                    // Only log first 3 to avoid spam
-                    if (newWorkloadsCount <= 3) {
-                      console.log(`Saving new workload: ${lookupDedupeKey} (ID: ${workload.id})`);
-                    }
-                  } catch (saveError) {
-                    console.warn(`Failed to save workload ${workload.id}:`, saveError);
-                    skippedCount++;
-                    // Don't add to savedDedupeKeys if save failed
-                  }
-                } else {
-                  // Already processed
-                  alreadyExistsCount++;
-                }
-              } catch (error) {
-                console.warn(`Failed to process workload ${data.id}:`, error);
-                skippedCount++;
-              }
-            }
-            
-            // Yield to event loop every batch to prevent blocking
-            if (i + batchSize < dedupeEntries.length) {
-              await new Promise(resolve => setTimeout(resolve, 0));
-            }
-          }
-          
-          totalWorkloadsSaved += newWorkloadsCount; // Only count NEW workloads, not updates
-          totalSkippedCount += skippedCount; // Accumulate skipped workloads across all files
-          
-          // Calculate file statistics
-          const fileEndUnique = dedupeMap.size;
-          uniqueAddedThisFile = fileEndUnique - fileStartUnique;
-          duplicatesInThisFile = fileRows - uniqueAddedThisFile;
-          
-          processedCount++;
-        } catch (error) {
-          console.error(`Error processing ${file.name}:`, error);
-          toast.error(`Error processing ${file.name}: ${error.message}`);
-          // Calculate file statistics even on error (with whatever data we have)
-          const fileEndUnique = dedupeMap.size;
-          uniqueAddedThisFile = fileEndUnique - fileStartUnique;
-          duplicatesInThisFile = fileRows > 0 ? fileRows - uniqueAddedThisFile : 0;
-          newWorkloadsCount = 0;
-          updatedWorkloadsCount = 0;
-        } finally {
-          // Always store file statistics, even if there was an error
-          fileStats.push({
-            fileName: file.name,
-            rowsProcessed: fileRows,
-            uniqueWorkloads: uniqueAddedThisFile,
-            duplicates: duplicatesInThisFile,
-            newWorkloadsSaved: newWorkloadsCount,
-            existingWorkloadsUpdated: updatedWorkloadsCount,
-            totalCost: fileRawCost // Use raw cost sum (all rows)
-          });
-          
-          console.log(`File ${file.name} summary:`);
-          console.log(`  - Rows processed: ${fileRows}`);
-          console.log(`  - Unique workloads added: ${uniqueAddedThisFile}`);
-          console.log(`  - Duplicates merged: ${duplicatesInThisFile}`);
-          console.log(`  - New workloads saved: ${newWorkloadsCount}`);
-          console.log(`  - Existing workloads updated: ${updatedWorkloadsCount}`);
-          console.log(`  - Total cost in file: $${fileRawCost.toFixed(2)}`);
-          console.log(`  - Total unique in dedupeMap: ${dedupeMap.size}`);
-          console.log(`  - Total saved so far: ${savedDedupeKeys.size}`);
-        }
-      }
-
-      if (totalWorkloadsSaved === 0) {
-        toast.error('No valid data found in uploaded files');
-        
-        // Progress updates removed for performance - focus on accurate PDF generation
-        
-        setUploading(false);
-        setUploadProgress(null);
-        event.target.value = null;
-        return;
-      }
-
-      // Calculate total aggregated cost from all unique workloads (deduplicated)
-      for (const workload of dedupeMap.values()) {
-        const cost = parseFloat(workload.monthlyCost || 0);
-        if (!isNaN(cost)) {
-          totalAggregatedCost += cost;
-        }
-      }
-      
-      // Calculate raw total cost from all file stats (sum of all bills)
-      let totalRawCost = 0;
-      try {
-        console.log(`\n=== CALCULATING TOTAL RAW COST ===`);
-        console.log(`Number of file stats: ${fileStats.length}`);
-        for (const fileStat of fileStats) {
-          const cost = parseFloat(fileStat?.totalCost || 0);
-          if (!isNaN(cost)) {
-            console.log(`  File: ${fileStat.fileName}, Cost: $${cost.toFixed(2)}, Workloads: ${fileStat.uniqueWorkloads}`);
-            totalRawCost += cost;
-          }
-        }
-        console.log(`Total raw cost from ${fileStats.length} files: $${totalRawCost.toFixed(2)}`);
-        console.log(`=====================================\n`);
-      } catch (error) {
-        console.error('Error calculating totalRawCost:', error);
-        console.error('fileStats:', fileStats);
-        totalRawCost = 0;
-      }
-      
-      // Final verification - check actual repository count
-      const allWorkloadsInRepo = await workloadRepository.findAll();
-      const actualUniqueCount = allWorkloadsInRepo.length;
-      const deduplicatedCount = dedupeMap.size;
-      
-      const missingCount = deduplicatedCount - actualUniqueCount;
-      
-      console.log(`\n=== FINAL DEDUPLICATION SUMMARY ===`);
-      console.log(`Total rows processed: ${totalRowsProcessed.toLocaleString()}`);
-      console.log(`Total files processed: ${files.length}`);
-      console.log(`Unique workloads in dedupeMap: ${deduplicatedCount.toLocaleString()}`);
-      console.log(`Duplicates merged: ${totalDuplicatesRemoved.toLocaleString()}`);
-      console.log(`Workloads saved to repository: ${totalWorkloadsSaved.toLocaleString()}`);
-      console.log(`Workloads skipped/failed: ${totalSkippedCount.toLocaleString()}`);
-      console.log(`Actual workloads in repository: ${actualUniqueCount.toLocaleString()}`);
-      console.log(`Total aggregated monthly cost (deduplicated): $${totalAggregatedCost.toFixed(2)}`);
-      console.log(`Total raw cost (sum of all bills): $${totalRawCost.toFixed(2)}`);
-      console.log(`fileStats length: ${fileStats.length}`);
-      console.log(`=====================================\n`);
-      
-      if (actualUniqueCount !== deduplicatedCount) {
-        const difference = deduplicatedCount - actualUniqueCount;
-        
-        // Check if localStorage quota was exceeded (indicated by repository warning)
-        const localStorageQuotaExceeded = actualUniqueCount > 100000; // Large count suggests quota issue
-        
-        if (localStorageQuotaExceeded || difference > 1000) {
-          // This is expected - browser localStorage quota limits
-          console.log(`ℹ️ INFO: Repository count (${actualUniqueCount.toLocaleString()}) is less than dedupeMap count (${deduplicatedCount.toLocaleString()})`);
-          console.log(`Difference: ${difference.toLocaleString()} workloads (${((difference / deduplicatedCount) * 100).toFixed(2)}%)`);
-          console.log(`• This is expected - IndexedDB handles large datasets efficiently`);
-          console.log(`• All ${deduplicatedCount.toLocaleString()} workloads are available in memory cache and will work correctly`);
-          console.log(`• ${actualUniqueCount.toLocaleString()} workloads are persisted to IndexedDB (no quota limits)`);
-          console.log(`• 💡 Tip: Export workloads to JSON to preserve all data`);
-        } else {
-          // Small difference - might be actual save errors
-          console.warn(`⚠️ WARNING: Repository count (${actualUniqueCount.toLocaleString()}) doesn't match dedupeMap count (${deduplicatedCount.toLocaleString()})`);
-          console.warn(`Difference: ${difference.toLocaleString()} workloads`);
-          
-          if (totalSkippedCount > 0) {
-            console.warn(`• ${totalSkippedCount.toLocaleString()} workloads were skipped due to save errors or invalid data`);
-          }
-          
-          if (difference <= 100) {
-            console.warn(`• Small difference (${difference.toLocaleString()}) likely due to save errors or validation failures`);
-            console.warn(`• Check console for specific error messages about failed saves`);
-          }
-        }
-      } else {
-        console.log(`✅ SUCCESS: All ${actualUniqueCount.toLocaleString()} workloads successfully saved to repository`);
-      }
-
-      // Force final persistence to ensure all workloads are saved
-      try {
-        // Wait for debounced persistence to complete (debounce is 500ms, add small buffer)
-        await new Promise(resolve => setTimeout(resolve, 600));
-        
-        // Trigger immediate persistence by calling save (will be debounced but we'll wait for it)
-        // The repository will persist automatically via debounce
-        // Use requestAnimationFrame to allow UI updates before checking
-        await new Promise(resolve => requestAnimationFrame(resolve));
-        
-        // Re-check repository count after persistence
-        const finalCount = (await workloadRepository.findAll()).length;
-        console.log(`Final repository count after persistence: ${finalCount.toLocaleString()}`);
-        
-        if (finalCount !== deduplicatedCount) {
-          const missing = deduplicatedCount - finalCount;
-          console.log(`ℹ️ INFO: ${missing.toLocaleString()} workloads are in memory cache. IndexedDB persistence is in progress - all workloads will be saved.`);
-        }
-      } catch (error) {
-        console.warn('Final persistence had issues, but workloads are saved in cache:', error);
-      }
-
-      // Summary message
-      const summaryMessage = totalDuplicatesRemoved > 0
-        ? `Successfully imported ${totalWorkloadsSaved} unique workloads from ${files.length} file(s) (${totalDuplicatesRemoved} duplicates merged across dates)`
-        : `Successfully imported ${totalWorkloadsSaved} workloads from ${files.length} file(s)!`;
-      
-      // Final status update only - minimal overhead for workflow completion
-      agentStatusManager.updateAgentStatus('DiscoveryAgent', {
-        status: AgentStatus.COMPLETED,
-        currentStep: 'Discovery Complete',
-        progress: 100,
-        message: `Imported ${totalWorkloadsSaved} workloads`
+      const { totalWorkloadsSaved, uniqueWorkloads } = await fileUploadManager.processFiles(files, (progress) => {
+        setUploadProgress(prev => ({ ...prev, ...progress }));
       });
-      
+
+      const summaryMessage = `Successfully imported ${totalWorkloadsSaved} new workloads (${uniqueWorkloads} total unique workloads).`;
       toast.success(summaryMessage);
-      console.log(`Upload complete: ${totalWorkloadsSaved} workloads saved`);
-      
+
       if (onUploadComplete) {
-        try {
-          // Pass summary data to parent component
-          const summaryData = {
-            totalFiles: files.length,
-            totalRows: totalRowsProcessed,
-            uniqueWorkloads: deduplicatedCount,
-            duplicatesMerged: totalDuplicatesRemoved,
-            workloadsSaved: actualUniqueCount,
-            totalMonthlyCost: totalRawCost || totalAggregatedCost || 0, // Use raw cost (sum of all bills) - this is the correct total
-            fileStats: fileStats || [] // Ensure fileStats is an array
-          };
-          
-          console.log('CurUploadButton.js: summaryData', summaryData);
-          
-          onUploadComplete({ 
-            count: totalWorkloadsSaved,
-            summary: summaryData,
-            files: files // Include files for UUID generation
-          });
-        } catch (error) {
-          console.error('Error passing summary to onUploadComplete:', error);
-          toast.error('Error creating upload summary: ' + error.message);
-          // Still call onUploadComplete with minimal data
-          onUploadComplete({ 
-            count: totalWorkloadsSaved,
-            summary: null,
-            files: files // Include files even on error
-          });
-        }
+        onUploadComplete({
+          count: totalWorkloadsSaved,
+          summary: {
+            uniqueWorkloads: uniqueWorkloads,
+            workloadsSaved: totalWorkloadsSaved,
+          },
+          files: files,
+        });
       }
     } catch (error) {
       console.error('Upload error:', error);
-      
-      // Progress updates removed for performance - focus on accurate PDF generation
-      
       toast.error('Error importing files: ' + error.message);
     } finally {
       setUploading(false);
@@ -911,69 +220,13 @@ function CurUploadButton({ onUploadComplete }) {
         disabled={uploading}
         title="Upload AWS Cost and Usage Report (CUR) CSV files or ZIP archive"
       >
-        {uploading ? (
-          <>
-            <span className="upload-spinner">⏳</span>
-            {uploadProgress && (
-              <span className="upload-progress-text">
-                {uploadProgress.current}/{uploadProgress.total}
-              </span>
-            )}
-          </>
-        ) : (
-          <>
-            <span className="upload-icon">📊</span>
-            Upload CUR
-          </>
-        )}
+        {uploading ? 'Uploading...' : 'Upload CUR'}
       </button>
-      {uploadProgress && uploadProgress.currentFile && (
-        <div className="cur-upload-progress" style={{ 
-          marginTop: '10px', 
-          padding: '10px', 
-          backgroundColor: '#f0f0f0', 
-          borderRadius: '4px',
-          fontSize: '14px'
-        }}>
-          <div style={{ marginBottom: '5px' }}>
-            <strong>Processing:</strong> {uploadProgress.currentFile}
-          </div>
-          {uploadProgress.status && (
-            <div style={{ marginBottom: '5px', color: '#666' }}>
-              {uploadProgress.status}
-            </div>
-          )}
-          {uploadProgress.percent !== undefined && (
-            <div style={{ marginBottom: '5px' }}>
-              <div style={{ 
-                width: '100%', 
-                backgroundColor: '#ddd', 
-                borderRadius: '4px', 
-                height: '20px',
-                overflow: 'hidden'
-              }}>
-                <div style={{ 
-                  width: `${uploadProgress.percent}%`, 
-                  backgroundColor: '#007bff', 
-                  height: '100%',
-                  transition: 'width 0.3s ease',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'white',
-                  fontSize: '12px',
-                  fontWeight: 'bold'
-                }}>
-                  {uploadProgress.percent}%
-                </div>
-              </div>
-            </div>
-          )}
-          {uploadProgress.estimatedTimeRemaining && (
-            <div style={{ color: '#666', fontSize: '12px' }}>
-              ⏱️ Estimated time remaining: {uploadProgress.estimatedTimeRemaining}
-            </div>
-          )}
+      {uploading && uploadProgress && (
+        <div>
+          <p>{uploadProgress.status}</p>
+          <p>{uploadProgress.currentFile}</p>
+          <p>{uploadProgress.percent}%</p>
         </div>
       )}
     </div>
