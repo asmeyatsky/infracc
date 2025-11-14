@@ -37,14 +37,14 @@ jest.mock('../../../agentic/dependency_injection/AgenticContainer.js', () => ({
   }))
 }));
 jest.mock('../../../infrastructure/dependency_injection/Container.js', () => ({
-  getContainer: jest.fn(() => ({
+  getContainer: () => ({
     workloadRepository: {
       findAll: jest.fn(() => Promise.resolve([
         { id: 'w1', name: 'Workload 1' },
         { id: 'w2', name: 'Workload 2' }
       ]))
     }
-  }))
+  })
 }));
 jest.mock('../../../agentic/core/AgentStatusManager.js', () => ({
   agentStatusManager: {

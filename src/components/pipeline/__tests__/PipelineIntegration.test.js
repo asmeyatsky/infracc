@@ -94,7 +94,7 @@ jest.mock('react-toastify', () => ({
   }
 }));
 
-jest.mock('../report/ReportSummaryView.js', () => {
+jest.mock('../../report/ReportSummaryView.js', () => {
   return function MockReportSummaryView({ workloads, assessmentResults }) {
     return (
       <div data-testid="report-summary">
@@ -151,8 +151,9 @@ describe('Pipeline Integration', () => {
       expect(screen.getByText(/Step 2: Select Output Format/i)).toBeInTheDocument();
     }, { timeout: 2000 });
     
-    // Select PDF format
-    const pdfButton = screen.getByText(/PDF/i).closest('button');
+    // Select PDF format - use getAllByText since PDF might appear multiple times
+    const pdfButtons = screen.getAllByText(/PDF/i);
+    const pdfButton = pdfButtons.find(btn => btn.closest('button')) || pdfButtons[0].closest('button');
     act(() => {
       pdfButton.click();
     });

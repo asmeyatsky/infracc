@@ -7,44 +7,43 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import CostComparison from '../CostComparison.js';
 
-// Mock GCPCostEstimator
-const mockCostEstimates = [
-  {
-    service: 'EC2',
-    costEstimate: {
-      awsCost: 100,
-      gcpOnDemand: 90,
-      gcp1YearCUD: 67.5,
-      gcp3YearCUD: 49.5,
-      savings1Year: 32.5,
-      savings3Year: 50.5,
-      savingsPercent1Year: 32.5,
-      savingsPercent3Year: 50.5,
-      gcpService: 'Compute Engine',
-      region: 'us-central1'
+// Mock GCPCostEstimator - define mockCostEstimates inside mock factory to avoid hoisting issues
+jest.mock('../../../domain/services/GCPCostEstimator.js', () => {
+  const mockCostEstimates = [
+    {
+      service: 'EC2',
+      costEstimate: {
+        awsCost: 100,
+        gcpOnDemand: 90,
+        gcp1YearCUD: 67.5,
+        gcp3YearCUD: 49.5,
+        savings1Year: 32.5,
+        savings3Year: 50.5,
+        savingsPercent1Year: 32.5,
+        savingsPercent3Year: 50.5,
+        gcpService: 'Compute Engine',
+        region: 'us-central1'
+      }
+    },
+    {
+      service: 'S3',
+      costEstimate: {
+        awsCost: 200,
+        gcpOnDemand: 180,
+        gcp1YearCUD: 153,
+        gcp3YearCUD: 126,
+        savings1Year: 47,
+        savings3Year: 74,
+        savingsPercent1Year: 23.5,
+        savingsPercent3Year: 37,
+        gcpService: 'Cloud Storage',
+        region: 'us-central1'
+      }
     }
-  },
-  {
-    service: 'S3',
-    costEstimate: {
-      awsCost: 200,
-      gcpOnDemand: 180,
-      gcp1YearCUD: 153,
-      gcp3YearCUD: 126,
-      savings1Year: 47,
-      savings3Year: 74,
-      savingsPercent1Year: 23.5,
-      savingsPercent3Year: 37,
-      gcpService: 'Cloud Storage',
-      region: 'us-central1'
-    }
-  }
-];
-
-jest.mock('../../../domain/services/GCPCostEstimator.js', () => ({
-  GCPCostEstimator: {
-    estimateAllServiceCosts: jest.fn().mockResolvedValue(mockCostEstimates),
-    calculateTotalCosts: jest.fn((estimates) => {
+  ];
+  
+  const mockEstimateAllServiceCosts = jest.fn().mockResolvedValue(mockCostEstimates);
+  const mockCalculateTotalCosts = jest.fn((estimates) => {
       const totals = estimates.reduce((acc, est) => {
         const costs = est.costEstimate || {};
         acc.awsTotal += costs.awsCost || 0;
@@ -70,9 +69,15 @@ jest.mock('../../../domain/services/GCPCostEstimator.js', () => ({
           ? ((totals.awsTotal - totals.gcp3YearCUDTotal) / totals.awsTotal) * 100
           : 0
       };
-    })
-  }
-}));
+    });
+  
+  return {
+    GCPCostEstimator: {
+      estimateAllServiceCosts: mockEstimateAllServiceCosts,
+      calculateTotalCosts: mockCalculateTotalCosts
+    }
+  };
+});
 
 describe('CostComparison', () => {
   const mockServiceAggregation = [

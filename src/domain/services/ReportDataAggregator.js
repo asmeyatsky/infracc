@@ -234,18 +234,37 @@ export class ReportDataAggregator {
 
     workloads.forEach(workload => {
       const workloadData = workload.toJSON ? workload.toJSON() : workload;
-      const complexity = this._extractComplexity(workloadData);
       const cost = this._extractCost(workloadData);
-      const riskFactors = workloadData.assessment?.riskFactors || [];
-
+      
+      // Use the proper readiness extraction method
+      const readinessScore = this._extractReadiness(workloadData);
+      
       let readiness = 'unassigned';
-      if (complexity !== null && complexity !== undefined) {
-        if (complexity <= 3 && riskFactors.length === 0) {
+      if (readinessScore !== null && readinessScore !== undefined) {
+        // Use readiness score thresholds (matching Assessment.getReadinessScore logic)
+        if (readinessScore >= 70) {
           readiness = 'ready';
-        } else if (complexity <= 6 && riskFactors.length <= 2) {
+        } else if (readinessScore >= 40) {
           readiness = 'conditional';
         } else {
           readiness = 'notReady';
+        }
+      } else {
+        // Fallback: calculate from complexity if readiness not available
+        const complexity = this._extractComplexity(workloadData);
+        if (complexity !== null && complexity !== undefined) {
+          const riskFactors = workloadData.assessment?.riskFactors || 
+                            workloadData.assessment?.infrastructureAssessment?.riskFactors || 
+                            [];
+          const riskCount = Array.isArray(riskFactors) ? riskFactors.length : 0;
+          
+          if (complexity <= 3 && riskCount === 0) {
+            readiness = 'ready';
+          } else if (complexity <= 6 && riskCount <= 2) {
+            readiness = 'conditional';
+          } else {
+            readiness = 'notReady';
+          }
         }
       }
 
@@ -261,12 +280,76 @@ export class ReportDataAggregator {
    * @private
    */
   static _extractComplexity(workloadData) {
-    if (workloadData.assessment?.complexityScore !== undefined) {
+    // Try multiple locations for complexity score
+    // 1. assessment.complexityScore (most common)
+    if (workloadData.assessment?.complexityScore !== undefined && workloadData.assessment.complexityScore !== null) {
+      return parseFloat(workloadData.assessment.complexityScore);
+    }
+    
+    // 2. Direct complexityScore on workload
+    if (workloadData.complexityScore !== undefined && workloadData.complexityScore !== null) {
+      return parseFloat(workloadData.complexityScore);
+    }
+    
+    // 3. assessment.infrastructureAssessment.complexityScore
+    if (workloadData.assessment?.infrastructureAssessment?.complexityScore !== undefined && 
+        workloadData.assessment.infrastructureAssessment.complexityScore !== null) {
+      return parseFloat(workloadData.assessment.infrastructureAssessment.complexityScore);
+    }
+    
+    // 4. If assessment is an Assessment entity, try getter
+    if (workloadData.assessment && typeof workloadData.assessment.complexityScore === 'number') {
       return workloadData.assessment.complexityScore;
     }
-    if (workloadData.complexityScore !== undefined) {
-      return workloadData.complexityScore;
+    
+    // 5. Try toJSON if it's an entity
+    if (workloadData.assessment && typeof workloadData.assessment.toJSON === 'function') {
+      const assessmentJson = workloadData.assessment.toJSON();
+      if (assessmentJson.complexityScore !== undefined && assessmentJson.complexityScore !== null) {
+        return parseFloat(assessmentJson.complexityScore);
+      }
     }
+    
+    return null;
+  }
+  
+  /**
+   * Extract readiness score from workload
+   * @private
+   */
+  static _extractReadiness(workloadData) {
+    // Try multiple locations for readiness score
+    // 1. assessment.readinessScore (calculated)
+    if (workloadData.assessment?.readinessScore !== undefined && workloadData.assessment.readinessScore !== null) {
+      return parseFloat(workloadData.assessment.readinessScore);
+    }
+    
+    // 2. If assessment is an Assessment entity, use getReadinessScore method
+    if (workloadData.assessment && typeof workloadData.assessment.getReadinessScore === 'function') {
+      return workloadData.assessment.getReadinessScore();
+    }
+    
+    // 3. Calculate from complexity and risk factors if available
+    const complexity = this._extractComplexity(workloadData);
+    if (complexity !== null && complexity !== undefined) {
+      const riskFactors = workloadData.assessment?.riskFactors || 
+                         workloadData.assessment?.infrastructureAssessment?.riskFactors || 
+                         [];
+      const riskCount = Array.isArray(riskFactors) ? riskFactors.length : 0;
+      
+      // Use same formula as Assessment.getReadinessScore()
+      let score = 100;
+      score -= (complexity - 1) * 5; // Deduct for complexity (0-45 points)
+      score -= riskCount * 10; // Deduct for risk factors (0-50 points)
+      
+      // Bonus for comprehensive assessment
+      if (workloadData.assessment?.infrastructureAssessment && workloadData.assessment?.applicationAssessment) {
+        score += 10;
+      }
+      
+      return Math.max(0, Math.min(100, Math.round(score)));
+    }
+    
     return null;
   }
 

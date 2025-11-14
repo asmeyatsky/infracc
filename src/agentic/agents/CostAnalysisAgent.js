@@ -64,20 +64,20 @@ export class CostAnalysisAgent extends BaseAgent {
       // Step 2: Generate AI insights
       const insights = await this.executeStep('Generating cost insights', async () => {
         this.think('Analyzing cost patterns and identifying best options');
-        await new Promise(resolve => setTimeout(resolve, 300));
+        await new Promise(resolve => requestAnimationFrame(resolve));
         return await this._generateCostInsights(tcoResult);
       }, 70);
 
       // Step 3: Generate optimization recommendations
       const optimizations = await this.executeStep('Identifying optimizations', async () => {
         this.think('Finding cost optimization opportunities');
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise(resolve => requestAnimationFrame(resolve));
         return this._generateOptimizations(tcoResult);
       }, 90);
 
       // Step 4: Finalize
       await this.executeStep('Finalizing cost analysis', async () => {
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => requestAnimationFrame(resolve));
       }, 100);
 
       const result = {

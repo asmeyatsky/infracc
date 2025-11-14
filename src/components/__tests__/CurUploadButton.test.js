@@ -14,10 +14,16 @@ const mockWorkloadRepository = {
   findAll: jest.fn().mockResolvedValue([]),
 };
 
+// Mock Container - must be hoisted before component import
+const mockWorkloadRepositoryForContainer = {
+  save: jest.fn().mockResolvedValue({}),
+  findAll: jest.fn().mockResolvedValue([]),
+};
+
 jest.mock('../../infrastructure/dependency_injection/Container.js', () => ({
-  getContainer: jest.fn(() => ({
-    workloadRepository: mockWorkloadRepository,
-  })),
+  getContainer: () => ({
+    workloadRepository: mockWorkloadRepositoryForContainer,
+  }),
 }));
 
 jest.mock('../../utils/awsBomImport.js', () => ({

@@ -428,10 +428,17 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
               }
               
               const result = Array.from(workloadMap.values());
+              
+              // Validate that we have data rows (not just header)
+              const totalRowsRead = lineNumber - 1; // Exclude header
+              if (!headers || totalRowsRead === 0) {
+                reject(new Error('CSV file contains no data rows'));
+                return;
+              }
+              
               const totalAggregatedCost = result.reduce((sum, workload) => sum + (workload.monthlyCost || 0), 0);
               
               // CRITICAL DEBUG: Log row processing statistics
-              const totalRowsRead = lineNumber - 1; // Exclude header
               console.log(`\n=== CSV PARSING SUMMARY ===`);
               console.log(`Total rows read: ${totalRowsRead.toLocaleString()}`);
               console.log(`Rows processed: ${processedRows.toLocaleString()}`);
@@ -517,10 +524,17 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
         }
         
         const result = Array.from(workloadMap.values());
+        
+        // Validate that we have data rows (not just header)
+        const totalRowsRead = lineNumber - 1; // Exclude header
+        if (!headers || totalRowsRead === 0) {
+          reject(new Error('CSV file contains no data rows'));
+          return;
+        }
+        
         const totalAggregatedCost = result.reduce((sum, workload) => sum + (workload.monthlyCost || 0), 0);
       
         // CRITICAL DEBUG: Log row processing statistics
-        const totalRowsRead = lineNumber - 1; // Exclude header
         console.log(`\n=== CSV PARSING SUMMARY (ArrayBuffer path) ===`);
         console.log(`Total rows read: ${totalRowsRead.toLocaleString()}`);
         console.log(`Rows processed: ${processedRows.toLocaleString()}`);

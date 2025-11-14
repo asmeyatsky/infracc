@@ -69,6 +69,8 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
   const [estimatedTimeRemaining, setEstimatedTimeRemaining] = useState(null);
   const [agentOutput, setAgentOutput] = useState(null);
   const [needsRerun, setNeedsRerun] = useState([]);
+  const [isRestoringState, setIsRestoringState] = useState(true); // Track if we're still restoring state
+  const [completedAgents, setCompletedAgents] = useState([]); // Track which agents have completed
   
   const cancelRequestedRef = useRef(false);
   const startTimeRef = useRef(null);
@@ -93,17 +95,35 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         try {
           const savedState = await getPipelineState(propFileUUID);
           if (savedState && savedState.currentAgentIndex !== undefined) {
-            setCurrentAgentIndex(savedState.currentAgentIndex);
+            // Validate currentAgentIndex is within bounds
+            const validIndex = Math.max(0, Math.min(savedState.currentAgentIndex, AGENTS.length - 1));
+            setCurrentAgentIndex(validIndex);
             setOverallProgress(savedState.overallProgress || 0);
+            setAgentProgress(savedState.agentProgress || 0);
+            setAgentStatus(savedState.agentStatus || 'pending');
             
-            // Check which agents need rerun
+            // Check which agents need rerun and which are completed
             const cachedAgents = await getCachedAgentIds(propFileUUID);
+            setCompletedAgents(cachedAgents);
             const requiredAgents = AGENTS.filter(a => a.required).map(a => a.id);
             const needsRerunList = requiredAgents.filter(id => !cachedAgents.includes(id));
             setNeedsRerun(needsRerunList);
+            
+            // Restore agent output if available
+            if (validIndex > 0) {
+              const previousAgentId = AGENTS[validIndex - 1]?.id;
+              if (previousAgentId) {
+                const cachedOutput = await getAgentOutput(propFileUUID, previousAgentId);
+                if (cachedOutput) {
+                  setAgentOutput(cachedOutput);
+                }
+              }
+            }
           }
         } catch (error) {
           console.error('Error restoring pipeline state:', error);
+        } finally {
+          setIsRestoringState(false);
         }
       };
       
@@ -126,23 +146,47 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
           // Try to restore pipeline state
           const savedState = await getPipelineState(uuid);
           if (savedState && savedState.currentAgentIndex !== undefined) {
-            setCurrentAgentIndex(savedState.currentAgentIndex);
+            // Validate currentAgentIndex is within bounds
+            const validIndex = Math.max(0, Math.min(savedState.currentAgentIndex, AGENTS.length - 1));
+            setCurrentAgentIndex(validIndex);
             setOverallProgress(savedState.overallProgress || 0);
+            setAgentProgress(savedState.agentProgress || 0);
+            setAgentStatus(savedState.agentStatus || 'pending');
             
-            // Check which agents need rerun
+            // Check which agents need rerun and which are completed
             const cachedAgents = await getCachedAgentIds(uuid);
+            setCompletedAgents(cachedAgents);
             const requiredAgents = AGENTS.filter(a => a.required).map(a => a.id);
             const needsRerunList = requiredAgents.filter(id => !cachedAgents.includes(id));
             setNeedsRerun(needsRerunList);
+            
+            // Restore agent output if available
+            if (validIndex > 0) {
+              const previousAgentId = AGENTS[validIndex - 1]?.id;
+              if (previousAgentId) {
+                const cachedOutput = await getAgentOutput(uuid, previousAgentId);
+                if (cachedOutput) {
+                  setAgentOutput(cachedOutput);
+                }
+              }
+            }
           }
+          setIsRestoringState(false);
+        } else {
+          setIsRestoringState(false);
         }
       } catch (error) {
         console.error('Error initializing UUID:', error);
+        setIsRestoringState(false);
         onError?.(error);
       }
     };
 
-    initializeUUID();
+    if (files && files.length > 0) {
+      initializeUUID();
+    } else {
+      setIsRestoringState(false);
+    }
   }, [files, propFileUUID, onError]);
 
   // Calculate estimated time remaining
@@ -208,23 +252,32 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
     setAgentProgress(0);
 
     try {
+      // CRITICAL FIX: Check if files were actually uploaded (not just restored placeholders)
+      // If files are restored placeholders, we can't run Discovery Agent - need actual files
+      const hasActualFiles = files && files.length > 0 && !files[0]?.restored;
+      
+      if (!hasActualFiles) {
+        throw new Error('No files uploaded. Please upload CUR files to start the pipeline.');
+      }
+
       // Files are already processed by CurUploadButton, so we just read from repository
       // Wait a bit for processing to complete if it's still running
       let attempts = 0;
       let workloads = [];
       
-      while (attempts < 100) { // Wait up to 10 seconds
+      // Give Discovery Agent time to process and save workloads (increased timeout for large files)
+      while (attempts < 200) { // Wait up to 20 seconds for large files
         workloads = await workloadRepository.current.findAll();
         if (workloads.length > 0) {
           break;
         }
-        setAgentProgress(Math.min(attempts, 90)); // Show progress while waiting
+        setAgentProgress(Math.min(attempts * 0.5, 90)); // Show progress while waiting
         await new Promise(resolve => setTimeout(resolve, 100));
         attempts++;
       }
 
       if (workloads.length === 0) {
-        throw new Error('No workloads found in repository. Please ensure files are uploaded and processed.');
+        throw new Error('No workloads found in repository after processing. Please ensure files are valid CUR files and try again.');
       }
 
       const workloadIds = workloads.map(w => w.id);
@@ -272,8 +325,22 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
     setAgentProgress(0);
 
     try {
-      const { workloadIds } = discoveryOutput;
+      // CRITICAL FIX: Only assess workloads that are actually in the repository
+      // The repository may have quota limits (localStorage), so we need to check what's actually available
+      const container = getContainer();
+      const allWorkloads = await container.workloadRepository.findAll();
+      const availableWorkloadIds = allWorkloads.map(w => w.id);
+      
+      // Use available workloads from repository instead of all discovery workloadIds
+      // This ensures we only assess workloads that can actually be found
+      const { workloadIds: discoveryWorkloadIds } = discoveryOutput;
+      const workloadIds = availableWorkloadIds.length > 0 ? availableWorkloadIds : discoveryWorkloadIds;
       const totalWorkloads = workloadIds.length;
+      
+      console.log(`[DEBUG] Assessment Agent: Using ${workloadIds.length.toLocaleString()} workload IDs from repository (${allWorkloads.length.toLocaleString()} workloads available)`);
+      if (availableWorkloadIds.length < discoveryWorkloadIds.length) {
+        console.warn(`⚠️ WARNING: Only ${availableWorkloadIds.length.toLocaleString()} workloads available in repository, but discovery found ${discoveryWorkloadIds.length.toLocaleString()}. This may indicate that some workloads were not successfully saved to IndexedDB.`);
+      }
 
       // Subscribe to agent status updates for progress tracking
       const progressUnsubscribe = agentStatusManager.subscribe(() => {
@@ -310,13 +377,20 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       // Validate assessment result structure
       if (!assessmentResult) {
         console.error('Assessment Agent returned null/undefined result');
+        console.error('fileUUID at this point:', fileUUID);
         throw new Error('Assessment Agent returned no result');
       }
 
       if (!assessmentResult.results || !Array.isArray(assessmentResult.results)) {
         console.error('Assessment Agent returned invalid result structure:', assessmentResult);
+        console.error('Result type:', typeof assessmentResult);
+        console.error('Result keys:', Object.keys(assessmentResult || {}));
+        console.error('fileUUID at this point:', fileUUID);
         throw new Error('Assessment Agent returned invalid result structure');
       }
+      
+      // CRITICAL: Log fileUUID and result structure for debugging
+      console.log(`[DEBUG] Assessment Agent completed. fileUUID: ${fileUUID}, results count: ${assessmentResult.results.length}`);
 
       // Process results - handle partial success
       const results = assessmentResult.results;
@@ -324,37 +398,227 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       const failed = results.filter(r => r.error);
       
       console.log(`Assessment Agent: Processed ${results.length.toLocaleString()} results (${successful.length.toLocaleString()} successful, ${failed.length.toLocaleString()} failed)`);
+      
+      // CRITICAL: Always log failure reasons - this is the key diagnostic
+      if (failed.length > 0) {
+        console.error(`❌ ASSESSMENT FAILURES: ${failed.length.toLocaleString()} assessments failed!`);
+        
+        // Get first failed assessment to see the error - use try-catch to ensure logging never fails
+        try {
+          const firstFailed = failed[0];
+          
+          if (firstFailed) {
+            console.error('═══════════════════════════════════════════════════════════');
+            console.error('❌ FIRST FAILED ASSESSMENT ERROR:');
+            console.error('═══════════════════════════════════════════════════════════');
+            
+            // Extract error message in multiple ways
+            let errorMsg = 'Unknown error';
+            if (typeof firstFailed.error === 'string') {
+              errorMsg = firstFailed.error;
+            } else if (firstFailed.error && firstFailed.error.message) {
+              errorMsg = firstFailed.error.message;
+            } else if (firstFailed.error) {
+              errorMsg = String(firstFailed.error);
+            }
+            
+            console.error('ERROR MESSAGE:', errorMsg);
+            console.error('Error Type:', typeof firstFailed.error);
+            console.error('Workload ID:', firstFailed.workloadId);
+            console.error('Full Failed Object:', JSON.stringify(firstFailed, null, 2));
+            console.error('Failed Object Keys:', Object.keys(firstFailed));
+            console.error('═══════════════════════════════════════════════════════════');
+          } else {
+            console.error('⚠️ WARNING: failed array has items but firstFailed is null/undefined');
+            console.error('Failed array length:', failed.length);
+            console.error('Failed array sample:', JSON.stringify(failed.slice(0, 3), null, 2));
+          }
+        } catch (logError) {
+          console.error('Error while logging failure details:', logError);
+          console.error('Failed array length:', failed.length);
+          console.error('First failed (raw):', failed[0]);
+        }
+        
+        // Debug: Log sample of failed assessments to understand why they're failing
+        const sampleFailed = failed.slice(0, 5);
+        console.warn('[DEBUG] Sample failed assessments (first 5):', sampleFailed.map(f => ({
+          workloadId: f.workloadId,
+          error: f.error,
+          errorMessage: typeof f.error === 'string' ? f.error : f.error?.message || String(f.error),
+          errorType: typeof f.error,
+          hasSuccess: f.success !== undefined,
+          success: f.success,
+          keys: Object.keys(f || {})
+        })));
+        
+        // Count error types
+        const errorCounts = {};
+        failed.forEach(f => {
+          const errorMsg = typeof f.error === 'string' ? f.error : f.error?.message || String(f.error) || 'unknown';
+          const errorKey = errorMsg.substring(0, 100); // First 100 chars
+          errorCounts[errorKey] = (errorCounts[errorKey] || 0) + 1;
+        });
+        
+        console.warn('[DEBUG] Error distribution (top 10):', Object.entries(errorCounts)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 10)
+          .map(([error, count]) => ({ error, count, percentage: ((count / failed.length) * 100).toFixed(2) + '%' }))
+        );
+      }
+
+      // CRITICAL: Ensure all assessments are properly serialized with complexity scores
+      // Convert Assessment entities to plain objects with all properties accessible
+      const serializedSuccessful = successful.map(assessment => {
+        // If it's an Assessment entity, convert to JSON
+        if (assessment && typeof assessment.toJSON === 'function') {
+          const json = assessment.toJSON();
+          
+          // CRITICAL: Ensure workloadId matches the actual workload.id format
+          // The assessment.workloadId should be the workload.id, not an ARN
+          // But if it's an ARN, we need to find the matching workload ID
+          let assessmentWorkloadId = json.workloadId || assessment.workloadId;
+          
+          // If workloadId looks like an ARN but we have workloads with simple IDs, try to match
+          // For now, just use the assessment's workloadId as-is - it should match workload.id
+          
+          // Ensure complexityScore and readinessScore are directly accessible
+          return {
+            ...json,
+            workloadId: assessmentWorkloadId, // Use the assessment's workloadId (should match workload.id)
+            complexityScore: json.complexityScore !== undefined ? json.complexityScore : 
+                           (assessment.complexityScore !== undefined ? assessment.complexityScore : null),
+            readinessScore: json.readinessScore !== undefined ? json.readinessScore : 
+                          (typeof assessment.getReadinessScore === 'function' ? assessment.getReadinessScore() : null),
+            riskFactors: json.riskFactors || assessment.riskFactors || [],
+            infrastructureAssessment: json.infrastructureAssessment || assessment.infrastructureAssessment,
+            applicationAssessment: json.applicationAssessment || assessment.applicationAssessment
+          };
+        }
+        // If it's already a plain object, ensure it has complexityScore
+        const assessmentObj = assessment || {};
+        if (assessmentObj.complexityScore === undefined || assessmentObj.complexityScore === null) {
+          // Try to extract from infrastructureAssessment
+          if (assessmentObj.infrastructureAssessment?.complexityScore !== undefined) {
+            assessmentObj.complexityScore = assessmentObj.infrastructureAssessment.complexityScore;
+          }
+          // Also try to calculate readiness if we have complexity
+          if (assessmentObj.complexityScore !== undefined && assessmentObj.complexityScore !== null) {
+            const riskFactors = assessmentObj.riskFactors || assessmentObj.infrastructureAssessment?.riskFactors || [];
+            const riskCount = Array.isArray(riskFactors) ? riskFactors.length : 0;
+            let score = 100;
+            score -= (assessmentObj.complexityScore - 1) * 5;
+            score -= riskCount * 10;
+            if (assessmentObj.infrastructureAssessment && assessmentObj.applicationAssessment) {
+              score += 10;
+            }
+            assessmentObj.readinessScore = Math.max(0, Math.min(100, Math.round(score)));
+          }
+        }
+        return assessmentObj;
+      });
+      
+      // Debug: Log sample of serialized assessments
+      if (serializedSuccessful.length > 0) {
+        const sample = serializedSuccessful[0];
+        console.log('[DEBUG] Sample serialized assessment:', {
+          workloadId: sample.workloadId,
+          hasComplexityScore: sample.complexityScore !== undefined && sample.complexityScore !== null,
+          complexityScore: sample.complexityScore,
+          hasReadinessScore: sample.readinessScore !== undefined && sample.readinessScore !== null,
+          readinessScore: sample.readinessScore,
+          hasInfrastructureAssessment: !!sample.infrastructureAssessment,
+          keys: Object.keys(sample)
+        });
+      }
 
       setAgentProgress(100);
       setOverallProgress(Math.round((2 / AGENTS.length) * 100));
 
       const output = {
-        results: successful,
+        results: serializedSuccessful,
         failed: failed,
         totalProcessed: results.length,
-        successfulCount: successful.length,
+        successfulCount: serializedSuccessful.length,
         failedCount: failed.length,
         timestamp: new Date().toISOString()
       };
 
-      // Save to cache
-      const saveSuccess = await saveAgentOutput(fileUUID, 'assessment', output, {
-        totalProcessed: results.length,
-        successfulCount: successful.length,
-        failedCount: failed.length
+      // CRITICAL: Log before saving
+      console.log(`[DEBUG] About to save assessment output. fileUUID: ${fileUUID}, output keys:`, Object.keys(output));
+      console.log(`[DEBUG] Output structure:`, {
+        hasResults: !!output.results,
+        resultsLength: output.results?.length,
+        totalProcessed: output.totalProcessed,
+        successfulCount: output.successfulCount
       });
       
-      if (!saveSuccess) {
-        console.error('Failed to save assessment output to cache');
-        throw new Error('Failed to save assessment output to cache');
+      // Save to cache with retry logic
+      let saveSuccess = false;
+      let retries = 3;
+      let lastError = null;
+      
+      while (!saveSuccess && retries > 0) {
+        try {
+          saveSuccess = await saveAgentOutput(fileUUID, 'assessment', output, {
+            totalProcessed: results.length,
+            successfulCount: successful.length,
+            failedCount: failed.length
+          });
+          
+          if (!saveSuccess) {
+            retries--;
+            console.warn(`[DEBUG] Failed to save assessment output (attempt ${4-retries}/3), retries remaining: ${retries}, fileUUID: ${fileUUID}`);
+            // Wait a bit before retrying
+            await new Promise(resolve => setTimeout(resolve, 100));
+          } else {
+            console.log(`[DEBUG] Assessment output saved successfully. fileUUID: ${fileUUID}`);
+          }
+        } catch (saveError) {
+          lastError = saveError;
+          retries--;
+          console.error(`[DEBUG] Exception saving assessment output:`, saveError);
+          console.error(`[DEBUG] fileUUID: ${fileUUID}, retries remaining: ${retries}`);
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
       }
       
-      // Verify it was saved
-      const verifyCache = await getAgentOutput(fileUUID, 'assessment');
-      if (!verifyCache) {
-        console.error('Assessment output was not saved correctly to cache');
-        throw new Error('Assessment output was not saved correctly to cache');
+      if (!saveSuccess) {
+        console.error('[DEBUG] Failed to save assessment output to cache after retries');
+        console.error('[DEBUG] Last error:', lastError);
+        console.error('[DEBUG] fileUUID used:', fileUUID);
+        console.error('[DEBUG] Output attempted:', output);
+        throw new Error(`Failed to save assessment output to cache. fileUUID: ${fileUUID}, error: ${lastError?.message || 'unknown'}`);
       }
+      
+      // Verify it was saved - wait a moment for async storage to complete
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      let verifyCache = await getAgentOutput(fileUUID, 'assessment');
+      
+      console.log(`[DEBUG] First verification attempt. fileUUID: ${fileUUID}, found: ${!!verifyCache}`);
+      
+      // Retry verification if needed
+      if (!verifyCache) {
+        console.warn(`[DEBUG] First verification failed, retrying... fileUUID: ${fileUUID}`);
+        await new Promise(resolve => setTimeout(resolve, 200));
+        verifyCache = await getAgentOutput(fileUUID, 'assessment');
+        console.log(`[DEBUG] Second verification attempt. fileUUID: ${fileUUID}, found: ${!!verifyCache}`);
+      }
+      
+      if (!verifyCache) {
+        console.error('[DEBUG] Assessment output was not saved correctly to cache');
+        console.error('[DEBUG] fileUUID used for save:', fileUUID);
+        console.error('[DEBUG] fileUUID used for retrieve:', fileUUID);
+        console.error('[DEBUG] Output that failed to save:', output);
+        
+        // Try to get all cached agents to see what's actually there
+        const { getCachedAgentIds } = await import('../../utils/agentCacheService.js');
+        const cachedAgents = await getCachedAgentIds(fileUUID);
+        console.error('[DEBUG] Cached agents for this fileUUID:', cachedAgents);
+        
+        throw new Error(`Assessment output was not saved correctly to cache. fileUUID: ${fileUUID}, cached agents: ${cachedAgents.join(', ')}`);
+      }
+      
+      console.log(`[DEBUG] Assessment output verified successfully. fileUUID: ${fileUUID}, results count: ${verifyCache.results?.length}`);
 
       if (failed.length > 0) {
         console.warn(`⚠ Assessment Agent: ${successful.length.toLocaleString()} succeeded, ${failed.length.toLocaleString()} failed`);
@@ -393,8 +657,36 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         setOverallProgress(Math.round((3 / AGENTS.length) * 100));
       }, 200);
 
+      // Extract workloadIds from assessment results
+      // Handle both Assessment entities (with getters) and plain objects
+      const workloadIds = assessmentOutput.results
+        ? assessmentOutput.results
+            .map(r => {
+              // Try multiple ways to get workloadId
+              if (r && typeof r === 'object') {
+                return r.workloadId || r._workloadId || (r.toJSON && r.toJSON().workloadId) || null;
+              }
+              return null;
+            })
+            .filter(Boolean)
+        : [];
+      
+      if (workloadIds.length === 0) {
+        console.error('[DEBUG] Strategy Agent: Assessment results structure:', assessmentOutput);
+        console.error('[DEBUG] Strategy Agent: Results array:', assessmentOutput.results);
+        if (assessmentOutput.results && assessmentOutput.results.length > 0) {
+          console.error('[DEBUG] Strategy Agent: First result structure:', assessmentOutput.results[0]);
+          console.error('[DEBUG] Strategy Agent: First result keys:', Object.keys(assessmentOutput.results[0] || {}));
+        }
+        throw new Error('No workload IDs found in assessment results. Cannot generate migration plan.');
+      }
+      
+      console.log(`[DEBUG] Strategy Agent: Extracted ${workloadIds.length} workload IDs from ${assessmentOutput.results.length} assessment results`);
+      
       const strategyResult = await agenticContainer.current.planningAgent.execute({
-        assessmentResults: assessmentOutput
+        workloadIds,
+        useCodeMod: false,
+        useAI: true
       });
 
       clearInterval(progressInterval);
@@ -407,7 +699,22 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       };
 
       await saveAgentOutput(fileUUID, 'strategy', output);
-      console.log(`✓ Strategy Agent: Completed`);
+      
+      // Verify strategy output was saved correctly
+      const verifyStrategyCache = await getAgentOutput(fileUUID, 'strategy');
+      if (!verifyStrategyCache) {
+        console.error('[DEBUG] Strategy output was not saved correctly to cache');
+        console.error('[DEBUG] fileUUID:', fileUUID);
+        console.error('[DEBUG] Output that failed to save:', output);
+        
+        // Try to get all cached agents to see what's actually there
+        const cachedAgents = await getCachedAgentIds(fileUUID);
+        console.error('[DEBUG] Cached agents for this fileUUID:', cachedAgents);
+        
+        throw new Error(`Strategy output was not saved correctly to cache. fileUUID: ${fileUUID}, cached agents: ${cachedAgents.join(', ')}`);
+      }
+      
+      console.log(`✓ Strategy Agent: Completed and verified`);
 
       return output;
     } catch (error) {
@@ -486,47 +793,98 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         case 'assessment':
           const discoveryOutput = await getAgentOutput(fileUUID, 'discovery');
           if (!discoveryOutput) {
-            console.error('Discovery output not found in cache. Available agents:', await getCachedAgentIds(fileUUID));
+            const availableAgents = await getCachedAgentIds(fileUUID);
+            console.error('Discovery output not found in cache. Available agents:', availableAgents);
             throw new Error('Discovery output not found. Please ensure the Discovery Agent completed successfully.');
           }
           if (!discoveryOutput.workloadIds || discoveryOutput.workloadIds.length === 0) {
             console.warn('Discovery output found but has no workloadIds:', discoveryOutput);
             throw new Error('Discovery output is empty. Please rerun the Discovery Agent.');
           }
-          output = await executeAssessmentAgent(discoveryOutput);
           
-          // Verify assessment output was saved and matches what was returned
-          const verifyAssessment = await getAgentOutput(fileUUID, 'assessment');
-          if (!verifyAssessment) {
-            console.error('Assessment output was not saved after execution');
-            throw new Error('Assessment output was not saved. Please rerun the Assessment Agent.');
+          try {
+            output = await executeAssessmentAgent(discoveryOutput);
+            
+            // Verify assessment output was saved and matches what was returned
+            const verifyAssessment = await getAgentOutput(fileUUID, 'assessment');
+            if (!verifyAssessment) {
+              console.error('Assessment output was not saved after execution');
+              console.error('Available agents after assessment:', await getCachedAgentIds(fileUUID));
+              throw new Error('Assessment output was not saved. Please rerun the Assessment Agent.');
+            }
+            if (!output || !output.results || output.results.length === 0) {
+              console.error('Assessment agent returned empty output:', output);
+              throw new Error('Assessment agent returned empty output. Please rerun the Assessment Agent.');
+            }
+            // Use the cached version to ensure consistency
+            output = verifyAssessment;
+          } catch (assessmentError) {
+            console.error('Assessment Agent execution failed:', assessmentError);
+            // Re-throw to prevent Strategy Agent from running
+            throw assessmentError;
           }
-          if (!output || !output.results || output.results.length === 0) {
-            console.error('Assessment agent returned empty output:', output);
-            throw new Error('Assessment agent returned empty output. Please rerun the Assessment Agent.');
-          }
-          // Use the cached version to ensure consistency
-          output = verifyAssessment;
           break;
         case 'strategy':
+          // Wait a moment to ensure Assessment Agent has finished saving
+          await new Promise(resolve => requestAnimationFrame(resolve));
+          
+          console.log(`[DEBUG] Strategy Agent: Looking for assessment output. fileUUID: ${fileUUID}`);
           const assessmentOutput = await getAgentOutput(fileUUID, 'assessment');
+          
           if (!assessmentOutput) {
-            console.error('Assessment output not found in cache. Available agents:', await getCachedAgentIds(fileUUID));
-            throw new Error('Assessment output not found. Please ensure the Assessment Agent completed successfully.');
+            const availableAgents = await getCachedAgentIds(fileUUID);
+            console.error('[DEBUG] Assessment output not found in cache.');
+            console.error('[DEBUG] fileUUID used:', fileUUID);
+            console.error('[DEBUG] Available agents:', availableAgents);
+            console.error('[DEBUG] This usually means the Assessment Agent failed or did not complete.');
+            
+            // Try to get raw cache to see what's actually stored
+            const { default: localforage } = await import('localforage');
+            const cacheKey = `agent_cache_v1_${fileUUID}_assessment`;
+            const rawCache = await localforage.getItem(cacheKey);
+            console.error('[DEBUG] Raw cache data:', rawCache ? 'exists' : 'null');
+            if (rawCache) {
+              console.error('[DEBUG] Raw cache fileUUID:', rawCache.fileUUID);
+              console.error('[DEBUG] Raw cache version:', rawCache.version);
+            }
+            
+            throw new Error(`Assessment output not found. fileUUID: ${fileUUID}, available agents: ${availableAgents.join(', ')}`);
           }
+          
+          console.log(`[DEBUG] Strategy Agent: Found assessment output. fileUUID: ${fileUUID}, results count: ${assessmentOutput.results?.length}`);
           if (!assessmentOutput.results || assessmentOutput.results.length === 0) {
             console.warn('Assessment output found but has no results:', assessmentOutput);
             throw new Error('Assessment output is empty. Please rerun the Assessment Agent.');
           }
-          output = await executeStrategyAgent(assessmentOutput);
+          
+          try {
+            output = await executeStrategyAgent(assessmentOutput);
+          } catch (strategyError) {
+            console.error('Strategy Agent execution failed:', strategyError);
+            throw strategyError;
+          }
           break;
         case 'cost':
           const strategyOutput = await getAgentOutput(fileUUID, 'strategy');
           const assessmentOutputForCost = await getAgentOutput(fileUUID, 'assessment');
           const discoveryOutputForCost = await getAgentOutput(fileUUID, 'discovery');
-          if (!strategyOutput || !assessmentOutputForCost || !discoveryOutputForCost) {
-            throw new Error('Required agent outputs not found');
+          
+          // Check which outputs are missing and provide detailed error
+          const missingOutputs = [];
+          if (!strategyOutput) missingOutputs.push('strategy');
+          if (!assessmentOutputForCost) missingOutputs.push('assessment');
+          if (!discoveryOutputForCost) missingOutputs.push('discovery');
+          
+          if (missingOutputs.length > 0) {
+            // Get list of available cached agents for debugging
+            const availableAgents = await getCachedAgentIds(fileUUID);
+            console.error(`[DEBUG] Cost Agent: Missing required outputs: ${missingOutputs.join(', ')}`);
+            console.error(`[DEBUG] Cost Agent: Available cached agents: ${availableAgents.join(', ')}`);
+            console.error(`[DEBUG] Cost Agent: fileUUID: ${fileUUID}`);
+            
+            throw new Error(`Required agent outputs not found. Missing: ${missingOutputs.join(', ')}. Available: ${availableAgents.join(', ') || 'none'}. Please ensure all previous agents (Discovery, Assessment, Strategy) have completed successfully.`);
           }
+          
           output = await executeCostAgent(strategyOutput, assessmentOutputForCost, discoveryOutputForCost);
           break;
       }
@@ -534,11 +892,20 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       setAgentOutput(output);
       setAgentStatus('completed');
       setAgentProgress(100);
+      
+      // Update completed agents list
+      setCompletedAgents(prev => {
+        if (!prev.includes(agent.id)) {
+          return [...prev, agent.id];
+        }
+        return prev;
+      });
 
       // Move to next agent or complete
       if (currentAgentIndex < AGENTS.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Brief pause
-        setCurrentAgentIndex(prev => prev + 1);
+        // Allow UI to update before moving to next agent
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        setCurrentAgentIndex(prev => Math.min(prev + 1, AGENTS.length - 1));
         setAgentProgress(0);
         setAgentStatus('pending');
         setAgentOutput(null);
@@ -557,14 +924,27 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       console.error('Full error:', error);
       console.error('Stack trace:', error.stack);
       setAgentStatus('failed');
+      setAgentProgress(0);
       onError?.(error, agent.id);
       
-      // If assessment fails and it's required, stop pipeline
-      if (agent.required && agent.id === 'assessment') {
-        console.error('Assessment Agent is required - stopping pipeline. Please fix and rerun.');
-        setNeedsRerun(prev => [...prev, agent.id]);
-        return;
-      }
+      // Save failed state so user can resume
+      await savePipelineState(fileUUID, {
+        currentAgentIndex,
+        overallProgress: Math.round((currentAgentIndex / AGENTS.length) * 100),
+        agentProgress: 0,
+        agentStatus: 'failed'
+      });
+      
+      // Mark agent as needing rerun
+      setNeedsRerun(prev => {
+        if (!prev.includes(agent.id)) {
+          return [...prev, agent.id];
+        }
+        return prev;
+      });
+      
+      // Don't auto-advance on failure - let user decide what to do
+      toast.error(`${agent.name} failed. Previous steps completed successfully. You can restart from any point.`);
     }
   }, [currentAgentIndex, fileUUID, executeDiscoveryAgent, executeAssessmentAgent, executeStrategyAgent, executeCostAgent, onComplete, onError]);
 
@@ -575,6 +955,63 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
     // Check if we should use cached output
     const checkAndStart = async () => {
       const agent = AGENTS[currentAgentIndex];
+      if (!agent) return;
+      
+      // For cost agent, check if all dependencies are available (with retry for race conditions)
+      if (agent.id === 'cost') {
+        let strategyOutput = await getAgentOutput(fileUUID, 'strategy');
+        let assessmentOutput = await getAgentOutput(fileUUID, 'assessment');
+        let discoveryOutput = await getAgentOutput(fileUUID, 'discovery');
+        
+        // Retry once after a short delay if any are missing (handles race condition)
+        if (!strategyOutput || !assessmentOutput || !discoveryOutput) {
+          await new Promise(resolve => setTimeout(resolve, 500)); // Wait 500ms
+          strategyOutput = strategyOutput || await getAgentOutput(fileUUID, 'strategy');
+          assessmentOutput = assessmentOutput || await getAgentOutput(fileUUID, 'assessment');
+          discoveryOutput = discoveryOutput || await getAgentOutput(fileUUID, 'discovery');
+        }
+        
+        if (!strategyOutput || !assessmentOutput || !discoveryOutput) {
+          const missing = [];
+          if (!strategyOutput) missing.push('strategy');
+          if (!assessmentOutput) missing.push('assessment');
+          if (!discoveryOutput) missing.push('discovery');
+          
+          const availableAgents = await getCachedAgentIds(fileUUID);
+          console.warn(`Cost Agent dependencies not ready. Missing: ${missing.join(', ')}. Available: ${availableAgents.join(', ') || 'none'}. Waiting...`);
+          // Don't execute yet - wait for dependencies (will retry on next render cycle)
+          return;
+        }
+      }
+      
+      // For strategy agent, check if assessment is available (with retry)
+      if (agent.id === 'strategy') {
+        let assessmentOutput = await getAgentOutput(fileUUID, 'assessment');
+        if (!assessmentOutput) {
+          await new Promise(resolve => setTimeout(resolve, 500)); // Wait 500ms
+          assessmentOutput = await getAgentOutput(fileUUID, 'assessment');
+        }
+        if (!assessmentOutput) {
+          const availableAgents = await getCachedAgentIds(fileUUID);
+          console.warn(`Strategy Agent: Assessment output not ready. Available: ${availableAgents.join(', ') || 'none'}. Waiting...`);
+          return;
+        }
+      }
+      
+      // For assessment agent, check if discovery is available (with retry)
+      if (agent.id === 'assessment') {
+        let discoveryOutput = await getAgentOutput(fileUUID, 'discovery');
+        if (!discoveryOutput) {
+          await new Promise(resolve => setTimeout(resolve, 500)); // Wait 500ms
+          discoveryOutput = await getAgentOutput(fileUUID, 'discovery');
+        }
+        if (!discoveryOutput) {
+          const availableAgents = await getCachedAgentIds(fileUUID);
+          console.warn(`Assessment Agent: Discovery output not ready. Available: ${availableAgents.join(', ') || 'none'}. Waiting...`);
+          return;
+        }
+      }
+      
       const hasCache = await hasAgentOutput(fileUUID, agent.id);
       
       if (hasCache && agent.id !== 'discovery') {
@@ -584,9 +1021,17 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         setAgentStatus('completed');
         setAgentProgress(100);
         
+        // Update completed agents list
+        setCompletedAgents(prev => {
+          if (!prev.includes(agent.id)) {
+            return [...prev, agent.id];
+          }
+          return prev;
+        });
+        
         if (currentAgentIndex < AGENTS.length - 1) {
           setTimeout(() => {
-            setCurrentAgentIndex(prev => prev + 1);
+            setCurrentAgentIndex(prev => Math.min(prev + 1, AGENTS.length - 1));
             setAgentProgress(0);
             setAgentStatus('pending');
             setAgentOutput(null);
@@ -608,27 +1053,140 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
     toast.info('Pipeline cancelled. You can resume from the last completed agent.');
   }, []);
 
-  // Handle rerun agent
-  const handleRerunAgent = useCallback(async (agentId) => {
+  // Handle rerun agent - restart from a specific agent
+  const handleRerunAgent = useCallback(async (agentId, clearDependents = true) => {
     const agentIndex = AGENTS.findIndex(a => a.id === agentId);
     if (agentIndex === -1) return;
 
-    // Clear cache for this agent and all dependent agents
-    const agentIdsToClear = [];
-    for (let i = agentIndex; i < AGENTS.length; i++) {
-      agentIdsToClear.push(AGENTS[i].id);
+    // Clear cache for this agent
+    await clearAgentOutput(fileUUID, agentId);
+    
+    // Optionally clear dependent agents (agents that come after this one)
+    if (clearDependents) {
+      const agentIdsToClear = [];
+      for (let i = agentIndex + 1; i < AGENTS.length; i++) {
+        agentIdsToClear.push(AGENTS[i].id);
+      }
+      for (const id of agentIdsToClear) {
+        await clearAgentOutput(fileUUID, id);
+      }
     }
 
-    for (const id of agentIdsToClear) {
-      await clearAgentOutput(fileUUID, id);
-    }
-
+    // Navigate to this agent and reset its state
     setCurrentAgentIndex(agentIndex);
     setAgentStatus('pending');
     setAgentProgress(0);
+    setAgentOutput(null);
     setNeedsRerun(prev => prev.filter(id => id !== agentId));
     cancelRequestedRef.current = false;
+    
+    // Update completed agents list (remove this agent and all subsequent ones)
+    setCompletedAgents(prev => {
+      const agentIndexToRemove = AGENTS.findIndex(a => a.id === agentId);
+      return prev.filter(id => {
+        const idIndex = AGENTS.findIndex(a => a.id === id);
+        return idIndex < agentIndexToRemove; // Keep only agents before this one
+      });
+    });
+    
+    // Update pipeline state
+    await savePipelineState(fileUUID, {
+      currentAgentIndex: agentIndex,
+      overallProgress: Math.round((agentIndex / AGENTS.length) * 100),
+      agentProgress: 0,
+      agentStatus: 'pending'
+    });
+    
+    toast.info(`Restarting from ${AGENTS[agentIndex].name}...`);
   }, [fileUUID]);
+
+  // Restart pipeline from beginning (but keep discovery if it exists)
+  const handleRestartPipeline = useCallback(async () => {
+    // Clear all agent outputs except discovery (to preserve uploaded files)
+    const agentsToClear = ['assessment', 'strategy', 'cost'];
+    for (const id of agentsToClear) {
+      await clearAgentOutput(fileUUID, id);
+    }
+    
+    // Update completed agents (keep discovery if it exists)
+    const cachedAgents = await getCachedAgentIds(fileUUID);
+    setCompletedAgents(cachedAgents.filter(id => id === 'discovery'));
+    
+    // Reset to first agent (discovery)
+    setCurrentAgentIndex(0);
+    setAgentStatus('pending');
+    setAgentProgress(0);
+    setOverallProgress(0);
+    setAgentOutput(null);
+    setNeedsRerun([]);
+    cancelRequestedRef.current = false;
+    
+    // Update pipeline state
+    await savePipelineState(fileUUID, {
+      currentAgentIndex: 0,
+      overallProgress: 0,
+      agentProgress: 0,
+      agentStatus: 'pending'
+    });
+    
+    toast.info('Pipeline restarted from beginning');
+  }, [fileUUID]);
+
+  // Resume pipeline from current point (useful after failure)
+  const handleResumePipeline = useCallback(async () => {
+    // Check what agents have completed
+    const cachedAgents = await getCachedAgentIds(fileUUID);
+    setCompletedAgents(cachedAgents);
+    console.log('Resuming pipeline. Cached agents:', cachedAgents);
+    
+    // Find the first agent that doesn't have cache
+    let resumeIndex = 0;
+    for (let i = 0; i < AGENTS.length; i++) {
+      if (!cachedAgents.includes(AGENTS[i].id)) {
+        resumeIndex = i;
+        break;
+      }
+    }
+    
+    // If all agents are cached, go to the last one
+    if (resumeIndex === 0 && cachedAgents.length === AGENTS.length) {
+      resumeIndex = AGENTS.length - 1;
+    }
+    
+    setCurrentAgentIndex(resumeIndex);
+    setAgentStatus('pending');
+    setAgentProgress(0);
+    setNeedsRerun([]);
+    cancelRequestedRef.current = false;
+    
+    // Load cached output for previous agent if available
+    if (resumeIndex > 0) {
+      const previousAgentId = AGENTS[resumeIndex - 1].id;
+      const cachedOutput = await getAgentOutput(fileUUID, previousAgentId);
+      if (cachedOutput) {
+        setAgentOutput(cachedOutput);
+      }
+    }
+    
+    // Update pipeline state
+    await savePipelineState(fileUUID, {
+      currentAgentIndex: resumeIndex,
+      overallProgress: Math.round((resumeIndex / AGENTS.length) * 100),
+      agentProgress: 0,
+      agentStatus: 'pending'
+    });
+    
+    toast.info(`Resuming from ${AGENTS[resumeIndex].name}...`);
+  }, [fileUUID]);
+
+  // Show loading state while restoring
+  if (isRestoringState) {
+    return (
+      <div className="pipeline-orchestrator">
+        <div className="alert alert-info">Restoring pipeline state...</div>
+      </div>
+    );
+  }
 
   if (!fileUUID) {
     return (
@@ -641,10 +1199,55 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
   const currentAgent = AGENTS[currentAgentIndex];
   const isLastAgent = currentAgentIndex === AGENTS.length - 1;
 
+  // Safety check: if currentAgent is undefined, try to recover from saved state first
+  if (!currentAgent) {
+    console.warn(`PipelineOrchestrator: Invalid currentAgentIndex ${currentAgentIndex}, attempting recovery`);
+    
+    // Try to recover by checking saved state
+    const recoverState = async () => {
+      try {
+        const savedState = await getPipelineState(fileUUID);
+        if (savedState && savedState.currentAgentIndex !== undefined) {
+          const validIndex = Math.max(0, Math.min(savedState.currentAgentIndex, AGENTS.length - 1));
+          setCurrentAgentIndex(validIndex);
+          setOverallProgress(savedState.overallProgress || 0);
+          setAgentProgress(savedState.agentProgress || 0);
+          setAgentStatus(savedState.agentStatus || 'pending');
+          return;
+        }
+      } catch (error) {
+        console.error('Error recovering state:', error);
+      }
+      
+      // If recovery fails, reset to first agent
+      if (currentAgentIndex !== 0) {
+        setCurrentAgentIndex(0);
+        setOverallProgress(0);
+        setAgentProgress(0);
+        setAgentStatus('pending');
+      }
+    };
+    
+    recoverState();
+    
+    return (
+      <div className="pipeline-orchestrator">
+        <div className="alert alert-warning">Recovering pipeline state...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="pipeline-orchestrator">
       <div className="pipeline-header">
-        <h3>Migration Pipeline</h3>
+        <div className="d-flex justify-content-between align-items-center mb-2">
+          <h3 className="mb-0">Migration Pipeline</h3>
+          {completedAgents.length > 0 && (
+            <div className="text-muted small">
+              {completedAgents.length} of {AGENTS.length} agents completed
+            </div>
+          )}
+        </div>
         <div className="overall-progress">
           <div className="progress-bar-container">
             <div 
@@ -654,6 +1257,13 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
           </div>
           <span className="progress-text">{overallProgress}% Complete</span>
         </div>
+        {completedAgents.length > 0 && agentStatus !== 'running' && (
+          <div className="mt-2">
+            <small className="text-muted">
+              Completed: {completedAgents.map(id => AGENTS.find(a => a.id === id)?.name).filter(Boolean).join(', ')}
+            </small>
+          </div>
+        )}
       </div>
 
       <div className="agent-display">
@@ -692,40 +1302,110 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         {agentStatus === 'failed' && (
           <div className="alert alert-danger mt-3">
             <p><strong>{currentAgent.name} failed.</strong></p>
-            <button 
-              className="btn btn-sm btn-primary"
-              onClick={() => handleRerunAgent(currentAgent.id)}
-            >
-              Rerun {currentAgent.name}
-            </button>
+            <p className="mb-2">Previous steps completed successfully. You can restart from any point.</p>
+            <div className="d-flex gap-2 flex-wrap">
+              <button 
+                className="btn btn-sm btn-primary"
+                onClick={() => handleRerunAgent(currentAgent.id)}
+              >
+                ↻ Rerun {currentAgent.name}
+              </button>
+              <button 
+                className="btn btn-sm btn-success"
+                onClick={handleResumePipeline}
+              >
+                ▶ Resume Pipeline
+              </button>
+              <button 
+                className="btn btn-sm btn-outline-secondary"
+                onClick={handleRestartPipeline}
+              >
+                🔄 Restart from Beginning
+              </button>
+            </div>
           </div>
         )}
 
         {needsRerun.includes(currentAgent.id) && (
           <div className="alert alert-warning mt-3">
             <p><strong>Action Required:</strong> {currentAgent.name} needs to be rerun.</p>
-            <button 
-              className="btn btn-sm btn-primary"
-              onClick={() => handleRerunAgent(currentAgent.id)}
-            >
-              Rerun {currentAgent.name}
-            </button>
+            <div className="d-flex gap-2 flex-wrap">
+              <button 
+                className="btn btn-sm btn-primary"
+                onClick={() => handleRerunAgent(currentAgent.id)}
+              >
+                ↻ Rerun {currentAgent.name}
+              </button>
+              <button 
+                className="btn btn-sm btn-success"
+                onClick={handleResumePipeline}
+              >
+                ▶ Resume Pipeline
+              </button>
+            </div>
+          </div>
+        )}
+
+        {(agentStatus === 'cancelled' || agentStatus === 'pending') && currentAgentIndex > 0 && (
+          <div className="alert alert-info mt-3">
+            <p><strong>Pipeline paused.</strong> You can resume from here or restart from any completed step.</p>
+            <div className="d-flex gap-2 flex-wrap">
+              <button 
+                className="btn btn-sm btn-success"
+                onClick={handleResumePipeline}
+              >
+                ▶ Resume Pipeline
+              </button>
+              <button 
+                className="btn btn-sm btn-outline-secondary"
+                onClick={handleRestartPipeline}
+              >
+                🔄 Restart from Beginning
+              </button>
+            </div>
           </div>
         )}
       </div>
 
       <div className="pipeline-steps">
-        {AGENTS.map((agent, index) => (
-          <div 
-            key={agent.id}
-            className={`pipeline-step ${index === currentAgentIndex ? 'active' : ''} ${index < currentAgentIndex ? 'completed' : ''}`}
-          >
-            <span className="step-icon">
-              {index < currentAgentIndex ? '✓' : agent.icon}
-            </span>
-            <span className="step-name">{agent.name}</span>
-          </div>
-        ))}
+        {AGENTS.map((agent, index) => {
+          const isCompleted = completedAgents.includes(agent.id) || index < currentAgentIndex;
+          const isActive = index === currentAgentIndex;
+          const hasCachedOutput = completedAgents.includes(agent.id);
+          
+          return (
+            <div 
+              key={agent.id}
+              className={`pipeline-step ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''} ${hasCachedOutput ? 'has-cache' : ''}`}
+              style={{ 
+                cursor: hasCachedOutput ? 'pointer' : 'default',
+                opacity: hasCachedOutput ? 1 : (isActive ? 1 : 0.6)
+              }}
+              onClick={async () => {
+                if (hasCachedOutput && !isActive) {
+                  // Restart from this agent (clears this and all subsequent agents)
+                  await handleRerunAgent(agent.id, true);
+                }
+              }}
+              title={hasCachedOutput && !isActive ? `Click to restart from ${agent.name}` : (isActive ? `Currently running: ${agent.name}` : '')}
+            >
+              <span className="step-icon">
+                {hasCachedOutput ? '✓' : agent.icon}
+              </span>
+              <span className="step-name">{agent.name}</span>
+              {hasCachedOutput && (
+                <span className="step-status" style={{ fontSize: '0.75rem', color: '#28a745', marginLeft: '0.5rem' }}>
+                  ✓ Cached
+                </span>
+              )}
+              {isActive && agentStatus === 'failed' && (
+                <span className="step-status" style={{ fontSize: '0.75rem', color: '#dc3545', marginLeft: '0.5rem' }}>
+                  ✗ Failed
+                </span>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

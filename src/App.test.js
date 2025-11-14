@@ -3,18 +3,19 @@ import App from './App';
 
 test('renders application title', () => {
   render(<App />);
-  const titleElement = screen.getByText(/Google Cloud Infrastructure Modernization Accelerator/i);
+  const titleElement = screen.getByText(/AWS to GCP Migration Tool/i);
   expect(titleElement).toBeInTheDocument();
 });
 
 test('renders navigation tabs', () => {
   render(<App />);
-  expect(screen.getByText(/Discovery/i)).toBeInTheDocument();
-  expect(screen.getByText(/Strategy/i)).toBeInTheDocument();
+  // Use getAllByText for text that appears multiple times
+  expect(screen.getAllByText(/Discovery/i)[0]).toBeInTheDocument();
+  expect(screen.getAllByText(/Strategy/i)[0]).toBeInTheDocument();
   expect(screen.getByText(/Landing Zone/i)).toBeInTheDocument();
   expect(screen.getByText(/Terraform/i)).toBeInTheDocument();
   expect(screen.getByText(/FinOps/i)).toBeInTheDocument();
-  expect(screen.getByText(/TCO Calculator/i)).toBeInTheDocument();
+  expect(screen.getAllByText(/TCO Calculator/i)[0]).toBeInTheDocument();
 });
 
 test('renders theme toggle button', () => {
@@ -26,6 +27,6 @@ test('renders theme toggle button', () => {
 
 test('renders start tour button', () => {
   render(<App />);
-  const tourButton = screen.getByText(/Start Tour/i);
+  const tourButton = screen.getByText(/Tour/i);
   expect(tourButton).toBeInTheDocument();
 });

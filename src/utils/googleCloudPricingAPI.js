@@ -141,17 +141,41 @@ class GoogleCloudPricingAPI {
         });
       }
 
+      // CRITICAL: Exclude Marketplace CUD offerings
+      // Marketplace CUD offerings are not eligible for standard CUD discounts
+      let committedUse1Year = data.committedUse1Year;
+      let committedUse3Year = data.committedUse3Year;
+      
+      // Check if this is a Marketplace offering
+      const isMarketplace = data.category === 'Marketplace' || 
+                           data.skuCategory === 'Marketplace' ||
+                           (data.skuDescription && data.skuDescription.toLowerCase().includes('marketplace')) ||
+                           (data.committedUse1Year && typeof data.committedUse1Year === 'object' && 
+                            (data.committedUse1Year.category?.toLowerCase().includes('marketplace') ||
+                             data.committedUse1Year.skuCategory?.toLowerCase().includes('marketplace'))) ||
+                           (data.committedUse3Year && typeof data.committedUse3Year === 'object' && 
+                            (data.committedUse3Year.category?.toLowerCase().includes('marketplace') ||
+                             data.committedUse3Year.skuCategory?.toLowerCase().includes('marketplace')));
+      
+      if (isMarketplace) {
+        // Exclude Marketplace CUD offerings
+        console.log(`[CUD Filter] Excluding Marketplace CUD offering for ${machineType} in ${region}`);
+        committedUse1Year = null;
+        committedUse3Year = null;
+      }
+
       return {
         machineType,
         region,
         usageType,
         onDemand: data.onDemand || data.price,
         preemptible: data.preemptible,
-        committedUse1Year: data.committedUse1Year,
-        committedUse3Year: data.committedUse3Year,
+        committedUse1Year,
+        committedUse3Year,
         sustainedUseDiscount: data.sustainedUseDiscount,
         currency: data.currency || 'USD',
         lastUpdated: data.lastUpdated || new Date().toISOString(),
+        isMarketplace: isMarketplace || false, // Flag for debugging
       };
     } catch (error) {
       console.error('Error fetching GCP Compute pricing:', error);

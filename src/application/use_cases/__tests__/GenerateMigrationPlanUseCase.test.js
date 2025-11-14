@@ -76,7 +76,7 @@ describe('GenerateMigrationPlanUseCase', () => {
     it('should throw error if no workload IDs provided', async () => {
       await expect(
         useCase.execute({ workloadIds: [] })
-      ).rejects.toThrow('Workload IDs array is required');
+      ).rejects.toThrow('At least one workload ID is required');
     });
 
     it('should create default mapping if service mapping not found', async () => {

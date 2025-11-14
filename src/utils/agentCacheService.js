@@ -47,6 +47,12 @@ function getPipelineStateKey(fileUUID) {
 export async function saveAgentOutput(fileUUID, agentId, output, metadata = {}) {
   try {
     const cacheKey = getCacheKey(fileUUID, agentId);
+    
+    // DEBUG: Log cache key being used
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[CACHE DEBUG] saveAgentOutput - fileUUID: ${fileUUID}, agentId: ${agentId}, cacheKey: ${cacheKey}`);
+    }
+    
     const cacheData = {
       version: CACHE_VERSION,
       fileUUID,
@@ -60,9 +66,22 @@ export async function saveAgentOutput(fileUUID, agentId, output, metadata = {}) 
     };
     
     await localforage.setItem(cacheKey, cacheData);
+    
+    // Verify it was saved immediately
+    const verify = await localforage.getItem(cacheKey);
+    if (!verify) {
+      console.error(`[CACHE DEBUG] Failed to verify save for ${agentId}. Key: ${cacheKey}`);
+      return false;
+    }
+    
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[CACHE DEBUG] Successfully saved and verified cache for ${agentId}`);
+    }
+    
     return true;
   } catch (error) {
     console.error(`Error saving agent output for ${agentId}:`, error);
+    console.error(`[CACHE DEBUG] fileUUID: ${fileUUID}, agentId: ${agentId}, error:`, error);
     return false;
   }
 }
@@ -76,22 +95,42 @@ export async function saveAgentOutput(fileUUID, agentId, output, metadata = {}) 
 export async function getAgentOutput(fileUUID, agentId) {
   try {
     const cacheKey = getCacheKey(fileUUID, agentId);
+    
+    // DEBUG: Log cache key being used
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[CACHE DEBUG] getAgentOutput - fileUUID: ${fileUUID}, agentId: ${agentId}, cacheKey: ${cacheKey}`);
+    }
+    
     const cached = await localforage.getItem(cacheKey);
     
     if (!cached) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[CACHE DEBUG] No cached data found for key: ${cacheKey}`);
+      }
       return null;
     }
     
     // Verify cache version and file UUID match
-    if (cached.version !== CACHE_VERSION || cached.fileUUID !== fileUUID) {
-      console.warn(`Cache version mismatch for ${agentId}, clearing cache`);
+    if (cached.version !== CACHE_VERSION) {
+      console.warn(`[CACHE DEBUG] Version mismatch for ${agentId}. Expected: ${CACHE_VERSION}, Got: ${cached.version}`);
       await clearAgentOutput(fileUUID, agentId);
       return null;
+    }
+    
+    if (cached.fileUUID !== fileUUID) {
+      console.warn(`[CACHE DEBUG] fileUUID mismatch for ${agentId}. Expected: ${fileUUID}, Got: ${cached.fileUUID}`);
+      await clearAgentOutput(fileUUID, agentId);
+      return null;
+    }
+    
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[CACHE DEBUG] Successfully retrieved cached output for ${agentId}`);
     }
     
     return cached.output;
   } catch (error) {
     console.error(`Error getting agent output for ${agentId}:`, error);
+    console.error(`[CACHE DEBUG] fileUUID: ${fileUUID}, agentId: ${agentId}, error:`, error);
     return null;
   }
 }

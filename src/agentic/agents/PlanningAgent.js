@@ -49,7 +49,7 @@ export class PlanningAgent extends BaseAgent {
       // Step 1: Analyze workloads for planning
       await this.executeStep('Analyzing workloads for planning', async () => {
         this.think(`Analyzing ${workloadIds.length} workloads to determine migration strategy`);
-        await new Promise(resolve => setTimeout(resolve, 300));
+        await new Promise(resolve => requestAnimationFrame(resolve));
       }, 15);
 
       // Step 2: Generate migration plan (use case)
@@ -82,7 +82,7 @@ export class PlanningAgent extends BaseAgent {
       if (useAI) {
         result = await this.executeStep('Optimizing with AI', async () => {
           this.think('Analyzing plan for optimization opportunities');
-          await new Promise(resolve => setTimeout(resolve, 400));
+          await new Promise(resolve => requestAnimationFrame(resolve));
           return await this._optimizeWithAI(migrationPlan, wavePlan);
         }, 85);
       } else {
@@ -96,7 +96,7 @@ export class PlanningAgent extends BaseAgent {
 
       // Step 5: Finalize
       await this.executeStep('Finalizing migration plan', async () => {
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => requestAnimationFrame(resolve));
       }, 100);
 
       this.setCompleted(result);

@@ -73,14 +73,63 @@ export const generateComprehensiveReportPDF = async (
     return false;
   };
 
-  // Helper function to format currency
+  // Helper function to format currency - improved for accuracy and neatness
   const formatCurrency = (value) => {
+    if (value === null || value === undefined || isNaN(value)) {
+      return '$0.00';
+    }
+    const numValue = typeof value === 'string' ? parseFloat(value) : value;
+    if (isNaN(numValue)) {
+      return '$0.00';
+    }
+    // For very large numbers, use compact notation for readability
+    if (Math.abs(numValue) >= 1000000) {
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+        notation: 'compact',
+        compactDisplay: 'short'
+      }).format(numValue);
+    }
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
-    }).format(value || 0);
+    }).format(numValue);
+  };
+  
+  // Helper function to format numbers with proper commas
+  const formatNumber = (value) => {
+    if (value === null || value === undefined || isNaN(value)) {
+      return '0';
+    }
+    const numValue = typeof value === 'string' ? parseFloat(value) : value;
+    if (isNaN(numValue)) {
+      return '0';
+    }
+    return new Intl.NumberFormat('en-US', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(numValue);
+  };
+  
+  // Helper function to format percentages
+  const formatPercent = (value, decimals = 1) => {
+    if (value === null || value === undefined || isNaN(value)) {
+      return '0%';
+    }
+    const numValue = typeof value === 'string' ? parseFloat(value) : value;
+    if (isNaN(numValue)) {
+      return '0%';
+    }
+    return new Intl.NumberFormat('en-US', {
+      style: 'percent',
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals
+    }).format(numValue / 100);
   };
 
   // Helper function to add section header
@@ -136,11 +185,11 @@ export const generateComprehensiveReportPDF = async (
   });
   
   const summaryData = [
-    ['Total Workloads', (summary.totalWorkloads || 0).toLocaleString()],
+    ['Total Workloads', formatNumber(summary.totalWorkloads || 0)],
     ['Total Monthly Cost', formatCurrency(summary.totalMonthlyCost || 0)],
     ['Average Complexity', summary.averageComplexity ? summary.averageComplexity.toFixed(1) : 'N/A'],
-    ['Regions', (summary.totalRegions || 0).toString()],
-    ['AWS Services', (summary.totalServices || 0).toString()]
+    ['Regions', formatNumber(summary.totalRegions || 0)],
+    ['AWS Services', formatNumber(summary.totalServices || 0)]
   ];
 
   callAutoTable({
@@ -196,12 +245,12 @@ export const generateComprehensiveReportPDF = async (
   
   const summaryForText = reportData?.summary || {};
   const totalCost = summaryForText.totalMonthlyCost || 0;
-  doc.text(
-    `This report provides a comprehensive assessment of ${(summaryForText.totalWorkloads || 0).toLocaleString()} workloads ` +
-    `discovered across ${summaryForText.totalRegions || 0} AWS regions, with a total monthly cost of ` +
-    `${formatCurrency(totalCost)} (sum of all AWS bills).`,
-    margin, yPos, { maxWidth: contentWidth }
-  );
+    doc.text(
+      `This report provides a comprehensive assessment of ${formatNumber(summaryForText.totalWorkloads || 0)} workloads ` +
+      `discovered across ${formatNumber(summaryForText.totalRegions || 0)} AWS regions, with a total monthly cost of ` +
+      `${formatCurrency(totalCost)} (sum of all AWS bills).`,
+      margin, yPos, { maxWidth: contentWidth }
+    );
   
   // Add note if cost seems unusually low (might indicate deduplication issue)
   if (totalCost > 0 && totalCost < 10000 && summaryForText.totalWorkloads > 100) {
@@ -232,7 +281,7 @@ export const generateComprehensiveReportPDF = async (
     doc.setFontSize(9);
     doc.setTextColor(200, 0, 0);
     doc.text(
-      `⚠️ WARNING: All ${unassignedCount.toLocaleString()} workloads are unassigned. ` +
+      `⚠️ WARNING: All ${formatNumber(unassignedCount)} workloads are unassigned. ` +
       `Assessment Agent must complete successfully to generate complexity and readiness scores.`,
       margin, yPos, { maxWidth: contentWidth }
     );
@@ -241,10 +290,10 @@ export const generateComprehensiveReportPDF = async (
   }
   
   const complexityData = [
-    ['Low (1-3)', (complexity.low?.count || 0).toString(), formatCurrency(complexity.low?.totalCost || 0)],
-    ['Medium (4-6)', (complexity.medium?.count || 0).toString(), formatCurrency(complexity.medium?.totalCost || 0)],
-    ['High (7-10)', (complexity.high?.count || 0).toString(), formatCurrency(complexity.high?.totalCost || 0)],
-    ['Unassigned', (complexity.unassigned?.count || 0).toString(), formatCurrency(complexity.unassigned?.totalCost || 0)]
+    ['Low (1-3)', formatNumber(complexity.low?.count || 0), formatCurrency(complexity.low?.totalCost || 0)],
+    ['Medium (4-6)', formatNumber(complexity.medium?.count || 0), formatCurrency(complexity.medium?.totalCost || 0)],
+    ['High (7-10)', formatNumber(complexity.high?.count || 0), formatCurrency(complexity.high?.totalCost || 0)],
+    ['Unassigned', formatNumber(complexity.unassigned?.count || 0), formatCurrency(complexity.unassigned?.totalCost || 0)]
   ];
 
   callAutoTable({
@@ -276,10 +325,10 @@ export const generateComprehensiveReportPDF = async (
   }
   
   const readinessData = [
-    ['Ready', (readiness.ready?.count || 0).toString(), formatCurrency(readiness.ready?.totalCost || 0)],
-    ['Conditional', (readiness.conditional?.count || 0).toString(), formatCurrency(readiness.conditional?.totalCost || 0)],
-    ['Not Ready', (readiness.notReady?.count || 0).toString(), formatCurrency(readiness.notReady?.totalCost || 0)],
-    ['Unassigned', (readiness.unassigned?.count || 0).toString(), formatCurrency(readiness.unassigned?.totalCost || 0)]
+    ['Ready', formatNumber(readiness.ready?.count || 0), formatCurrency(readiness.ready?.totalCost || 0)],
+    ['Conditional', formatNumber(readiness.conditional?.count || 0), formatCurrency(readiness.conditional?.totalCost || 0)],
+    ['Not Ready', formatNumber(readiness.notReady?.count || 0), formatCurrency(readiness.notReady?.totalCost || 0)],
+    ['Unassigned', formatNumber(readiness.unassigned?.count || 0), formatCurrency(readiness.unassigned?.totalCost || 0)]
   ];
 
   callAutoTable({
@@ -303,11 +352,11 @@ export const generateComprehensiveReportPDF = async (
 
   doc.setFontSize(10);
   const summaryForAssessment = reportData?.summary || {};
-  doc.text(
-    `Assessment results for ${(summaryForAssessment.totalWorkloads || 0).toLocaleString()} workloads across ` +
-    `${summaryForAssessment.totalServices || 0} AWS services.`,
-    margin, yPos, { maxWidth: contentWidth }
-  );
+    doc.text(
+      `Assessment results for ${formatNumber(summaryForAssessment.totalWorkloads || 0)} workloads across ` +
+      `${formatNumber(summaryForAssessment.totalServices || 0)} AWS services.`,
+      margin, yPos, { maxWidth: contentWidth }
+    );
   yPos += 10;
 
   // All Services Table - Complete list (ALL services, not just top N)
@@ -804,7 +853,7 @@ export const generateComprehensiveReportPDF = async (
           m.gcpApi,
           m.strategy,
           m.effort,
-          m.count.toLocaleString()
+          formatNumber(m.count)
         ]);
       
       callAutoTable({

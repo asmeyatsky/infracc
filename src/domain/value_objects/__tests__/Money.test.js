@@ -35,12 +35,15 @@ describe('Money Value Object', () => {
     it('should be immutable', () => {
       const money = new Money(100);
       
-      // Try to modify (should fail silently or throw)
-      expect(() => {
+      // Try to modify - in strict mode (Jest uses strict mode), this throws
+      // The important thing is that the original value remains unchanged
+      try {
         money._amount = 200;
-      }).not.toThrow(); // In strict mode, this would fail
+      } catch (e) {
+        // Expected in strict mode - property is read-only
+      }
       
-      // Original should be unchanged
+      // Original should be unchanged regardless
       expect(money.amount).toBe(100);
     });
   });

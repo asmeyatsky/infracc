@@ -3,31 +3,38 @@
  * 
  * Architectural Intent:
  * - Infrastructure layer implementation of WorkloadRepositoryPort
- * - Uses localStorage for persistence (can be replaced with API/database)
+ * - Uses IndexedDB (via localforage) for persistence (handles large datasets)
  * - Handles serialization/deserialization
  * - Isolated from domain layer
  */
 
 import { WorkloadRepositoryPort } from '../../domain/ports/WorkloadRepositoryPort.js';
 import { Workload } from '../../domain/entities/Workload.js';
+import localforage from 'localforage';
 
 /**
  * Workload Repository
  * 
  * Implementation Notes:
- * - Uses localStorage for persistence
- * - Can be easily replaced with API/database adapter
+ * - Uses IndexedDB (via localforage) for persistence - handles large datasets (millions of records)
+ * - Automatically falls back to localStorage if IndexedDB unavailable
  * - Handles entity serialization transparently
  */
 export class WorkloadRepository extends WorkloadRepositoryPort {
   /**
    * @param {Object} config
-   * @param {string} config.storageKey - localStorage key (default: 'workloads')
+   * @param {string} config.storageKey - Storage key (default: 'workloads')
    */
   constructor(config = {}) {
     super();
     this.storageKey = config.storageKey || 'workloads';
     this._cache = new Map(); // In-memory cache
+    this._storage = localforage.createInstance({
+      name: 'WorkloadRepository',
+      storeName: 'workloads',
+      description: 'Workload repository storage using IndexedDB'
+    });
+    this._isLoading = false;
   }
 
   /**
@@ -43,15 +50,14 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
     // Update cache
     this._cache.set(workload.id, workload);
 
-    // Debounce persistence to avoid saving after every single workload
-    // This prevents stack overflow when saving many workloads
+    // Persist to IndexedDB (debounced for batch operations)
     this._debouncedPersist();
 
     return workload;
   }
 
   /**
-   * Debounced persistence - batches saves to avoid stack overflow
+   * Debounced persistence - batches saves to avoid performance issues
    * @private
    */
   _debouncedPersist() {
@@ -60,14 +66,15 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
       clearTimeout(this._persistTimeout);
     }
 
-    // Set new timeout - persist after 500ms of no new saves
+    // PERFORMANCE: Reduced debounce from 500ms to 200ms for faster persistence
+    // IndexedDB can handle frequent writes better than localStorage
     this._persistTimeout = setTimeout(async () => {
       try {
         await this._persistToStorage();
       } catch (error) {
         console.error('Debounced persistence failed:', error);
       }
-    }, 500);
+    }, 200);
   }
 
   /**
@@ -107,10 +114,7 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
     await this._loadFromStorage();
     const allWorkloads = Array.from(this._cache.values());
     
-    // Only log if there's an issue or on first load (avoid console spam)
-    if (allWorkloads.length <= 255 && this._cache.size > 255) {
-      console.error(`⚠️ WARNING: findAll() returning only ${allWorkloads.length} workloads but cache has ${this._cache.size}!`);
-    }
+    console.log(`WorkloadRepository.findAll() - Returning ${allWorkloads.length.toLocaleString()} workloads from cache`);
     
     return allWorkloads;
   }
@@ -123,6 +127,12 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
   async delete(id) {
     const deleted = this._cache.delete(id);
     if (deleted) {
+      // Also remove from IndexedDB
+      try {
+        await this._storage.removeItem(id);
+      } catch (error) {
+        console.warn('Failed to remove workload from IndexedDB:', error);
+      }
       this._debouncedPersist();
     }
     return deleted;
@@ -181,100 +191,61 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
   }
 
   /**
-   * Persist cache to localStorage
+   * Persist cache to IndexedDB
    * Optimized for large datasets - processes in chunks
-   * Handles quota exceeded gracefully
    * @private
    */
   async _persistToStorage() {
     try {
       const cacheSize = this._cache.size;
       
-      // For very large caches, serialize in chunks to avoid stack overflow
-      if (cacheSize > 100) {
-        const workloadsArray = [];
+      if (cacheSize === 0) {
+        return; // Nothing to persist
+      }
+
+      // PERFORMANCE: Increased chunk size for faster persistence (IndexedDB handles it well)
+      if (cacheSize > 1000) {
+        const chunkSize = 1000; // Increased from 500 to 1000 for better performance
+        let persistedCount = 0;
         let index = 0;
         
         // Process cache values in chunks
         for (const workload of this._cache.values()) {
-          workloadsArray.push(workload.toJSON());
-          index++;
-          
-          // Yield to event loop every 50 items to prevent blocking
-          if (index % 50 === 0) {
-            await new Promise(resolve => setTimeout(resolve, 0));
+          try {
+            const workloadData = workload.toJSON();
+            await this._storage.setItem(workload.id, workloadData);
+            persistedCount++;
+            
+            // Yield to event loop every chunk to prevent blocking
+            if (index % chunkSize === 0 && index > 0) {
+              await new Promise(resolve => setTimeout(resolve, 0));
+            }
+            index++;
+          } catch (error) {
+            console.warn(`Failed to persist workload ${workload.id}:`, error);
           }
         }
         
-        // Stringify in chunks if needed
-        const jsonString = JSON.stringify(workloadsArray);
-        
-        try {
-          localStorage.setItem(this.storageKey, jsonString);
-        } catch (quotaError) {
-          if (quotaError.name === 'QuotaExceededError') {
-            // Browser localStorage quota exceeded (typically 5-10MB limit)
-            // All workloads are still in memory cache and will work fine during this session
-            // Only persistence to localStorage is affected
-            
-            // Only log once per persistence attempt to avoid spam
-            if (!this._quotaWarningLogged) {
-              console.warn(`⚠️ Browser localStorage quota exceeded (${cacheSize.toLocaleString()} workloads).`);
-              console.warn(`✅ All ${cacheSize.toLocaleString()} workloads are still available in memory and will work correctly during this session.`);
-              console.warn(`💡 Tip: Export your workloads to JSON to preserve all data across page refreshes.`);
-              this._quotaWarningLogged = true;
-            }
-            
-            // Try to save a subset if quota exceeded
-            const subset = workloadsArray.slice(-Math.floor(workloadsArray.length / 2));
-            const subsetJson = JSON.stringify(subset);
-            
-            try {
-              localStorage.setItem(this.storageKey, subsetJson);
-              // Silent success - quota warning already logged
-            } catch (subsetError) {
-              // If even subset fails, clear old data and try again
-              if (!this._quotaWarningLogged) {
-                console.warn('Even subset failed. Clearing old data and retrying...');
-              }
-              localStorage.removeItem(this.storageKey);
-              
-              // Try saving just the last 100 workloads
-              const minimal = workloadsArray.slice(-100);
-              localStorage.setItem(this.storageKey, JSON.stringify(minimal));
-              // Silent - quota warning already logged
-            }
-          } else {
-            throw quotaError;
-          }
-        }
+        console.log(`WorkloadRepository._persistToStorage() - Persisted ${persistedCount.toLocaleString()} workloads to IndexedDB (cache size: ${cacheSize.toLocaleString()})`);
       } else {
-        // For smaller caches, use direct serialization
-        const workloadsData = Array.from(this._cache.values()).map(workload => workload.toJSON());
-        
-        try {
-          localStorage.setItem(this.storageKey, JSON.stringify(workloadsData));
-        } catch (quotaError) {
-          if (quotaError.name === 'QuotaExceededError') {
-            console.warn('localStorage quota exceeded. Clearing old data and retrying...');
-            localStorage.removeItem(this.storageKey);
-            localStorage.setItem(this.storageKey, JSON.stringify(workloadsData));
-          } else {
-            throw quotaError;
-          }
+        // For smaller caches, persist all at once
+        const persistPromises = [];
+        for (const workload of this._cache.values()) {
+          const workloadData = workload.toJSON();
+          persistPromises.push(this._storage.setItem(workload.id, workloadData));
         }
+        
+        await Promise.all(persistPromises);
+        console.log(`WorkloadRepository._persistToStorage() - Persisted ${this._cache.size} workloads to IndexedDB`);
       }
     } catch (error) {
-      console.error('Failed to persist workloads:', error);
+      console.error('Failed to persist workloads to IndexedDB:', error);
       // Don't throw - allow operation to continue even if persistence fails
-      if (error.name === 'QuotaExceededError') {
-        console.warn('localStorage quota exceeded. Data will remain in memory cache only.');
-      }
     }
   }
 
   /**
-   * Load from localStorage into cache
+   * Load from IndexedDB into cache
    * Optimized for large datasets - processes in chunks
    * @private
    */
@@ -284,85 +255,84 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
       return;
     }
 
-    // If cache is already populated, skip loading (no logging to avoid spam)
+    // If cache is already populated, skip loading
     if (this._cache.size > 0) {
-      // For large datasets, localStorage quota may be exceeded - this is expected
-      // Only check if cache seems suspiciously empty AND we're not in a large dataset scenario
-      if (this._cache.size <= 100 && this._cache.size > 0) {
-        const storedData = localStorage.getItem(this.storageKey);
-        if (storedData) {
-          try {
-            const workloadsData = JSON.parse(storedData);
-            // Only warn if localStorage has significantly more than cache (potential sync issue)
-            if (workloadsData.length > this._cache.size * 2) {
-              console.log(`WorkloadRepository: Cache has ${this._cache.size} workloads, localStorage has ${workloadsData.length} (localStorage may be quota-limited)`);
-            }
-          } catch (e) {
-            // Ignore parse errors
-          }
-        }
-      }
-      
       return;
     }
 
     this._isLoading = true;
 
     try {
-      const storedData = localStorage.getItem(this.storageKey);
-      if (!storedData) {
-        console.log('WorkloadRepository._loadFromStorage() - No stored data found');
+      // Get all keys from IndexedDB
+      const keys = await this._storage.keys();
+      
+      if (keys.length === 0) {
+        console.log('WorkloadRepository._loadFromStorage() - No stored data found in IndexedDB');
         this._isLoading = false;
         return;
       }
 
-      // Parse JSON
-      const workloadsData = JSON.parse(storedData);
-      
-      // For large datasets, localStorage quota may be exceeded - this is expected
-      // Workloads are kept in memory cache during the session
-      if (workloadsData.length <= 255 && workloadsData.length < 1000) {
-        // Only warn if we expected more workloads but got very few
-        console.log(`WorkloadRepository: Found ${workloadsData.length} workloads in localStorage (may be limited by quota for large datasets)`);
-      }
-      
-      // For large datasets, process in chunks to avoid stack overflow
-      if (workloadsData.length > 100) {
-        const chunkSize = 50;
+      console.log(`WorkloadRepository._loadFromStorage() - Loading ${keys.length.toLocaleString()} workloads from IndexedDB`);
+
+      // PERFORMANCE: Increased chunk size for faster loading
+      if (keys.length > 1000) {
+        const chunkSize = 1000; // Increased from 500 to 1000 for better performance
         let loadedCount = 0;
-        for (let i = 0; i < workloadsData.length; i += chunkSize) {
-          const chunk = workloadsData.slice(i, i + chunkSize);
+        
+        for (let i = 0; i < keys.length; i += chunkSize) {
+          const chunk = keys.slice(i, i + chunkSize);
           
-          // Process chunk
-          for (const data of chunk) {
+          // Load chunk in parallel
+          const chunkPromises = chunk.map(async (key) => {
             try {
-              const workload = Workload.fromJSON(data);
-              this._cache.set(workload.id, workload);
-              loadedCount++;
+              const data = await this._storage.getItem(key);
+              if (data) {
+                const workload = Workload.fromJSON(data);
+                this._cache.set(workload.id, workload);
+                return true;
+              }
+              return false;
             } catch (error) {
-              console.warn('Failed to create workload from stored data:', error);
+              console.warn(`Failed to load workload ${key}:`, error);
+              return false;
             }
-          }
+          });
+          
+          const results = await Promise.all(chunkPromises);
+          loadedCount += results.filter(Boolean).length;
           
           // Yield to event loop every chunk to prevent blocking
-          if (i + chunkSize < workloadsData.length) {
+          if (i + chunkSize < keys.length) {
             await new Promise(resolve => setTimeout(resolve, 0));
           }
         }
-        console.log(`WorkloadRepository._loadFromStorage() - Loaded ${loadedCount} workloads into cache (cache size now: ${this._cache.size})`);
+        
+        console.log(`WorkloadRepository._loadFromStorage() - Loaded ${loadedCount.toLocaleString()} workloads into cache (cache size now: ${this._cache.size.toLocaleString()})`);
       } else {
-        // For smaller datasets, process all at once
-        const workloads = workloadsData.map(data => Workload.fromJSON(data));
-        workloads.forEach(workload => {
-          this._cache.set(workload.id, workload);
+        // For smaller datasets, load all at once
+        const loadPromises = keys.map(async (key) => {
+          try {
+            const data = await this._storage.getItem(key);
+            if (data) {
+              const workload = Workload.fromJSON(data);
+              this._cache.set(workload.id, workload);
+              return true;
+            }
+            return false;
+          } catch (error) {
+            console.warn(`Failed to load workload ${key}:`, error);
+            return false;
+          }
         });
-        console.log(`WorkloadRepository._loadFromStorage() - Loaded ${workloads.length} workloads into cache (cache size now: ${this._cache.size})`);
+        
+        await Promise.all(loadPromises);
+        console.log(`WorkloadRepository._loadFromStorage() - Loaded ${this._cache.size.toLocaleString()} workloads into cache`);
       }
     } catch (error) {
-      console.error('Failed to load workloads:', error);
-      // Clear corrupted data
+      console.error('Failed to load workloads from IndexedDB:', error);
+      // Clear corrupted data if needed
       try {
-        localStorage.removeItem(this.storageKey);
+        await this._storage.clear();
       } catch (e) {
         // Ignore errors when clearing
       }
@@ -377,7 +347,11 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
    */
   async clear() {
     this._cache.clear();
-    localStorage.removeItem(this.storageKey);
+    try {
+      await this._storage.clear();
+    } catch (error) {
+      console.warn('Failed to clear IndexedDB:', error);
+    }
   }
 }
 

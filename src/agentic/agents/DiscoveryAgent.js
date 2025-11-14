@@ -27,7 +27,7 @@ export class DiscoveryAgent extends BaseAgent {
       // Step 1: Initialize discovery
       await this.executeStep('Initializing discovery', async () => {
         this.think(`Starting ${scanType} scan of ${targets.length || 'all'} targets`);
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise(resolve => requestAnimationFrame(resolve));
       }, 5);
 
       // Step 2: Asset Discovery
@@ -39,38 +39,72 @@ export class DiscoveryAgent extends BaseAgent {
       // Step 2.5: Convert and save workloads to repository
       await this.executeStep('Saving discovered workloads', async () => {
         this.think(`Converting ${discoveredAssets.length} discovered assets to workloads and saving to repository`);
-        for (const asset of discoveredAssets) {
-          try {
-            // Map asset type to WorkloadType enum
-            let workloadType = 'vm';
-            if (asset.type === 'database') workloadType = 'database';
-            else if (asset.type === 'storage') workloadType = 'storage';
-            else if (asset.type === 'application') workloadType = 'application';
-            else if (asset.type === 'container') workloadType = 'container';
-            
-            const workload = new Workload({
-              id: asset.id,
-              name: asset.name,
-              service: asset.compatibility?.recommendedService || asset.service || asset.type || 'Unknown',
-              type: workloadType,
-              sourceProvider: 'aws', // Default, can be enhanced
-              cpu: asset.cpu || 0,
-              memory: asset.memory || 0,
-              storage: asset.storage || asset.size || 0,
-              monthlyCost: 0, // Will be calculated later
-              region: asset.region || asset.network?.split('-')[0] || 'us-east-1',
-              os: asset.os || 'linux',
-              monthlyTraffic: asset.utilization?.network || asset.utilization?.networkUtilization || 0,
-              dependencies: asset.dependencies || []
-            });
-            await this.workloadRepository.save(workload);
-            this.emit('workload-saved', { workloadId: asset.id, workloadName: asset.name });
-          } catch (error) {
-            console.warn(`Failed to save workload ${asset.id}:`, error);
-            this.emit('workload-save-error', { workloadId: asset.id, error: error.message });
+        
+        // PERFORMANCE: Batch save workloads in parallel chunks for faster processing
+        const SAVE_BATCH_SIZE = 500; // Increased from sequential to 500 parallel saves
+        let savedCount = 0;
+        
+        for (let i = 0; i < discoveredAssets.length; i += SAVE_BATCH_SIZE) {
+          const batch = discoveredAssets.slice(i, i + SAVE_BATCH_SIZE);
+          const batchNumber = Math.floor(i / SAVE_BATCH_SIZE) + 1;
+          const totalBatches = Math.ceil(discoveredAssets.length / SAVE_BATCH_SIZE);
+          
+          // Process batch in parallel
+          const savePromises = batch.map(async (asset) => {
+            try {
+              // Map asset type to WorkloadType enum
+              let workloadType = 'vm';
+              if (asset.type === 'database') workloadType = 'database';
+              else if (asset.type === 'storage') workloadType = 'storage';
+              else if (asset.type === 'application') workloadType = 'application';
+              else if (asset.type === 'container') workloadType = 'container';
+              
+              const workload = new Workload({
+                id: asset.id,
+                name: asset.name,
+                service: asset.compatibility?.recommendedService || asset.service || asset.type || 'Unknown',
+                type: workloadType,
+                sourceProvider: 'aws', // Default, can be enhanced
+                cpu: asset.cpu || 0,
+                memory: asset.memory || 0,
+                storage: asset.storage || asset.size || 0,
+                monthlyCost: 0, // Will be calculated later
+                region: asset.region || asset.network?.split('-')[0] || 'us-east-1',
+                os: asset.os || 'linux',
+                monthlyTraffic: asset.utilization?.network || asset.utilization?.networkUtilization || 0,
+                dependencies: asset.dependencies || []
+              });
+              await this.workloadRepository.save(workload);
+              savedCount++;
+              this.emit('workload-saved', { workloadId: asset.id, workloadName: asset.name });
+              return { success: true, workloadId: asset.id };
+            } catch (error) {
+              console.warn(`Failed to save workload ${asset.id}:`, error);
+              this.emit('workload-save-error', { workloadId: asset.id, error: error.message });
+              return { success: false, workloadId: asset.id, error: error.message };
+            }
+          });
+          
+          // Wait for batch to complete
+          await Promise.all(savePromises);
+          
+          // Log progress every 10 batches or first/last
+          if (batchNumber === 1 || batchNumber === totalBatches || batchNumber % 10 === 0) {
+            console.log(`DiscoveryAgent: Saved batch ${batchNumber}/${totalBatches} (${savedCount.toLocaleString()}/${discoveredAssets.length.toLocaleString()} workloads)`);
+          }
+          
+          // Yield to event loop every batch to prevent blocking
+          if (i + SAVE_BATCH_SIZE < discoveredAssets.length) {
+            await new Promise(resolve => setTimeout(resolve, 0));
           }
         }
-        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        // Force final persistence to IndexedDB
+        if (this.workloadRepository._forcePersist) {
+          await this.workloadRepository._forcePersist();
+        }
+        
+        console.log(`DiscoveryAgent: Successfully saved ${savedCount.toLocaleString()}/${discoveredAssets.length.toLocaleString()} workloads to IndexedDB`);
       }, 35);
 
       // Step 3: Dependency Mapping
@@ -98,7 +132,7 @@ export class DiscoveryAgent extends BaseAgent {
       // Step 6: Generate Recommendations
       await this.executeStep('Generating recommendations', async () => {
         this.think('Creating migration wave suggestions and optimization opportunities');
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise(resolve => requestAnimationFrame(resolve));
       }, 100);
 
       const result = {

@@ -6,40 +6,6 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import RegionalBreakdown from '../RegionalBreakdown.js';
 
-// Mock ReportDataAggregator
-jest.mock('../../../domain/services/ReportDataAggregator.js', () => ({
-  ReportDataAggregator: {
-    aggregateByRegion: jest.fn((workloads) => {
-      const regions = {};
-      workloads.forEach(w => {
-        const region = w.region || 'Unknown';
-        if (!regions[region]) {
-          regions[region] = {
-            region,
-            count: 0,
-            totalCost: 0,
-            complexities: [],
-            topServices: [],
-            topServicesCosts: []
-          };
-        }
-        regions[region].count++;
-        regions[region].totalCost += w.monthlyCost || 0;
-        if (w.complexityScore) {
-          regions[region].complexities.push(w.complexityScore);
-        }
-      });
-
-      return Object.values(regions).map(r => ({
-        ...r,
-        averageComplexity: r.complexities.length > 0
-          ? r.complexities.reduce((a, b) => a + b, 0) / r.complexities.length
-          : null
-      })).sort((a, b) => b.totalCost - a.totalCost);
-    })
-  }
-}));
-
 describe('RegionalBreakdown', () => {
   const mockWorkloads = [
     { id: '1', region: 'us-east-1', service: 'EC2', monthlyCost: 100, complexityScore: 3 },
@@ -53,62 +19,51 @@ describe('RegionalBreakdown', () => {
     expect(screen.getByText(/No workloads available/i)).toBeInTheDocument();
   });
 
-  it('should render regional breakdown table', () => {
+  it('should render regional breakdown card with info message', () => {
     render(<RegionalBreakdown workloads={mockWorkloads} />);
 
-    expect(screen.getByText(/Regional Breakdown/i)).toBeInTheDocument();
-    expect(screen.getByText(/AWS Region/i)).toBeInTheDocument();
-    expect(screen.getByText(/Workloads/i)).toBeInTheDocument();
-    expect(screen.getByText(/Monthly Cost/i)).toBeInTheDocument();
+    // Component now shows an info card instead of table
+    expect(screen.getAllByText(/Regional Breakdown/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Regional breakdown available in PDF report/i)).toBeInTheDocument();
+    expect(screen.getByText(/4.*workloads/i)).toBeInTheDocument();
   });
 
-  it('should display regions with correct data', () => {
+  it('should display info message with workload count', () => {
     render(<RegionalBreakdown workloads={mockWorkloads} />);
 
-    expect(screen.getByText(/us-east-1/i)).toBeInTheDocument();
-    expect(screen.getByText(/us-west-2/i)).toBeInTheDocument();
-    expect(screen.getByText(/eu-west-1/i)).toBeInTheDocument();
+    // Should show the workload count in the message
+    expect(screen.getByText(/4.*workloads/i)).toBeInTheDocument();
+    expect(screen.getByText(/UI rendering disabled for performance/i)).toBeInTheDocument();
   });
 
-  it('should show workload counts per region', () => {
+  it('should show card header with correct title', () => {
     render(<RegionalBreakdown workloads={mockWorkloads} />);
 
-    // us-east-1 should have 2 workloads
-    const usEast1Row = screen.getByText(/us-east-1/i).closest('tr');
-    expect(usEast1Row).toBeInTheDocument();
+    expect(screen.getByText(/Regional Breakdown - Workload Distribution by AWS Region/i)).toBeInTheDocument();
   });
 
-  it('should display total costs per region', () => {
-    render(<RegionalBreakdown workloads={mockWorkloads} />);
+  it('should show correct workload count for many workloads', () => {
+    const manyWorkloads = Array.from({ length: 20 }, (_, i) => ({
+      id: `w${i}`,
+      region: 'us-east-1',
+      service: 'EC2',
+      monthlyCost: 100
+    }));
 
-    // Should show currency formatted costs
-    const costElements = screen.getAllByText(/\$/);
-    expect(costElements.length).toBeGreaterThan(0);
+    render(<RegionalBreakdown workloads={manyWorkloads} />);
+
+    // Should show the correct count (20 workloads)
+    expect(screen.getByText(/20.*workloads/i)).toBeInTheDocument();
   });
 
-  it('should display average complexity per region', () => {
-    render(<RegionalBreakdown workloads={mockWorkloads} />);
+  it('should handle single workload', () => {
+    const singleWorkload = [
+      { id: '1', region: 'us-east-1', service: 'EC2', monthlyCost: 100 }
+    ];
 
-    expect(screen.getByText(/Avg Complexity/i)).toBeInTheDocument();
-  });
+    render(<RegionalBreakdown workloads={singleWorkload} />);
 
-  it('should display top services per region', () => {
-    render(<RegionalBreakdown workloads={mockWorkloads} />);
-
-    expect(screen.getByText(/Top 3 Services/i)).toBeInTheDocument();
-  });
-
-  it('should format region names correctly', () => {
-    render(<RegionalBreakdown workloads={mockWorkloads} />);
-
-    // Should show readable region names
-    expect(screen.getByText(/US East/i)).toBeInTheDocument();
-  });
-
-  it('should display totals row', () => {
-    render(<RegionalBreakdown workloads={mockWorkloads} />);
-
-    expect(screen.getByText(/Total/i)).toBeInTheDocument();
+    expect(screen.getByText(/1.*workload/i)).toBeInTheDocument();
   });
 
   it('should handle workloads without region', () => {
@@ -118,15 +73,7 @@ describe('RegionalBreakdown', () => {
 
     render(<RegionalBreakdown workloads={workloadsNoRegion} />);
 
-    expect(screen.getByText(/Unknown/i)).toBeInTheDocument();
-  });
-
-  it('should sort regions by cost descending', () => {
-    render(<RegionalBreakdown workloads={mockWorkloads} />);
-
-    // eu-west-1 has highest cost (300), should appear first
-    const rows = screen.getAllByRole('row');
-    // First data row should be highest cost region
-    expect(rows.length).toBeGreaterThan(1);
+    // Should still show the info message
+    expect(screen.getByText(/Regional breakdown available in PDF report/i)).toBeInTheDocument();
   });
 });

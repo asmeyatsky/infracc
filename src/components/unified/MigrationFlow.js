@@ -92,8 +92,8 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
       
       // If current step is already completed, advance to next step
       if (currentStatus === 'completed') {
-        // Wait to ensure agent is fully done
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Allow UI to update before advancing
+        await new Promise(resolve => requestAnimationFrame(resolve));
         if (currentStep < STEPS.length - 1) {
           console.log(`Auto-run: Step ${currentStepId} completed, advancing to next step`);
           setCurrentStep(currentStep + 1);
@@ -117,14 +117,13 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
           
           // Special handling for assessment step - ensure assessmentResults is set
           if (step.id === 'assessment') {
-            // Wait a bit longer to ensure state is set
-            await new Promise(resolve => setTimeout(resolve, 500));
-            // Verify assessmentResults was set (check current state via a ref or callback)
+            // Allow state to update (React batches updates, so one frame is enough)
+            await new Promise(resolve => requestAnimationFrame(resolve));
             console.log(`Auto-run: Assessment step completed, verifying assessmentResults state...`);
           }
           
-          // Wait to ensure agent is fully done before advancing
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          // Allow UI to update and agent to complete before advancing
+          await new Promise(resolve => requestAnimationFrame(resolve));
           if (currentStep < STEPS.length - 1) {
             console.log(`Auto-run: Step ${currentStepId} completed, advancing to next step`);
             setCurrentStep(currentStep + 1);
@@ -302,8 +301,8 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
             }
           }
           
-          // Artificial delay to show pipeline working (3 seconds)
-          await new Promise(resolve => setTimeout(resolve, 3000));
+          // Allow UI to update after discovery completes
+          await new Promise(resolve => requestAnimationFrame(resolve));
           
           // Reload workloads after discovery - ensure ALL workloads are loaded
           const workloads = await workloadRepository.findAll();
@@ -461,9 +460,8 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
             return false;
           }
           
-          // Artificial delay before starting next agent (2 seconds)
           toast.info('⏳ Preparing Strategy Agent...', { autoClose: 2000 });
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          await new Promise(resolve => requestAnimationFrame(resolve));
           
           // Set status to running
           setStepStatuses(prev => ({ ...prev, strategy: 'running' }));
@@ -529,8 +527,8 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
               }
             }
             
-            // Artificial delay to show pipeline working (4 seconds)
-            await new Promise(resolve => setTimeout(resolve, 4000));
+            // Allow UI to update after strategy completes
+            await new Promise(resolve => requestAnimationFrame(resolve));
             
             setStepStatuses(prev => ({ ...prev, strategy: 'completed' }));
             toast.success(`✅ Strategy planning complete! Generated plans for ${workloadIds.length} workloads.`, { autoClose: 3000 });
@@ -550,9 +548,8 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
             return false;
           }
           
-          // Artificial delay before starting next agent (2 seconds)
           toast.info('⏳ Preparing Cost Analysis Agent...', { autoClose: 2000 });
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          await new Promise(resolve => requestAnimationFrame(resolve));
           
           // Set status to running
           setStepStatuses(prev => ({ ...prev, cost: 'running' }));
@@ -567,8 +564,8 @@ function MigrationFlow({ uploadSummary, onSummaryDismiss }) {
             const estimates = await GCPCostEstimator.estimateAllServiceCosts(serviceAggregation, 'us-central1');
             setCostEstimates(estimates);
             
-            // Artificial delay to show pipeline working (3 seconds)
-            await new Promise(resolve => setTimeout(resolve, 3000));
+            // Allow UI to update after cost analysis completes
+            await new Promise(resolve => requestAnimationFrame(resolve));
             
             // If cost inputs are available, run the Cost Analysis Agent
             // For now, we'll mark this step as completed with the estimates

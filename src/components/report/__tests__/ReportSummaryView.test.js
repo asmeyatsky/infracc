@@ -58,39 +58,72 @@ jest.mock('../../../utils/reportPdfGenerator.js', () => ({
 // Mock services
 jest.mock('../../../domain/services/ReportDataAggregator.js', () => ({
   ReportDataAggregator: {
-    generateReportSummary: jest.fn((workloads) => ({
-      summary: {
-        totalWorkloads: workloads.length,
-        totalMonthlyCost: workloads.reduce((sum, w) => sum + (w.monthlyCost || 0), 0),
-        averageComplexity: 5,
-        totalRegions: 2,
-        totalServices: 3
-      },
-      complexity: {
-        low: { count: 1, totalCost: 100 },
-        medium: { count: 1, totalCost: 200 },
-        high: { count: 1, totalCost: 300 },
-        unassigned: { count: 0, totalCost: 0 }
-      },
-      readiness: {
-        ready: { count: 1, totalCost: 100 },
-        conditional: { count: 1, totalCost: 200 },
-        notReady: { count: 1, totalCost: 300 },
-        unassigned: { count: 0, totalCost: 0 }
-      },
-      services: {
-        topServices: [
-          { service: 'EC2', count: 1, totalCost: 100, gcpService: 'Compute Engine' },
-          { service: 'S3', count: 1, totalCost: 200, gcpService: 'Cloud Storage' }
+    generateReportSummary: (workloads) => {
+      // Handle empty workloads
+      if (!workloads || workloads.length === 0) {
+        return {
+          summary: {
+            totalWorkloads: 0,
+            totalMonthlyCost: 0,
+            averageComplexity: 0,
+            totalRegions: 0,
+            totalServices: 0
+          },
+          complexity: {
+            low: { count: 0, totalCost: 0 },
+            medium: { count: 0, totalCost: 0 },
+            high: { count: 0, totalCost: 0 },
+            unassigned: { count: 0, totalCost: 0 }
+          },
+          readiness: {
+            ready: { count: 0, totalCost: 0 },
+            conditional: { count: 0, totalCost: 0 },
+            notReady: { count: 0, totalCost: 0 },
+            unassigned: { count: 0, totalCost: 0 }
+          },
+          services: {
+            topServices: [],
+            other: null
+          },
+          regions: [],
+          allServices: []
+        };
+      }
+      
+      return {
+        summary: {
+          totalWorkloads: workloads.length,
+          totalMonthlyCost: workloads.reduce((sum, w) => sum + (w.monthlyCost || 0), 0),
+          averageComplexity: 5,
+          totalRegions: 2,
+          totalServices: 3
+        },
+        complexity: {
+          low: { count: 1, totalCost: 100 },
+          medium: { count: 1, totalCost: 200 },
+          high: { count: 1, totalCost: 300 },
+          unassigned: { count: 0, totalCost: 0 }
+        },
+        readiness: {
+          ready: { count: 1, totalCost: 100 },
+          conditional: { count: 1, totalCost: 200 },
+          notReady: { count: 1, totalCost: 300 },
+          unassigned: { count: 0, totalCost: 0 }
+        },
+        services: {
+          topServices: [
+            { service: 'EC2', count: 1, totalCost: 100, gcpService: 'Compute Engine' },
+            { service: 'S3', count: 1, totalCost: 200, gcpService: 'Cloud Storage' }
+          ],
+          other: null
+        },
+        regions: [
+          { region: 'us-east-1', count: 2, totalCost: 300 },
+          { region: 'us-west-2', count: 1, totalCost: 300 }
         ],
-        other: null
-      },
-      regions: [
-        { region: 'us-east-1', count: 2, totalCost: 300 },
-        { region: 'us-west-2', count: 1, totalCost: 300 }
-      ],
-      allServices: []
-    })),
+        allServices: []
+      };
+    }),
     aggregateByService: jest.fn(() => [])
   }
 }));

@@ -49,7 +49,8 @@ export class AssessmentAgent extends BaseAgent {
       // Step 1: Analyze workload structure
       await this.executeStep('Analyzing workload structure', async () => {
         this.think(`Examining workload ${workloadId} configuration and dependencies`);
-        await new Promise(resolve => setTimeout(resolve, 300)); // Simulate processing
+        // Allow UI to update
+        await new Promise(resolve => requestAnimationFrame(resolve));
       }, 20);
 
       // Step 2: Execute use case (Clean Architecture)
@@ -66,14 +67,16 @@ export class AssessmentAgent extends BaseAgent {
         result = await this.executeStep('Generating AI insights', async () => {
           this.think('Analyzing complexity patterns and risk factors');
           const aiInsights = await this._generateAIInsights(assessment);
-          await new Promise(resolve => setTimeout(resolve, 400)); // Simulate AI processing
+          // Allow UI to update during AI processing
+          await new Promise(resolve => requestAnimationFrame(resolve));
           return this._enhanceAssessment(assessment, aiInsights);
         }, 80);
       }
 
       // Step 4: Finalize
       await this.executeStep('Finalizing assessment', async () => {
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // Allow UI to update
+        await new Promise(resolve => requestAnimationFrame(resolve));
       }, 100);
 
       this.setCompleted(result);
@@ -99,9 +102,9 @@ export class AssessmentAgent extends BaseAgent {
     this.think(`Starting batch assessment of ${workloadIds.length} workloads`);
 
     if (parallel) {
-      // Assess workloads in parallel with batching to avoid memory issues
-      // Process in chunks of 1000 to prevent browser crashes with large datasets
-      const BATCH_SIZE = 1000;
+      // PERFORMANCE: Assess workloads in parallel with larger batches for faster processing
+      // Increased batch size from 1000 to 2000 for better performance (IndexedDB handles it well)
+      const BATCH_SIZE = 2000;
       let completed = 0;
       const total = workloadIds.length;
       const assessments = [];
@@ -206,7 +209,7 @@ export class AssessmentAgent extends BaseAgent {
         
         // Yield to event loop between batches to prevent blocking
         if (i + BATCH_SIZE < workloadIds.length) {
-          await new Promise(resolve => setTimeout(resolve, 10)); // Small delay between batches
+          await new Promise(resolve => requestAnimationFrame(resolve));
         }
       }
 

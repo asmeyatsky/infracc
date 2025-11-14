@@ -141,6 +141,9 @@ describe('WorkloadRepository', () => {
       });
 
       await repository.save(workload);
+      
+      // Wait for debounced persistence (500ms + small buffer)
+      await new Promise(resolve => setTimeout(resolve, 600));
 
       const stored = localStorage.getItem(testStorageKey);
       expect(stored).toBeDefined();
@@ -157,6 +160,9 @@ describe('WorkloadRepository', () => {
       });
 
       await repository.save(workload);
+      
+      // Wait for debounced persistence (500ms + small buffer)
+      await new Promise(resolve => setTimeout(resolve, 600));
 
       // Create new repository instance (simulates page reload)
       const newRepository = new WorkloadRepository({

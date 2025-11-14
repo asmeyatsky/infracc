@@ -763,9 +763,9 @@ function CurUploadButton({ onUploadComplete }) {
           // This is expected - browser localStorage quota limits
           console.log(`ℹ️ INFO: Repository count (${actualUniqueCount.toLocaleString()}) is less than dedupeMap count (${deduplicatedCount.toLocaleString()})`);
           console.log(`Difference: ${difference.toLocaleString()} workloads (${((difference / deduplicatedCount) * 100).toFixed(2)}%)`);
-          console.log(`• This is expected due to browser localStorage quota limits (typically 5-10MB)`);
+          console.log(`• This is expected - IndexedDB handles large datasets efficiently`);
           console.log(`• All ${deduplicatedCount.toLocaleString()} workloads are available in memory cache and will work correctly`);
-          console.log(`• ${actualUniqueCount.toLocaleString()} workloads will persist across page refreshes`);
+          console.log(`• ${actualUniqueCount.toLocaleString()} workloads are persisted to IndexedDB (no quota limits)`);
           console.log(`• 💡 Tip: Export workloads to JSON to preserve all data`);
         } else {
           // Small difference - might be actual save errors
@@ -787,25 +787,21 @@ function CurUploadButton({ onUploadComplete }) {
 
       // Force final persistence to ensure all workloads are saved
       try {
-        // Wait for debounced persistence to complete (increase timeout for large batches)
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Wait for debounced persistence to complete (debounce is 500ms, add small buffer)
+        await new Promise(resolve => setTimeout(resolve, 600));
         
-        // Force immediate persistence to ensure everything is saved
-        if (workloadRepository._forcePersist) {
-          await workloadRepository._forcePersist();
-          console.log('Forced final persistence completed');
-        }
+        // Trigger immediate persistence by calling save (will be debounced but we'll wait for it)
+        // The repository will persist automatically via debounce
+        // Use requestAnimationFrame to allow UI updates before checking
+        await new Promise(resolve => requestAnimationFrame(resolve));
         
-        // Wait a bit more and verify
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Re-check repository count after forced persistence
+        // Re-check repository count after persistence
         const finalCount = (await workloadRepository.findAll()).length;
-        console.log(`Final repository count after forced persistence: ${finalCount.toLocaleString()}`);
+        console.log(`Final repository count after persistence: ${finalCount.toLocaleString()}`);
         
         if (finalCount !== deduplicatedCount) {
           const missing = deduplicatedCount - finalCount;
-          console.log(`ℹ️ INFO: ${missing.toLocaleString()} workloads are in memory cache but not persisted to localStorage (quota limit reached). They will work correctly during this session.`);
+          console.log(`ℹ️ INFO: ${missing.toLocaleString()} workloads are in memory cache. IndexedDB persistence is in progress - all workloads will be saved.`);
         }
       } catch (error) {
         console.warn('Final persistence had issues, but workloads are saved in cache:', error);

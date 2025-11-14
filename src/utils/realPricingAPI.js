@@ -431,13 +431,34 @@ class GCPPricingAPI {
         });
       }
 
+      // CRITICAL: Exclude Marketplace CUD offerings
+      // Marketplace CUD offerings are not eligible for standard CUD discounts
+      // Filter out any CUD pricing that comes from Marketplace SKUs
+      let committedUse1Year = parseFloat(data.committedUse1Year?.price || 0);
+      let committedUse3Year = parseFloat(data.committedUse3Year?.price || 0);
+      
+      // Check if this is a Marketplace offering (identified by category or SKU description)
+      const isMarketplace = data.category === 'Marketplace' || 
+                           data.skuCategory === 'Marketplace' ||
+                           (data.skuDescription && data.skuDescription.toLowerCase().includes('marketplace')) ||
+                           (data.committedUse1Year?.category && data.committedUse1Year.category.toLowerCase().includes('marketplace')) ||
+                           (data.committedUse3Year?.category && data.committedUse3Year.category.toLowerCase().includes('marketplace'));
+      
+      if (isMarketplace) {
+        // Exclude Marketplace CUD offerings - set to 0 or use on-demand pricing
+        console.log(`[CUD Filter] Excluding Marketplace CUD offering for ${machineType} in ${region}`);
+        committedUse1Year = 0;
+        committedUse3Year = 0;
+      }
+
       return {
         onDemand: parseFloat(data.onDemand?.price || 0),
         sustainedUse: parseFloat(data.sustainedUse?.price || 0),
-        committedUse1Year: parseFloat(data.committedUse1Year?.price || 0),
-        committedUse3Year: parseFloat(data.committedUse3Year?.price || 0),
+        committedUse1Year,
+        committedUse3Year,
         machineType,
         region,
+        isMarketplace: isMarketplace || false, // Flag for debugging
       };
     } catch (error) {
       console.error('Error fetching GCP Compute pricing:', error);

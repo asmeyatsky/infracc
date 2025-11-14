@@ -30,9 +30,11 @@ const mockWorkloadRepository = {
 };
 
 jest.mock('../../../infrastructure/dependency_injection/Container.js', () => ({
-  getContainer: jest.fn(() => ({
-    workloadRepository: mockWorkloadRepository,
-  })),
+  getContainer: () => ({
+    workloadRepository: {
+      findAll: jest.fn().mockResolvedValue([]),
+    },
+  }),
 }));
 
 jest.mock('../../../test-data/index.js', () => ({
