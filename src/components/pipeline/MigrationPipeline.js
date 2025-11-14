@@ -16,6 +16,8 @@ import PipelineOrchestrator from './PipelineOrchestrator.js';
 import ReportSummaryView from '../report/ReportSummaryView.js';
 import { generateComprehensiveReportPDF } from '../../utils/reportPdfGenerator.js';
 import { getAgentOutput, getPipelineState, savePipelineState, clearPipelineState } from '../../utils/agentCacheService.js';
+import { loadDemoData } from '../../utils/demoData.js';
+import { Workload } from '../../domain/entities/Workload.js';
 import localforage from 'localforage';
 import './MigrationPipeline.css';
 
@@ -649,17 +651,118 @@ export default function MigrationPipeline() {
     );
   }
 
+  // Load demo data into repository
+  const handleLoadDemoData = async () => {
+    try {
+      const container = await import('../../infrastructure/dependency_injection/Container.js').then(m => m.getContainer());
+      const workloadRepository = container.workloadRepository;
+      
+      // Clear existing workloads
+      await workloadRepository.clear();
+      
+      // Load demo data
+      const demoData = loadDemoData();
+      const { workloads: demoWorkloads } = demoData;
+      
+      // Convert demo workloads to Workload entities and save to repository
+      let savedCount = 0;
+      for (const demoWorkload of demoWorkloads) {
+        try {
+          const workload = new Workload({
+            id: `demo-${demoWorkload.id}`,
+            name: demoWorkload.name,
+            service: demoWorkload.service || 'EC2',
+            type: demoWorkload.type || 'vm',
+            sourceProvider: 'aws',
+            cpu: demoWorkload.cpu || 0,
+            memory: demoWorkload.memory || 0,
+            storage: demoWorkload.storage || 0,
+            monthlyCost: demoWorkload.monthlyCost || 0,
+            region: demoWorkload.region || 'us-east-1',
+            os: demoWorkload.os || 'linux',
+            monthlyTraffic: demoWorkload.monthlyTraffic || 0,
+            dependencies: typeof demoWorkload.dependencies === 'string' 
+              ? demoWorkload.dependencies.split(',').map(d => d.trim()).filter(Boolean)
+              : (demoWorkload.dependencies || [])
+          });
+          
+          await workloadRepository.save(workload);
+          savedCount++;
+        } catch (error) {
+          console.warn(`Failed to save demo workload ${demoWorkload.name}:`, error);
+        }
+      }
+      
+      // Force persistence to ensure workloads are saved to IndexedDB
+      try {
+        await workloadRepository._forcePersist();
+        console.log('[DEBUG] Demo Data: Forced persistence to IndexedDB');
+      } catch (persistError) {
+        console.warn('[DEBUG] Demo Data: Failed to force persist, trying alternative:', persistError);
+        // Wait a bit for debounced persistence to complete
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      
+      // Wait a bit for persistence to complete
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      // Reload from storage to ensure we have the latest data
+      if (typeof workloadRepository._loadFromStorage === 'function') {
+        await workloadRepository._loadFromStorage();
+      }
+      
+      // Verify workloads were saved
+      const verifyWorkloads = await workloadRepository.findAll();
+      console.log(`[DEBUG] Demo Data: Saved ${savedCount} workloads, verified ${verifyWorkloads.length} workloads in repository`);
+      console.log(`[DEBUG] Demo Data: Sample workload IDs:`, verifyWorkloads.slice(0, 5).map(w => w.id));
+      
+      if (verifyWorkloads.length === 0) {
+        throw new Error('Failed to save demo workloads to repository. Please try again.');
+      }
+      
+      if (verifyWorkloads.length !== savedCount) {
+        console.warn(`[DEBUG] Demo Data: Warning - saved ${savedCount} but verified ${verifyWorkloads.length} workloads`);
+      }
+      
+      toast.success(`✅ Loaded ${verifyWorkloads.length} demo workloads into repository. You can now run the pipeline!`, { autoClose: 3000 });
+      
+      // Set a placeholder file so pipeline can proceed
+      // Add a small delay to ensure repository is ready
+      await new Promise(resolve => setTimeout(resolve, 200));
+      setFiles([{ name: 'demo-data', demo: true }]);
+      
+    } catch (error) {
+      console.error('Error loading demo data:', error);
+      toast.error('Failed to load demo data: ' + error.message, { autoClose: 3000 });
+    }
+  };
+
   // Step 1: File Upload
   if (!files || files.length === 0) {
     return (
       <div className="migration-pipeline">
         <div className="pipeline-step-container">
-          <h2>Step 1: Upload CUR Files</h2>
+          <h2>Step 1: Upload CUR Files or Load Demo Data</h2>
           <p className="step-description">
-            Upload your AWS Cost and Usage Report (CUR) files to begin the migration assessment.
+            Upload your AWS Cost and Usage Report (CUR) files to begin the migration assessment, or load demo data to explore the tool.
           </p>
           <div className="file-upload-section">
-            <CurUploadButton onUploadComplete={handleFileUpload} />
+            <div className="mb-4">
+              <CurUploadButton onUploadComplete={handleFileUpload} />
+            </div>
+            <div className="text-center">
+              <div className="mb-2 text-muted">OR</div>
+              <button 
+                className="btn btn-success btn-lg"
+                onClick={handleLoadDemoData}
+                style={{ minWidth: '200px' }}
+              >
+                🎮 Load Demo Data
+              </button>
+              <p className="text-muted small mt-2">
+                Loads 16 pre-configured workloads (VMs, containers, databases, storage) for testing
+              </p>
+            </div>
           </div>
         </div>
       </div>

@@ -53,14 +53,32 @@ export class GenerateMigrationPlanUseCase {
     
     const { workloadIds, useCodeMod = false } = input;
 
+    console.log(`[GenerateMigrationPlanUseCase] Attempting to load ${workloadIds.length} workloads by ID:`, workloadIds);
+
     // Load all workloads
     const workloads = await Promise.all(
       workloadIds.map(id => this.workloadRepository.findById(id))
     );
 
-    const validWorkloads = workloads.filter(w => w !== null);
+    let validWorkloads = workloads.filter(w => w !== null);
+    
+    // If no workloads found by ID, try loading all workloads as fallback
     if (validWorkloads.length === 0) {
-      throw new Error('No valid workloads found');
+      console.warn(`[GenerateMigrationPlanUseCase] No workloads found by provided IDs. Attempting fallback: load all workloads from repository.`);
+      const allWorkloads = await this.workloadRepository.findAll();
+      console.log(`[GenerateMigrationPlanUseCase] Found ${allWorkloads.length} total workloads in repository`);
+      
+      if (allWorkloads.length === 0) {
+        throw new Error('No valid workloads found in repository. Please ensure workloads are discovered and saved before generating migration plan.');
+      }
+      
+      // Use all workloads as fallback
+      validWorkloads = allWorkloads;
+      console.log(`[GenerateMigrationPlanUseCase] Using all ${validWorkloads.length} workloads from repository as fallback`);
+    } else if (validWorkloads.length < workloadIds.length) {
+      console.warn(`[GenerateMigrationPlanUseCase] Only found ${validWorkloads.length} of ${workloadIds.length} requested workloads. Proceeding with available workloads.`);
+    } else {
+      console.log(`[GenerateMigrationPlanUseCase] Successfully loaded ${validWorkloads.length} workloads`);
     }
 
     // Generate migration plan for each workload

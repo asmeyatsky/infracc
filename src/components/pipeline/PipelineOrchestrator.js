@@ -253,22 +253,40 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
 
     try {
       // CRITICAL FIX: Check if files were actually uploaded (not just restored placeholders)
-      // If files are restored placeholders, we can't run Discovery Agent - need actual files
-      const hasActualFiles = files && files.length > 0 && !files[0]?.restored;
+      // Allow demo data files to proceed
+      const hasActualFiles = files && files.length > 0 && (!files[0]?.restored || files[0]?.demo);
       
       if (!hasActualFiles) {
-        throw new Error('No files uploaded. Please upload CUR files to start the pipeline.');
+        throw new Error('No files uploaded. Please upload CUR files or load demo data to start the pipeline.');
       }
 
       // Files are already processed by CurUploadButton, so we just read from repository
+      // For demo data, workloads should already be in repository
       // Wait a bit for processing to complete if it's still running
       let attempts = 0;
       let workloads = [];
       
+      // Check if this is demo data
+      const isDemoData = files && files.length > 0 && files[0]?.demo;
+      console.log(`[DEBUG] Discovery Agent: isDemoData=${isDemoData}, files:`, files);
+      
+      // For demo data, try to reload from storage immediately
+      if (isDemoData && workloadRepository.current && typeof workloadRepository.current._loadFromStorage === 'function') {
+        console.log('[DEBUG] Discovery Agent: Demo data detected, reloading from storage...');
+        try {
+          await workloadRepository.current._loadFromStorage();
+          workloads = await workloadRepository.current.findAll();
+          console.log(`[DEBUG] Discovery Agent: After reload for demo data, found ${workloads.length} workloads`);
+        } catch (reloadError) {
+          console.warn('[DEBUG] Discovery Agent: Failed to reload demo data from storage:', reloadError);
+        }
+      }
+      
       // Give Discovery Agent time to process and save workloads (increased timeout for large files)
-      while (attempts < 200) { // Wait up to 20 seconds for large files
+      while (attempts < 200 && workloads.length === 0) { // Wait up to 20 seconds for large files
         workloads = await workloadRepository.current.findAll();
         if (workloads.length > 0) {
+          console.log(`[DEBUG] Discovery Agent: Found ${workloads.length} workloads after ${attempts} attempts`);
           break;
         }
         setAgentProgress(Math.min(attempts * 0.5, 90)); // Show progress while waiting
@@ -276,8 +294,43 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         attempts++;
       }
 
+      // If still no workloads, try reloading from storage
       if (workloads.length === 0) {
-        throw new Error('No workloads found in repository after processing. Please ensure files are valid CUR files and try again.');
+        console.warn('[DEBUG] Discovery Agent: No workloads found in cache. Attempting to reload from IndexedDB storage...');
+        
+        // Try to reload from storage if the repository supports it
+        if (workloadRepository.current && typeof workloadRepository.current._loadFromStorage === 'function') {
+          try {
+            await workloadRepository.current._loadFromStorage();
+            workloads = await workloadRepository.current.findAll();
+            console.log(`[DEBUG] Discovery Agent: After reload, found ${workloads.length} workloads in repository`);
+            console.log(`[DEBUG] Discovery Agent: Sample workload IDs:`, workloads.slice(0, 3).map(w => w.id));
+          } catch (reloadError) {
+            console.warn('[DEBUG] Discovery Agent: Failed to reload from storage:', reloadError);
+          }
+        }
+        
+        // Try with a fresh container instance
+        if (workloads.length === 0) {
+          console.warn('[DEBUG] Discovery Agent: Trying fresh container instance...');
+          const freshContainer = getContainer();
+          const freshWorkloads = await freshContainer.workloadRepository.findAll();
+          console.log(`[DEBUG] Discovery Agent: Fresh container found ${freshWorkloads.length} workloads`);
+          if (freshWorkloads.length > 0) {
+            workloads = freshWorkloads;
+            // Update the ref to use the fresh container
+            workloadRepository.current = freshContainer.workloadRepository;
+          }
+        }
+      }
+
+      if (workloads.length === 0) {
+        const errorMessage = 'No workloads found in repository. Please:\n' +
+          '1. Upload CUR files using the "Upload CUR Files" button\n' +
+          '2. Wait for files to be processed\n' +
+          '3. Ensure files are valid AWS CUR CSV files\n' +
+          '4. Try refreshing the page and uploading again';
+        throw new Error(errorMessage);
       }
 
       const workloadIds = workloads.map(w => w.id);
@@ -683,11 +736,80 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       
       console.log(`[DEBUG] Strategy Agent: Extracted ${workloadIds.length} workload IDs from ${assessmentOutput.results.length} assessment results`);
       
-      const strategyResult = await agenticContainer.current.planningAgent.execute({
-        workloadIds,
-        useCodeMod: false,
-        useAI: true
-      });
+      let strategyResult;
+      try {
+        strategyResult = await agenticContainer.current.planningAgent.execute({
+          workloadIds,
+          useCodeMod: false,
+          useAI: true
+        });
+      } catch (error) {
+        // If error is about no valid workloads, try fallback: load all workloads from repository
+        if (error.message && error.message.includes('No valid workloads found')) {
+          console.warn('[DEBUG] Strategy Agent: No workloads found by ID. Attempting fallback: load all workloads from repository.');
+          
+          if (!workloadRepository.current) {
+            const container = getContainer();
+            workloadRepository.current = container.workloadRepository;
+          }
+          
+          // Try to reload from storage first
+          if (typeof workloadRepository.current._loadFromStorage === 'function') {
+            console.log('[DEBUG] Strategy Agent: Reloading repository from IndexedDB storage...');
+            try {
+              await workloadRepository.current._loadFromStorage();
+            } catch (reloadError) {
+              console.warn('[DEBUG] Strategy Agent: Failed to reload from storage:', reloadError);
+            }
+          }
+          
+          const allWorkloads = await workloadRepository.current.findAll();
+          console.log(`[DEBUG] Strategy Agent: Found ${allWorkloads.length} workloads in repository after reload`);
+          console.log(`[DEBUG] Strategy Agent: Workload IDs:`, allWorkloads.slice(0, 5).map(w => w.id));
+          
+          if (allWorkloads.length === 0) {
+            // Try one more time with a fresh container instance
+            console.warn('[DEBUG] Strategy Agent: Repository still empty. Trying fresh container instance...');
+            const freshContainer = getContainer();
+            const freshWorkloads = await freshContainer.workloadRepository.findAll();
+            console.log(`[DEBUG] Strategy Agent: Fresh container found ${freshWorkloads.length} workloads`);
+            
+            if (freshWorkloads.length === 0) {
+              const errorMessage = 'No workloads found in repository. The migration planning pipeline requires workloads to be discovered first.\n\n' +
+                'Please ensure:\n' +
+                '1. You have uploaded CUR files using the "Upload CUR Files" button, OR\n' +
+                '2. You have clicked "Load Demo Data" button, AND\n' +
+                '3. The Discovery Agent has completed successfully\n\n' +
+                'If you loaded demo data, make sure you clicked the button and saw a success message. ' +
+                'Then try refreshing the page and running the pipeline again.';
+              throw new Error(errorMessage);
+            }
+            
+            // Use fresh container's workloads
+            const freshWorkloadIds = freshWorkloads.map(w => w.id);
+            console.log(`[DEBUG] Strategy Agent: Using ${freshWorkloadIds.length} workloads from fresh container`);
+            
+            strategyResult = await agenticContainer.current.planningAgent.execute({
+              workloadIds: freshWorkloadIds,
+              useCodeMod: false,
+              useAI: true
+            });
+          } else {
+            // Use all workload IDs from repository
+            const allWorkloadIds = allWorkloads.map(w => w.id);
+            console.log(`[DEBUG] Strategy Agent: Using ${allWorkloadIds.length} workloads from repository as fallback`);
+            
+            strategyResult = await agenticContainer.current.planningAgent.execute({
+              workloadIds: allWorkloadIds,
+              useCodeMod: false,
+              useAI: true
+            });
+          }
+        } else {
+          // Re-throw if it's a different error
+          throw error;
+        }
+      }
 
       clearInterval(progressInterval);
       setAgentProgress(100);

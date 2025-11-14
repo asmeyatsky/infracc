@@ -338,7 +338,7 @@ function CurUploadButton({ onUploadComplete }) {
       // Shared deduplication map across all files
       const dedupeMap = new Map(); // Track deduplication keys across all files
       const savedDedupeKeys = new Set(); // Track which dedupe keys we've already saved
-      const batchSize = 25; // Smaller batch size to prevent stack overflow
+      const batchSize = 100; // Increased batch size for better performance (was 25)
       let totalSkippedCount = 0; // Track total skipped workloads across all files
       
       // Process files incrementally - deduplicate and save as we go
@@ -346,11 +346,14 @@ function CurUploadButton({ onUploadComplete }) {
         const fileProgress = Math.round(((processedCount) / files.length) * 100);
         const currentStatus = `Processing ${file.name}... (${processedCount + 1}/${files.length})`;
         
+        const startTime = Date.now();
         setUploadProgress({
           current: processedCount + 1,
           total: files.length,
           currentFile: file.name,
-          status: currentStatus
+          status: currentStatus,
+          percent: Math.round(((processedCount) / files.length) * 100),
+          startTime
         });
 
         // Progress updates removed for performance - focus on accurate PDF generation
@@ -503,12 +506,19 @@ function CurUploadButton({ onUploadComplete }) {
           console.log(`Processed ${file.name}: ${fileData.length} rows -> ${dedupeMap.size} unique workloads so far`);
 
           // Save deduplicated workloads incrementally (process in batches)
-          const saveStatus = `Saving workloads from ${file.name}...`;
+          const saveStatus = `Saving ${dedupeEntries.length.toLocaleString()} workloads from ${file.name}...`;
+          const elapsed = Date.now() - startTime;
+          const avgTimePerFile = elapsed / (processedCount + 1);
+          const remainingFiles = files.length - (processedCount + 1);
+          const estimatedTimeRemaining = Math.round((avgTimePerFile * remainingFiles) / 1000);
+          
           setUploadProgress({
             current: processedCount + 1,
             total: files.length,
             currentFile: file.name,
-            status: saveStatus
+            status: saveStatus,
+            percent: Math.round(((processedCount + 0.5) / files.length) * 100),
+            estimatedTimeRemaining: estimatedTimeRemaining > 0 ? `${Math.round(estimatedTimeRemaining / 60)}m ${estimatedTimeRemaining % 60}s` : null
           });
 
           // Progress updates removed for performance - focus on accurate PDF generation
@@ -558,10 +568,23 @@ function CurUploadButton({ onUploadComplete }) {
           
           console.log(`Processing ${dedupeEntries.length.toLocaleString()} entries from ${file.name} (${dedupeMap.size.toLocaleString()} total, ${savedDedupeKeys.size.toLocaleString()} already saved)`);
           
+          const totalBatches = Math.ceil(dedupeEntries.length / batchSize);
+          
           for (let i = 0; i < dedupeEntries.length; i += batchSize) {
             const batch = dedupeEntries.slice(i, i + batchSize);
             const batchNumber = Math.floor(i / batchSize) + 1;
-            const totalBatches = Math.ceil(dedupeEntries.length / batchSize);
+            
+            // Update progress for batch processing
+            if (batchNumber % 10 === 0 || batchNumber === totalBatches) {
+              const batchProgress = Math.round((i / dedupeEntries.length) * 100);
+              setUploadProgress({
+                current: processedCount + 1,
+                total: files.length,
+                currentFile: file.name,
+                status: `Saving batch ${batchNumber}/${totalBatches} (${batchProgress}%) from ${file.name}...`,
+                percent: Math.round(((processedCount + (i / dedupeEntries.length) * 0.5) / files.length) * 100)
+              });
+            }
             
             // Process batch - use in-memory map instead of repository queries
             for (const [dedupeKey, data] of batch) {
@@ -905,8 +928,52 @@ function CurUploadButton({ onUploadComplete }) {
         )}
       </button>
       {uploadProgress && uploadProgress.currentFile && (
-        <div className="cur-upload-progress">
-          Processing: {uploadProgress.currentFile}
+        <div className="cur-upload-progress" style={{ 
+          marginTop: '10px', 
+          padding: '10px', 
+          backgroundColor: '#f0f0f0', 
+          borderRadius: '4px',
+          fontSize: '14px'
+        }}>
+          <div style={{ marginBottom: '5px' }}>
+            <strong>Processing:</strong> {uploadProgress.currentFile}
+          </div>
+          {uploadProgress.status && (
+            <div style={{ marginBottom: '5px', color: '#666' }}>
+              {uploadProgress.status}
+            </div>
+          )}
+          {uploadProgress.percent !== undefined && (
+            <div style={{ marginBottom: '5px' }}>
+              <div style={{ 
+                width: '100%', 
+                backgroundColor: '#ddd', 
+                borderRadius: '4px', 
+                height: '20px',
+                overflow: 'hidden'
+              }}>
+                <div style={{ 
+                  width: `${uploadProgress.percent}%`, 
+                  backgroundColor: '#007bff', 
+                  height: '100%',
+                  transition: 'width 0.3s ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'white',
+                  fontSize: '12px',
+                  fontWeight: 'bold'
+                }}>
+                  {uploadProgress.percent}%
+                </div>
+              </div>
+            </div>
+          )}
+          {uploadProgress.estimatedTimeRemaining && (
+            <div style={{ color: '#666', fontSize: '12px' }}>
+              ⏱️ Estimated time remaining: {uploadProgress.estimatedTimeRemaining}
+            </div>
+          )}
         </div>
       )}
     </div>
