@@ -1284,6 +1284,20 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         onComplete?.(allOutputs);
       }
     } catch (error) {
+      // SAFETY: Check for stack overflow and provide recovery guidance
+      if (error instanceof RangeError && (error.message.includes('Maximum call stack size exceeded') || error.message.includes('stack'))) {
+        console.error(`[PIPELINE] Stack overflow detected in ${agent.name}. This indicates a memory issue with large datasets.`);
+        console.error(`[PIPELINE] The operation needs to be batched. Error:`, error);
+        
+        // Provide helpful error message
+        const stackOverflowError = new Error(
+          `${agent.name} failed due to stack overflow. This may occur with very large datasets (500K+ workloads). ` +
+          `The operation needs to be batched. Please check the console for details.`
+        );
+        stackOverflowError.originalError = error;
+        error = stackOverflowError;
+      }
+      
       console.error(`✗ ${agent.name} failed:`, error.message);
       console.error('Full error:', error);
       console.error('Stack trace:', error.stack);
