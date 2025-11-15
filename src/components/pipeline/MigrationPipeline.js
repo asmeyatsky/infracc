@@ -524,9 +524,13 @@ export default function MigrationPipeline() {
         let assessmentsWithoutComplexity = 0;
         
         // Build assessment map
-        assessmentOutput.results.forEach(assessment => {
-          if (assessment && !assessment.error) {
-            const assessmentObj = assessment.toJSON ? assessment.toJSON() : assessment;
+        // SAFETY: Batch forEach to avoid stack overflow with large datasets
+        const ASSESSMENT_BATCH_SIZE = 10000;
+        for (let i = 0; i < assessmentOutput.results.length; i += ASSESSMENT_BATCH_SIZE) {
+          const batch = assessmentOutput.results.slice(i, Math.min(i + ASSESSMENT_BATCH_SIZE, assessmentOutput.results.length));
+          for (const assessment of batch) {
+            if (assessment && !assessment.error) {
+              const assessmentObj = assessment.toJSON ? assessment.toJSON() : assessment;
             // Try multiple ways to get workloadId
             const workloadId = assessment.workloadId || 
                               assessmentObj.workloadId || 

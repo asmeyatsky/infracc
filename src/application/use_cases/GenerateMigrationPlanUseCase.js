@@ -299,9 +299,14 @@ export class GenerateMigrationPlanUseCase {
       3: []
     };
 
-    planItems.forEach(item => {
-      waves[item.migrationWave].push(item);
-    });
+    // SAFETY: Batch forEach to avoid stack overflow
+    const PLAN_ITEM_BATCH_SIZE = 10000;
+    for (let i = 0; i < planItems.length; i += PLAN_ITEM_BATCH_SIZE) {
+      const batch = planItems.slice(i, Math.min(i + PLAN_ITEM_BATCH_SIZE, planItems.length));
+      for (const item of batch) {
+        waves[item.migrationWave].push(item);
+      }
+    }
 
     return waves;
   }
@@ -312,14 +317,23 @@ export class GenerateMigrationPlanUseCase {
    */
   _calculatePlanMetrics(planItems) {
     const totalWorkloads = planItems.length;
-    const totalDuration = planItems.reduce((sum, item) => sum + item.estimatedDuration, 0);
-    const avgComplexity = planItems.reduce((sum, item) => sum + item.complexityScore, 0) / totalWorkloads;
-    
+    // SAFETY: Batch reduce to avoid stack overflow
+    const PLAN_ITEM_BATCH_SIZE = 10000;
+    let totalDuration = 0;
+    let complexitySum = 0;
     const strategyDistribution = {};
-    planItems.forEach(item => {
-      const strategy = item.serviceMapping.migrationStrategy;
-      strategyDistribution[strategy] = (strategyDistribution[strategy] || 0) + 1;
-    });
+    
+    for (let i = 0; i < planItems.length; i += PLAN_ITEM_BATCH_SIZE) {
+      const batch = planItems.slice(i, Math.min(i + PLAN_ITEM_BATCH_SIZE, planItems.length));
+      for (const item of batch) {
+        totalDuration += item.estimatedDuration || 0;
+        complexitySum += item.complexityScore || 0;
+        const strategy = item.serviceMapping?.migrationStrategy || 'unknown';
+        strategyDistribution[strategy] = (strategyDistribution[strategy] || 0) + 1;
+      }
+    }
+    
+    const avgComplexity = totalWorkloads > 0 ? complexitySum / totalWorkloads : 0;
 
     return {
       totalWorkloads,
@@ -327,9 +341,37 @@ export class GenerateMigrationPlanUseCase {
       averageComplexity: Math.round(avgComplexity * 10) / 10,
       strategyDistribution,
       waveDistribution: {
-        wave1: planItems.filter(item => item.migrationWave === 1).length,
-        wave2: planItems.filter(item => item.migrationWave === 2).length,
-        wave3: planItems.filter(item => item.migrationWave === 3).length
+        // SAFETY: Batch filter to avoid stack overflow
+        wave1: (() => {
+          let count = 0;
+          for (let i = 0; i < planItems.length; i += PLAN_ITEM_BATCH_SIZE) {
+            const batch = planItems.slice(i, Math.min(i + PLAN_ITEM_BATCH_SIZE, planItems.length));
+            for (const item of batch) {
+              if (item.migrationWave === 1) count++;
+            }
+          }
+          return count;
+        })(),
+        wave2: (() => {
+          let count = 0;
+          for (let i = 0; i < planItems.length; i += PLAN_ITEM_BATCH_SIZE) {
+            const batch = planItems.slice(i, Math.min(i + PLAN_ITEM_BATCH_SIZE, planItems.length));
+            for (const item of batch) {
+              if (item.migrationWave === 2) count++;
+            }
+          }
+          return count;
+        })(),
+        wave3: (() => {
+          let count = 0;
+          for (let i = 0; i < planItems.length; i += PLAN_ITEM_BATCH_SIZE) {
+            const batch = planItems.slice(i, Math.min(i + PLAN_ITEM_BATCH_SIZE, planItems.length));
+            for (const item of batch) {
+              if (item.migrationWave === 3) count++;
+            }
+          }
+          return count;
+        })()
       }
     };
   }
