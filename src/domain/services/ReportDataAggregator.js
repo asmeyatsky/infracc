@@ -321,11 +321,31 @@ export class ReportDataAggregator {
       gcpApi: null,
       migrationStrategy: 'Mixed',
       effort: 'Medium',
-      count: otherServices.reduce((sum, s) => sum + s.count, 0),
-      totalCost: otherServices.reduce((sum, s) => sum + s.totalCost, 0),
+      // SAFETY: Batch reduce to avoid stack overflow with large otherServices arrays
+      count: (() => {
+        let sum = 0;
+        for (const s of otherServices) {
+          sum += s.count || 0;
+        }
+        return sum;
+      })(),
+      totalCost: (() => {
+        let sum = 0;
+        for (const s of otherServices) {
+          sum += s.totalCost || 0;
+        }
+        return sum;
+      })(),
       averageComplexity: otherServices.length > 0
-        ? otherServices.reduce((sum, s) => sum + (s.averageComplexity || 0) * s.count, 0) /
-          otherServices.reduce((sum, s) => sum + s.count, 0)
+        ? (() => {
+            let complexitySum = 0;
+            let countSum = 0;
+            for (const s of otherServices) {
+              complexitySum += (s.averageComplexity || 0) * (s.count || 0);
+              countSum += s.count || 0;
+            }
+            return countSum > 0 ? complexitySum / countSum : null;
+          })()
         : null
     };
 

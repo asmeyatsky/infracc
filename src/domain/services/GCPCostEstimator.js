@@ -361,8 +361,12 @@ export class GCPCostEstimator {
       }
     }
 
+    // SAFETY: Use object construction instead of spread operator
     return {
-      ...totals,
+      awsTotal: totals.awsTotal,
+      gcpOnDemandTotal: totals.gcpOnDemandTotal,
+      gcp1YearCUDTotal: totals.gcp1YearCUDTotal,
+      gcp3YearCUDTotal: totals.gcp3YearCUDTotal,
       savings1Year: totals.awsTotal - totals.gcp1YearCUDTotal,
       savings3Year: totals.awsTotal - totals.gcp3YearCUDTotal,
       savingsPercent1Year: totals.awsTotal > 0 
