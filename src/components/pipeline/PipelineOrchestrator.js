@@ -1476,84 +1476,8 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
     toast.info(`Restarting from ${AGENTS[agentIndex].name}...`);
   }, [fileUUID]);
 
-  // Restart pipeline from beginning (but keep discovery if it exists)
-  const handleRestartPipeline = useCallback(async () => {
-    // Clear all agent outputs except discovery (to preserve uploaded files)
-    const agentsToClear = ['assessment', 'strategy', 'cost'];
-    for (const id of agentsToClear) {
-      await clearAgentOutput(fileUUID, id);
-    }
-    
-    // Update completed agents (keep discovery if it exists)
-    const cachedAgents = await getCachedAgentIds(fileUUID);
-    setCompletedAgents(cachedAgents.filter(id => id === 'discovery'));
-    
-    // Reset to first agent (discovery)
-    setCurrentAgentIndex(0);
-    setAgentStatus('pending');
-    setAgentProgress(0);
-    setOverallProgress(0);
-    setAgentOutput(null);
-    setNeedsRerun([]);
-    cancelRequestedRef.current = false;
-    
-    // Update pipeline state
-    await savePipelineState(fileUUID, {
-      currentAgentIndex: 0,
-      overallProgress: 0,
-      agentProgress: 0,
-      agentStatus: 'pending'
-    });
-    
-    toast.info('Pipeline restarted from beginning');
-  }, [fileUUID]);
-
-  // Resume pipeline from current point (useful after failure)
-  const handleResumePipeline = useCallback(async () => {
-    // Check what agents have completed
-    const cachedAgents = await getCachedAgentIds(fileUUID);
-    setCompletedAgents(cachedAgents);
-    console.log('Resuming pipeline. Cached agents:', cachedAgents);
-    
-    // Find the first agent that doesn't have cache
-    let resumeIndex = 0;
-    for (let i = 0; i < AGENTS.length; i++) {
-      if (!cachedAgents.includes(AGENTS[i].id)) {
-        resumeIndex = i;
-        break;
-      }
-    }
-    
-    // If all agents are cached, go to the last one
-    if (resumeIndex === 0 && cachedAgents.length === AGENTS.length) {
-      resumeIndex = AGENTS.length - 1;
-    }
-    
-    setCurrentAgentIndex(resumeIndex);
-    setAgentStatus('pending');
-    setAgentProgress(0);
-    setNeedsRerun([]);
-    cancelRequestedRef.current = false;
-    
-    // Load cached output for previous agent if available
-    if (resumeIndex > 0) {
-      const previousAgentId = AGENTS[resumeIndex - 1].id;
-      const cachedOutput = await getAgentOutput(fileUUID, previousAgentId);
-      if (cachedOutput) {
-        setAgentOutput(cachedOutput);
-      }
-    }
-    
-    // Update pipeline state
-    await savePipelineState(fileUUID, {
-      currentAgentIndex: resumeIndex,
-      overallProgress: Math.round((resumeIndex / AGENTS.length) * 100),
-      agentProgress: 0,
-      agentStatus: 'pending'
-    });
-    
-    toast.info(`Resuming from ${AGENTS[resumeIndex].name}...`);
-  }, [fileUUID]);
+  // Removed unused handleRestartPipeline and handleResumePipeline functions
+  // Pipeline auto-resumes and users can restart by clicking agent steps below
 
   // Show loading state while restoring
   if (isRestoringState) {
@@ -1678,25 +1602,13 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         {agentStatus === 'failed' && (
           <div className="alert alert-danger mt-3">
             <p><strong>{currentAgent.name} failed.</strong></p>
-            <p className="mb-2">Previous steps completed successfully. You can restart from any point.</p>
+            <p className="mb-2">Click the agent step below to restart from that point, or click "Rerun" to retry this agent.</p>
             <div className="d-flex gap-2 flex-wrap">
               <button 
                 className="btn btn-sm btn-primary"
                 onClick={() => handleRerunAgent(currentAgent.id)}
               >
                 ↻ Rerun {currentAgent.name}
-              </button>
-              <button 
-                className="btn btn-sm btn-success"
-                onClick={handleResumePipeline}
-              >
-                ▶ Resume Pipeline
-              </button>
-              <button 
-                className="btn btn-sm btn-outline-secondary"
-                onClick={handleRestartPipeline}
-              >
-                🔄 Restart from Beginning
               </button>
             </div>
           </div>
@@ -1712,35 +1624,11 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
               >
                 ↻ Rerun {currentAgent.name}
               </button>
-              <button 
-                className="btn btn-sm btn-success"
-                onClick={handleResumePipeline}
-              >
-                ▶ Resume Pipeline
-              </button>
             </div>
           </div>
         )}
 
-        {(agentStatus === 'cancelled' || agentStatus === 'pending') && currentAgentIndex > 0 && (
-          <div className="alert alert-info mt-3">
-            <p><strong>Pipeline paused.</strong> You can resume from here or restart from any completed step.</p>
-            <div className="d-flex gap-2 flex-wrap">
-              <button 
-                className="btn btn-sm btn-success"
-                onClick={handleResumePipeline}
-              >
-                ▶ Resume Pipeline
-              </button>
-              <button 
-                className="btn btn-sm btn-outline-secondary"
-                onClick={handleRestartPipeline}
-              >
-                🔄 Restart from Beginning
-              </button>
-            </div>
-          </div>
-        )}
+        {/* Removed pause/resume buttons - pipeline auto-resumes when ready */}
       </div>
 
       <div className="pipeline-steps">

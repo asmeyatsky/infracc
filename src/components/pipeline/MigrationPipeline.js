@@ -153,33 +153,7 @@ export default function MigrationPipeline() {
     generateUUID();
   }, [files, isRestoring]);
 
-  // Clear all pipeline state (for starting fresh)
-  const handleClearState = async () => {
-    try {
-      if (fileUUID) {
-        // Clear pipeline state for current UUID
-        await clearPipelineState(fileUUID);
-      }
-      
-      // Clear all state
-      setFiles(null);
-      setFileUUID(null);
-      setOutputFormat(null);
-      setPipelineComplete(false);
-      
-      // Clear workload repository
-      const container = await import('../../infrastructure/dependency_injection/Container.js').then(m => m.getContainer());
-      if (container.workloadRepository) {
-        await container.workloadRepository.clear();
-        console.log('[CLEAR] Cleared all workloads from repository');
-      }
-      
-      toast.success('Pipeline state cleared. Ready to start fresh.', { autoClose: 2000 });
-    } catch (error) {
-      console.error('Error clearing pipeline state:', error);
-      toast.error('Failed to clear pipeline state', { autoClose: 2000 });
-    }
-  };
+  // Removed unused handleClearState function - not used anywhere in UI
 
   const handleFileUpload = async (uploadResult) => {
     // CurUploadButton processes files and saves to repository
@@ -948,23 +922,7 @@ export default function MigrationPipeline() {
       {pipelineComplete && (
         <div className="alert alert-success mb-3">
           <h4>✅ Pipeline Complete!</h4>
-          <p>All agents have finished. You can rerun individual agents if needed.</p>
-          {outputFormat === 'screen' && pipelineOutputs && (
-            <button
-              className="btn btn-primary mt-2"
-              onClick={() => {
-                // Show results in a modal or separate view
-                const discoveryOutput = pipelineOutputs.discovery;
-                const assessmentOutput = pipelineOutputs.assessment;
-                const strategyOutput = pipelineOutputs.strategy;
-                
-                // For now, just log - you can implement a modal or navigation here
-                console.log('View results:', { discoveryOutput, assessmentOutput, strategyOutput });
-              }}
-            >
-              📊 View Results
-            </button>
-          )}
+          <p>All agents have finished. Results are displayed below. You can rerun individual agents if needed.</p>
         </div>
       )}
       
@@ -980,47 +938,25 @@ export default function MigrationPipeline() {
         </div>
       )}
       
-      {/* Always show PDF button if pipeline is complete, regardless of format */}
-      {pipelineComplete && pipelineOutputs && (
-        <div className="mt-3 mb-3">
-          <button
-            className="btn btn-success btn-lg"
-            onClick={async () => {
-              console.log('[PDF] Generate PDF button clicked');
-              console.log('[PDF] pipelineOutputs:', pipelineOutputs);
-              console.log('[PDF] fileUUID:', fileUUID);
-              if (!pipelineOutputs) {
-                toast.error('No pipeline outputs available. Please wait for pipeline to complete.');
-                return;
-              }
-              try {
-                await generatePDFReport(pipelineOutputs);
-              } catch (error) {
-                console.error('[PDF] Error from generate button:', error);
-                toast.error(`Failed to generate PDF: ${error.message}`, { autoClose: 10000 });
-              }
-            }}
-          >
-            📄 Generate PDF Report
-          </button>
-        </div>
-      )}
-      
       {/* Show results below pipeline if screen format and complete */}
       {pipelineComplete && outputFormat === 'screen' && pipelineOutputs && (
         <div className="mt-4">
           <div className="pipeline-results">
-            <div className="results-header">
+            <div className="results-header d-flex justify-content-between align-items-center mb-3">
               <h2>Migration Assessment Results</h2>
               <button
-                className="btn btn-primary"
+                className="btn btn-success btn-lg"
                 onClick={async () => {
-                  console.log('[PDF] Button clicked, pipelineOutputs:', pipelineOutputs);
+                  console.log('[PDF] Generate PDF button clicked');
+                  if (!pipelineOutputs) {
+                    toast.error('No pipeline outputs available. Please wait for pipeline to complete.');
+                    return;
+                  }
                   try {
                     await generatePDFReport(pipelineOutputs);
                   } catch (error) {
-                    console.error('[PDF] Error from button click:', error);
-                    toast.error(`Failed to generate PDF: ${error.message}`);
+                    console.error('[PDF] Error generating PDF:', error);
+                    toast.error(`Failed to generate PDF: ${error.message}`, { autoClose: 10000 });
                   }
                 }}
               >
@@ -1034,6 +970,30 @@ export default function MigrationPipeline() {
               uploadSummary={pipelineOutputs.discovery?.summary || null}
             />
           </div>
+        </div>
+      )}
+      
+      {/* Show PDF button if PDF format was selected and pipeline is complete */}
+      {pipelineComplete && outputFormat === 'pdf' && pipelineOutputs && (
+        <div className="mt-3 mb-3 text-center">
+          <button
+            className="btn btn-success btn-lg"
+            onClick={async () => {
+              console.log('[PDF] Generate PDF button clicked');
+              if (!pipelineOutputs) {
+                toast.error('No pipeline outputs available. Please wait for pipeline to complete.');
+                return;
+              }
+              try {
+                await generatePDFReport(pipelineOutputs);
+              } catch (error) {
+                console.error('[PDF] Error generating PDF:', error);
+                toast.error(`Failed to generate PDF: ${error.message}`, { autoClose: 10000 });
+              }
+            }}
+          >
+            📄 Generate PDF Report
+          </button>
         </div>
       )}
     </div>
