@@ -443,8 +443,7 @@ export class PlanMigrationWavesUseCase {
       }
     }
     
-    const avgComplexity = complexityCount > 0 ? complexitySum / complexityCount : null; 
-      sum + w.workload.complexityScore, 0) / total;
+    const avgComplexity = complexityCount > 0 ? complexitySum / complexityCount : null;
 
     const estimatedDuration = {
       wave1: wave1Count * 2, // 2 weeks per workload
