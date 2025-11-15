@@ -28,6 +28,8 @@ export class ServiceMappingRepository extends ServiceMappingPort {
     this.useOfficialDocs = config.useOfficialDocs !== false; // Default to true
     this.googleCloudDocsAdapter = new GoogleCloudDocsAdapter();
     this._awsMappings = this._buildMappings(awsToGcpMapping, CloudProviderType.AWS);
+    // Track services that have already been warned about to avoid console spam
+    this._warnedServices = new Set();
     this._azureMappings = this._buildMappings(azureToGcpMapping, CloudProviderType.AZURE);
   }
 
@@ -145,7 +147,12 @@ export class ServiceMappingRepository extends ServiceMappingPort {
       }
       
       // Return a default mapping instead of throwing to prevent workflow failure
-      console.warn(`No mapping found for service: ${sourceService} (normalized: ${normalizedService}), using default`);
+      // Only warn once per service to avoid console spam with large datasets
+      const warningKey = `${sourceProvider.type}:${normalizedService}`;
+      if (!this._warnedServices.has(warningKey)) {
+        console.warn(`No mapping found for service: ${sourceService} (normalized: ${normalizedService}), using default`);
+        this._warnedServices.add(warningKey);
+      }
       return new ServiceMapping({
         sourceService: sourceService,
         sourceProvider: sourceProvider.type,
