@@ -518,7 +518,10 @@ export class ReportDataAggregator {
           return this._extractComplexity(workloadData);
         })
         .filter(c => c !== null && c !== undefined);
-      complexities.push(...batchComplexities);
+      // Use loop instead of spread operator for extra safety
+      for (const complexity of batchComplexities) {
+        complexities.push(complexity);
+      }
     }
 
     const averageComplexity = complexities.length > 0
