@@ -27,6 +27,9 @@ const GCP_PRICING_CONFIG = {
   // Service Usage API (for service catalog)
   serviceUsageApiEndpoint: 'https://serviceusage.googleapis.com/v1',
   
+  // Backend proxy endpoint
+  backendEndpoint: process.env.REACT_APP_BACKEND_URL || 'http://localhost:3002',
+  
   // API Key or OAuth token (will be loaded from ConfigManager)
   apiKey: '',
   projectId: '',
@@ -115,7 +118,7 @@ class GoogleCloudPricingAPI {
       // Use Cloud Billing API to get SKU pricing
       // Note: This requires a backend proxy due to CORS and authentication
       const backendEndpoint = process.env.REACT_APP_GCP_PRICING_BACKEND || 
-                              'http://localhost:3001/api/gcp/pricing';
+                              'http://localhost:3002/api/gcp/pricing';
       
       const response = await fetch(`${backendEndpoint}/compute`, {
         method: 'POST',
@@ -201,7 +204,7 @@ class GoogleCloudPricingAPI {
 
     try {
       const backendEndpoint = process.env.REACT_APP_GCP_PRICING_BACKEND || 
-                              'http://localhost:3001/api/gcp/pricing';
+                              'http://localhost:3002/api/gcp/pricing';
       
       const response = await fetch(`${backendEndpoint}/storage`, {
         method: 'POST',
@@ -252,7 +255,7 @@ class GoogleCloudPricingAPI {
   async getCloudSQLPricing(instanceType, databaseEngine = 'MYSQL', region = 'us-central1') {
     try {
       const backendEndpoint = process.env.REACT_APP_GCP_PRICING_BACKEND || 
-                              'http://localhost:3001/api/gcp/pricing';
+                              'http://localhost:3002/api/gcp/pricing';
       
       const response = await fetch(`${backendEndpoint}/cloudsql`, {
         method: 'POST',
@@ -299,7 +302,7 @@ class GoogleCloudPricingAPI {
   async getActualCosts(billingAccountId, startDate, endDate) {
     try {
       const backendEndpoint = process.env.REACT_APP_GCP_BILLING_BACKEND || 
-                              'http://localhost:3001/api/gcp/billing';
+                              'http://localhost:3002/api/gcp/billing';
       
       const response = await fetch(`${backendEndpoint}/costs`, {
         method: 'POST',
@@ -332,7 +335,7 @@ class GoogleCloudPricingAPI {
   async getOptimizationRecommendations(projectId, recommenderType = 'google.compute.instance.MachineTypeRecommender') {
     try {
       const backendEndpoint = process.env.REACT_APP_GCP_RECOMMENDER_BACKEND || 
-                              'http://localhost:3001/api/gcp/recommender';
+                              'http://localhost:3002/api/gcp/recommender';
       
       const response = await fetch(`${backendEndpoint}/recommendations`, {
         method: 'POST',

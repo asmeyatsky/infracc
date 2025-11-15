@@ -24,6 +24,8 @@ import {
   clearAgentOutput
 } from '../../utils/agentCacheService.js';
 import { generateFileUUID, generateFilesUUID } from '../../utils/uuidGenerator.js';
+import { GCPCostEstimator } from '../../domain/services/GCPCostEstimator.js';
+import { ReportDataAggregator } from '../../domain/services/ReportDataAggregator.js';
 import './PipelineOrchestrator.css';
 
 const AGENTS = [
@@ -83,6 +85,13 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
     agenticContainer.current = getAgenticContainer();
     container.current = getContainer();
     workloadRepository.current = container.current.workloadRepository;
+    
+    // Pre-load workloads from IndexedDB on mount
+    if (workloadRepository.current && typeof workloadRepository.current._loadFromStorage === 'function') {
+      workloadRepository.current._loadFromStorage().catch(err => {
+        console.warn('[PipelineOrchestrator] Failed to pre-load workloads:', err);
+      });
+    }
   }, []);
 
   // Generate or retrieve file UUID (if not provided as prop)
@@ -95,15 +104,29 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         try {
           const savedState = await getPipelineState(propFileUUID);
           if (savedState && savedState.currentAgentIndex !== undefined) {
-            // Validate currentAgentIndex is within bounds
-            const validIndex = Math.max(0, Math.min(savedState.currentAgentIndex, AGENTS.length - 1));
+            // CRITICAL: Verify all previous agents have completed before restoring to a later agent
+            const requestedIndex = savedState.currentAgentIndex;
+            const cachedAgents = await getCachedAgentIds(propFileUUID);
+            
+            // Only restore to an agent if all previous required agents are completed
+            let validIndex = 0;
+            for (let i = 0; i <= requestedIndex && i < AGENTS.length; i++) {
+              const agent = AGENTS[i];
+              if (agent.required && !cachedAgents.includes(agent.id)) {
+                // Previous required agent not completed, stop here
+                validIndex = i;
+                break;
+              }
+              validIndex = i;
+            }
+            
+            console.log(`[PIPELINE] State restoration (propFileUUID): requested index ${requestedIndex}, validated to ${validIndex}, cached agents: ${cachedAgents.join(', ')}`);
             setCurrentAgentIndex(validIndex);
             setOverallProgress(savedState.overallProgress || 0);
             setAgentProgress(savedState.agentProgress || 0);
             setAgentStatus(savedState.agentStatus || 'pending');
             
-            // Check which agents need rerun and which are completed
-            const cachedAgents = await getCachedAgentIds(propFileUUID);
+            // Check which agents need rerun and which are completed (cachedAgents already declared above)
             setCompletedAgents(cachedAgents);
             const requiredAgents = AGENTS.filter(a => a.required).map(a => a.id);
             const needsRerunList = requiredAgents.filter(id => !cachedAgents.includes(id));
@@ -143,18 +166,32 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
           
           setFileUUID(uuid);
           
-          // Try to restore pipeline state
+            // Try to restore pipeline state
           const savedState = await getPipelineState(uuid);
           if (savedState && savedState.currentAgentIndex !== undefined) {
-            // Validate currentAgentIndex is within bounds
-            const validIndex = Math.max(0, Math.min(savedState.currentAgentIndex, AGENTS.length - 1));
+            // CRITICAL: Verify all previous agents have completed before restoring to a later agent
+            const requestedIndex = savedState.currentAgentIndex;
+            const cachedAgents = await getCachedAgentIds(uuid);
+            
+            // Only restore to an agent if all previous required agents are completed
+            let validIndex = 0;
+            for (let i = 0; i <= requestedIndex && i < AGENTS.length; i++) {
+              const agent = AGENTS[i];
+              if (agent.required && !cachedAgents.includes(agent.id)) {
+                // Previous required agent not completed, stop here
+                validIndex = i;
+                break;
+              }
+              validIndex = i;
+            }
+            
+            console.log(`[PIPELINE] State restoration: requested index ${requestedIndex}, validated to ${validIndex}, cached agents: ${cachedAgents.join(', ')}`);
             setCurrentAgentIndex(validIndex);
             setOverallProgress(savedState.overallProgress || 0);
             setAgentProgress(savedState.agentProgress || 0);
             setAgentStatus(savedState.agentStatus || 'pending');
             
-            // Check which agents need rerun and which are completed
-            const cachedAgents = await getCachedAgentIds(uuid);
+            // Check which agents need rerun and which are completed (cachedAgents already declared above)
             setCompletedAgents(cachedAgents);
             const requiredAgents = AGENTS.filter(a => a.required).map(a => a.id);
             const needsRerunList = requiredAgents.filter(id => !cachedAgents.includes(id));
@@ -253,11 +290,10 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
 
     try {
       // CRITICAL FIX: Check if files were actually uploaded (not just restored placeholders)
-      // Allow demo data files to proceed
-      const hasActualFiles = files && files.length > 0 && (!files[0]?.restored || files[0]?.demo);
+      const hasActualFiles = files && files.length > 0 && !files[0]?.restored;
       
       if (!hasActualFiles) {
-        throw new Error('No files uploaded. Please upload CUR files or load demo data to start the pipeline.');
+        throw new Error('No files uploaded. Please upload CUR files to start the pipeline.');
       }
 
       // Files are already processed by CurUploadButton, so we just read from repository
@@ -266,23 +302,30 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       let attempts = 0;
       let workloads = [];
       
-      // Check if this is demo data
-      const isDemoData = files && files.length > 0 && files[0]?.demo;
-      console.log(`[DEBUG] Discovery Agent: isDemoData=${isDemoData}, files:`, files);
+      // CRITICAL: Force reload from IndexedDB first (workloads should already be saved by CurUploadButton)
+      console.log('[DEBUG] Discovery Agent: Starting workload discovery...');
+      console.log('[DEBUG] Discovery Agent: Repository instance:', workloadRepository.current ? 'exists' : 'missing');
       
-      // For demo data, try to reload from storage immediately
-      if (isDemoData && workloadRepository.current && typeof workloadRepository.current._loadFromStorage === 'function') {
-        console.log('[DEBUG] Discovery Agent: Demo data detected, reloading from storage...');
+      if (workloadRepository.current && typeof workloadRepository.current._loadFromStorage === 'function') {
+        console.log('[DEBUG] Discovery Agent: Reloading workloads from IndexedDB...');
         try {
           await workloadRepository.current._loadFromStorage();
           workloads = await workloadRepository.current.findAll();
-          console.log(`[DEBUG] Discovery Agent: After reload for demo data, found ${workloads.length} workloads`);
+          console.log(`[DEBUG] Discovery Agent: After initial reload, found ${workloads.length} workloads`);
+          console.log(`[DEBUG] Discovery Agent: Cache size: ${workloadRepository.current._cache?.size || 'unknown'}`);
+          
+          if (workloads.length > 0) {
+            console.log(`[DEBUG] Discovery Agent: Sample workload IDs:`, workloads.slice(0, 5).map(w => w.id));
+          }
         } catch (reloadError) {
-          console.warn('[DEBUG] Discovery Agent: Failed to reload demo data from storage:', reloadError);
+          console.error('[DEBUG] Discovery Agent: Failed to reload from storage:', reloadError);
+          console.error('[DEBUG] Discovery Agent: Error stack:', reloadError.stack);
         }
+      } else {
+        console.warn('[DEBUG] Discovery Agent: Repository or _loadFromStorage method not available');
       }
       
-      // Give Discovery Agent time to process and save workloads (increased timeout for large files)
+      // Give Discovery Agent time to find workloads (increased timeout for large files)
       while (attempts < 200 && workloads.length === 0) { // Wait up to 20 seconds for large files
         workloads = await workloadRepository.current.findAll();
         if (workloads.length > 0) {
@@ -325,11 +368,33 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       }
 
       if (workloads.length === 0) {
+        // Final attempt: Check IndexedDB directly
+        console.error('[DEBUG] Discovery Agent: No workloads found after all attempts');
+        console.error('[DEBUG] Discovery Agent: Repository cache size:', workloadRepository.current?._cache?.size || 'unknown');
+        console.error('[DEBUG] Discovery Agent: Repository storage key:', workloadRepository.current?.storageKey || 'unknown');
+        
+        // Try to check IndexedDB directly via localforage
+        try {
+          const localforage = await import('localforage');
+          const storage = localforage.default.createInstance({
+            name: 'WorkloadRepository',
+            storeName: 'workloads'
+          });
+          const keys = await storage.keys();
+          console.error('[DEBUG] Discovery Agent: IndexedDB keys count:', keys.length);
+          if (keys.length > 0) {
+            console.error('[DEBUG] Discovery Agent: Sample IndexedDB keys:', keys.slice(0, 5));
+          }
+        } catch (dbError) {
+          console.error('[DEBUG] Discovery Agent: Failed to check IndexedDB directly:', dbError);
+        }
+        
         const errorMessage = 'No workloads found in repository. Please:\n' +
           '1. Upload CUR files using the "Upload CUR Files" button\n' +
-          '2. Wait for files to be processed\n' +
+          '2. Wait for files to be processed (check console for upload logs)\n' +
           '3. Ensure files are valid AWS CUR CSV files\n' +
-          '4. Try refreshing the page and uploading again';
+          '4. Check browser console for [UPLOAD] and [FileUploadManager] logs\n' +
+          '5. Try refreshing the page and uploading again';
         throw new Error(errorMessage);
       }
 
@@ -850,7 +915,59 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
     // Check cache first
     const cached = await getAgentOutput(fileUUID, 'cost');
     if (cached) {
-      console.log(`✓ Cost Agent: Using cached output`);
+      // CRITICAL: Check if cached output has costEstimates (required for PDF)
+      // If missing, regenerate them (for backward compatibility with old cached outputs)
+      if (!cached.costEstimates || !Array.isArray(cached.costEstimates) || cached.costEstimates.length === 0) {
+        console.log(`✓ Cost Agent: Using cached output, but regenerating costEstimates (missing from cache)`);
+        
+        // CRITICAL: Load actual Workload entities from repository (not plain objects from discovery output)
+        const container = getContainer();
+        if (typeof container.workloadRepository._loadFromStorage === 'function') {
+          await container.workloadRepository._loadFromStorage();
+        }
+        
+        // Get actual Workload entities from repository
+        let workloads = await container.workloadRepository.findAll();
+        
+        // Fallback to discovery output if repository is empty
+        if (workloads.length === 0) {
+          workloads = discoveryOutput.workloads || [];
+        }
+        
+        if (workloads.length === 0) {
+          console.warn('No workloads found for cost estimation');
+          return cached; // Return cached output even without costEstimates
+        }
+        
+        // Regenerate costEstimates
+        // aggregateByService returns an array directly, not an object with topServices
+        const serviceAggregation = ReportDataAggregator.aggregateByService(workloads);
+        
+        if (!serviceAggregation || serviceAggregation.length === 0) {
+          console.warn('No services found after aggregation');
+          return cached; // Return cached output even without costEstimates
+        }
+        
+        const costEstimates = await GCPCostEstimator.estimateAllServiceCosts(
+          serviceAggregation, // Pass array directly
+          'us-central1'
+        );
+        
+        // Update cached output with costEstimates
+        const updatedOutput = {
+          ...cached,
+          costEstimates,
+          timestamp: new Date().toISOString()
+        };
+        
+        // Save updated output back to cache
+        await saveAgentOutput(fileUUID, 'cost', updatedOutput);
+        console.log(`✓ Cost Agent: Regenerated ${costEstimates.length} cost estimates`);
+        
+        return updatedOutput;
+      }
+      
+      console.log(`✓ Cost Agent: Using cached output with ${cached.costEstimates.length} cost estimates`);
       return cached;
     }
 
@@ -867,23 +984,81 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         });
       }, 300);
 
+      // Execute Cost Analysis Agent (for TCO, insights, optimizations)
       const costResult = await agenticContainer.current.costAnalysisAgent.execute({
         workloads: discoveryOutput.workloads,
         assessments: assessmentOutput.results,
         strategy: strategyOutput
       });
 
+      // CRITICAL: Generate costEstimates using GCPCostEstimator for PDF generation
+      // Load actual Workload entities from repository (not plain objects from discovery output)
+      const container = getContainer();
+      if (typeof container.workloadRepository._loadFromStorage === 'function') {
+        await container.workloadRepository._loadFromStorage();
+      }
+      
+      // Get actual Workload entities from repository
+      let workloads = await container.workloadRepository.findAll();
+      
+      // Fallback to discovery output if repository is empty
+      if (workloads.length === 0) {
+        workloads = discoveryOutput.workloads || [];
+      }
+      
+      // Aggregate services from workloads
+      // aggregateByService returns an array directly, not an object with topServices
+      const serviceAggregation = ReportDataAggregator.aggregateByService(workloads);
+      
+      console.log(`[Cost Agent] Service aggregation result:`, {
+        workloadCount: workloads.length,
+        serviceCount: serviceAggregation?.length || 0,
+        sampleServices: serviceAggregation?.slice(0, 3).map(s => ({
+          service: s.service,
+          totalCost: s.totalCost,
+          count: s.count
+        })) || []
+      });
+      
+      if (!serviceAggregation || serviceAggregation.length === 0) {
+        const errorMsg = 'No services found after aggregation. Cannot generate cost estimates without services.';
+        console.error(`[Cost Agent] ${errorMsg}`, {
+          workloadCount: workloads.length,
+          workloadsHaveService: workloads.slice(0, 5).map(w => {
+            const wData = w.toJSON ? w.toJSON() : w;
+            return { hasService: !!wData.service, service: wData.service };
+          })
+        });
+        throw new Error(errorMsg);
+      }
+      
+      // Generate cost estimates for each service
+      const costEstimates = await GCPCostEstimator.estimateAllServiceCosts(
+        serviceAggregation, // Pass array directly
+        'us-central1' // target region
+      );
+      
+      console.log(`[Cost Agent] Generated ${costEstimates.length} cost estimates`);
+      
+      if (!costEstimates || costEstimates.length === 0) {
+        const errorMsg = 'Cost estimation returned empty array. This may indicate an issue with the GCP pricing API or service mapping.';
+        console.error(`[Cost Agent] ${errorMsg}`);
+        throw new Error(errorMsg);
+      }
+
       clearInterval(progressInterval);
       setAgentProgress(100);
       setOverallProgress(100);
 
+      // Combine both outputs: costResult (TCO, insights) + costEstimates (for PDF)
       const output = {
-        ...costResult,
+        ...costResult, // tco, insights, optimizations
+        costEstimates, // Array of cost estimates per service (REQUIRED for PDF)
         timestamp: new Date().toISOString()
       };
 
       await saveAgentOutput(fileUUID, 'cost', output);
-      console.log(`✓ Cost Agent: Completed`);
+      console.log(`✓ Cost Agent: Completed with ${costEstimates.length} cost estimates`);
 
       return output;
     } catch (error) {
@@ -1025,20 +1200,35 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
 
       // Move to next agent or complete
       if (currentAgentIndex < AGENTS.length - 1) {
+        const nextAgentIndex = currentAgentIndex + 1;
+        const nextAgent = AGENTS[nextAgentIndex];
+        console.log(`[PIPELINE] ${agent.name} completed. Moving to next agent: ${nextAgent.name} (index ${nextAgentIndex})`);
+        
         // Allow UI to update before moving to next agent
         await new Promise(resolve => requestAnimationFrame(resolve));
-        setCurrentAgentIndex(prev => Math.min(prev + 1, AGENTS.length - 1));
+        setCurrentAgentIndex(nextAgentIndex);
         setAgentProgress(0);
         setAgentStatus('pending');
         setAgentOutput(null);
       } else {
-        // Pipeline complete
+        // Pipeline complete - last agent finished executing
+        console.log('[PIPELINE] Last agent finished executing, pipeline complete!');
+        setOverallProgress(100);
+        
         const allOutputs = {
           discovery: await getAgentOutput(fileUUID, 'discovery'),
           assessment: await getAgentOutput(fileUUID, 'assessment'),
           strategy: await getAgentOutput(fileUUID, 'strategy'),
           cost: await getAgentOutput(fileUUID, 'cost')
         };
+        
+        console.log('[PIPELINE] Calling onComplete with all outputs:', {
+          hasDiscovery: !!allOutputs.discovery,
+          hasAssessment: !!allOutputs.assessment,
+          hasStrategy: !!allOutputs.strategy,
+          hasCost: !!allOutputs.cost
+        });
+        
         onComplete?.(allOutputs);
       }
     } catch (error) {
@@ -1072,12 +1262,38 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
 
   // Auto-start pipeline when ready
   useEffect(() => {
-    if (!fileUUID || agentStatus !== 'pending') return;
+    if (!fileUUID || agentStatus !== 'pending') {
+      if (fileUUID && agentStatus !== 'pending') {
+        console.log(`[PIPELINE] Skipping checkAndStart: fileUUID=${!!fileUUID}, agentStatus=${agentStatus}`);
+      }
+      return;
+    }
 
     // Check if we should use cached output
     const checkAndStart = async () => {
       const agent = AGENTS[currentAgentIndex];
-      if (!agent) return;
+      if (!agent) {
+        console.warn(`[PIPELINE] No agent found at index ${currentAgentIndex}`);
+        return;
+      }
+      
+      console.log(`[PIPELINE] checkAndStart: Current agent is ${agent.name} (index ${currentAgentIndex}), status: ${agentStatus}`);
+      
+      // CRITICAL: Ensure we're not skipping agents - verify all previous required agents completed
+      for (let i = 0; i < currentAgentIndex; i++) {
+        const prevAgent = AGENTS[i];
+        if (prevAgent.required) {
+          const prevOutput = await getAgentOutput(fileUUID, prevAgent.id);
+          if (!prevOutput) {
+            console.error(`[PIPELINE] ERROR: Required agent ${prevAgent.name} (index ${i}) has no output, but we're at ${agent.name} (index ${currentAgentIndex})`);
+            console.error(`[PIPELINE] Resetting to missing agent: ${prevAgent.name}`);
+            setCurrentAgentIndex(i);
+            setAgentStatus('pending');
+            setAgentProgress(0);
+            return;
+          }
+        }
+      }
       
       // For cost agent, check if all dependencies are available (with retry for race conditions)
       if (agent.id === 'cost') {
@@ -1145,10 +1361,32 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         
         // Update completed agents list
         setCompletedAgents(prev => {
-          if (!prev.includes(agent.id)) {
-            return [...prev, agent.id];
+          const updated = prev.includes(agent.id) ? prev : [...prev, agent.id];
+          
+          // CRITICAL: Check if all agents are complete (especially when using cached outputs)
+          if (updated.length === AGENTS.length) {
+            console.log('[PIPELINE] All agents completed via cache! Triggering onComplete...');
+            setOverallProgress(100);
+            
+            // Small delay to ensure state is updated, then trigger completion
+            setTimeout(async () => {
+              const allOutputs = {
+                discovery: await getAgentOutput(fileUUID, 'discovery'),
+                assessment: await getAgentOutput(fileUUID, 'assessment'),
+                strategy: await getAgentOutput(fileUUID, 'strategy'),
+                cost: await getAgentOutput(fileUUID, 'cost')
+              };
+              console.log('[PIPELINE] All cached agents complete: Calling onComplete with all outputs:', {
+                hasDiscovery: !!allOutputs.discovery,
+                hasAssessment: !!allOutputs.assessment,
+                hasStrategy: !!allOutputs.strategy,
+                hasCost: !!allOutputs.cost
+              });
+              onComplete?.(allOutputs);
+            }, 100);
           }
-          return prev;
+          
+          return updated;
         });
         
         if (currentAgentIndex < AGENTS.length - 1) {
@@ -1158,6 +1396,22 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
             setAgentStatus('pending');
             setAgentOutput(null);
           }, 500);
+        } else {
+          // Last agent completed via cache - ensure progress is 100% and trigger completion
+          console.log('[PIPELINE] Last agent completed via cache, setting progress to 100%');
+          setOverallProgress(100);
+          
+          // Trigger completion after a short delay
+          setTimeout(async () => {
+            const allOutputs = {
+              discovery: await getAgentOutput(fileUUID, 'discovery'),
+              assessment: await getAgentOutput(fileUUID, 'assessment'),
+              strategy: await getAgentOutput(fileUUID, 'strategy'),
+              cost: await getAgentOutput(fileUUID, 'cost')
+            };
+            console.log('[PIPELINE] Last cached agent: Calling onComplete with all outputs');
+            onComplete?.(allOutputs);
+          }, 200);
         }
       } else {
         // Execute agent

@@ -137,26 +137,115 @@ export class GCPCostEstimator {
       const serviceType = this._mapGCPServiceToPricingType(gcpService);
       
       if (serviceType) {
-        // Try static method first, then instance method
+        // Call backend GCP Pricing API endpoint
+        const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:3002';
         let pricing = null;
-        if (typeof CloudPricingAPI.getGCPPrices === 'function') {
-          pricing = await CloudPricingAPI.getGCPPrices(serviceType, region);
-        } else if (CloudPricingAPI && typeof CloudPricingAPI.getGCPPrices === 'function') {
-          pricing = await CloudPricingAPI.getGCPPrices(serviceType, region);
+        
+        try {
+          if (serviceType === 'computeEngine') {
+            // Extract machine type from service data if available
+            const machineType = serviceData.awsInstanceType 
+              ? this._mapAwsToGcpMachineType(serviceData.awsInstanceType)
+              : 'n1-standard-1';
+            
+            const response = await fetch(
+              `${backendUrl}/api/gcp/pricing/compute?region=${encodeURIComponent(region)}&machineType=${encodeURIComponent(machineType)}`
+            );
+            
+            if (response.ok) {
+              const data = await response.json();
+              if (data.onDemand || data.price) {
+                pricing = {
+                  onDemand: data.onDemand || data.price || 0,
+                  sustainedUse: data.sustainedUse || data.onDemand * 0.75 || 0
+                };
+                console.log(`[GCP Pricing] Fetched compute pricing for ${machineType} in ${region}:`, pricing);
+              }
+            }
+          } else if (serviceType === 'cloudStorage') {
+            const storageType = 'standard'; // Default to standard storage
+            const response = await fetch(
+              `${backendUrl}/api/gcp/pricing/storage?region=${encodeURIComponent(region)}&storageType=${encodeURIComponent(storageType)}`
+            );
+            
+            if (response.ok) {
+              const data = await response.json();
+              if (data.price || data.pricePerGB) {
+                // Storage pricing is per GB, convert to monthly cost based on usage
+                const pricePerGB = data.price || data.pricePerGB || 0;
+                const estimatedGB = serviceData.totalCost / 0.023; // Rough estimate based on AWS S3 pricing
+                pricing = {
+                  onDemand: pricePerGB * estimatedGB,
+                  sustainedUse: pricePerGB * estimatedGB * 0.85
+                };
+                console.log(`[GCP Pricing] Fetched storage pricing for ${storageType} in ${region}:`, pricing);
+              }
+            }
+          } else if (serviceType === 'cloudSql') {
+            const engine = 'postgresql'; // Default
+            const tier = 'db-f1-micro'; // Default
+            const response = await fetch(
+              `${backendUrl}/api/gcp/pricing/cloudsql?region=${encodeURIComponent(region)}&engine=${encodeURIComponent(engine)}&tier=${encodeURIComponent(tier)}`
+            );
+            
+            if (response.ok) {
+              const data = await response.json();
+              if (data.price || data.costPerMonth) {
+                pricing = {
+                  onDemand: data.price || data.costPerMonth || 0,
+                  sustainedUse: (data.price || data.costPerMonth || 0) * 0.8
+                };
+                console.log(`[GCP Pricing] Fetched Cloud SQL pricing for ${engine} ${tier} in ${region}:`, pricing);
+              }
+            }
+          }
+        } catch (apiError) {
+          console.warn(`[GCP Pricing] API call failed for ${serviceType}:`, apiError);
         }
+        
+        // If we got pricing from API, use it
         if (pricing && pricing.onDemand) {
           return pricing;
+        }
+        
+        // Try CloudPricingAPI as fallback
+        if (typeof CloudPricingAPI.getGCPPrices === 'function') {
+          pricing = await CloudPricingAPI.getGCPPrices(serviceType, region);
+          if (pricing && pricing.onDemand) {
+            return pricing;
+          }
         }
       }
     } catch (error) {
       console.warn('Failed to fetch GCP pricing from API:', error);
     }
     
-    // Fallback: estimate based on AWS cost
+    // Final fallback: estimate based on AWS cost
+    console.warn(`[GCP Pricing] Using fallback estimate for ${gcpService} (10% cheaper than AWS)`);
     return {
       onDemand: serviceData.totalCost * 0.9, // Assume 10% cheaper
       sustainedUse: serviceData.totalCost * 0.75
     };
+  }
+  
+  /**
+   * Map AWS instance type to GCP machine type
+   * @private
+   */
+  static _mapAwsToGcpMachineType(awsInstanceType) {
+    // Basic mapping - can be expanded
+    const mapping = {
+      't3.micro': 'e2-micro',
+      't3.small': 'e2-small',
+      't3.medium': 'e2-medium',
+      't3.large': 'e2-standard-2',
+      'm5.large': 'n1-standard-2',
+      'm5.xlarge': 'n1-standard-4',
+      'c5.large': 'n1-highcpu-2',
+      'c5.xlarge': 'n1-highcpu-4',
+    };
+    
+    return mapping[awsInstanceType?.toLowerCase()] || 'n1-standard-1';
   }
 
   /**

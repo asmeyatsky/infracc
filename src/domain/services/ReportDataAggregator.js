@@ -360,13 +360,21 @@ export class ReportDataAggregator {
    */
   static _extractCost(workloadData) {
     if (workloadData.monthlyCost !== undefined && workloadData.monthlyCost !== null) {
-      // If it's a Money object (either Workload instance or deserialized Money object)
+      // If it's a Money object instance (has amount getter)
+      if (workloadData.monthlyCost instanceof Object && typeof workloadData.monthlyCost.amount === 'number') {
+        return workloadData.monthlyCost.amount;
+      }
+      // If it's a Money object (either Workload instance or deserialized Money object) with value property
       if (typeof workloadData.monthlyCost === 'object' && typeof workloadData.monthlyCost.value === 'number') {
         return workloadData.monthlyCost.value;
       }
       // If it's a plain object with an 'amount' property (e.g., from toJSON)
       if (typeof workloadData.monthlyCost === 'object' && 'amount' in workloadData.monthlyCost) {
         return parseFloat(workloadData.monthlyCost.amount) || 0;
+      }
+      // If it's a Money object with _amount (internal property)
+      if (typeof workloadData.monthlyCost === 'object' && '_amount' in workloadData.monthlyCost) {
+        return parseFloat(workloadData.monthlyCost._amount) || 0;
       }
       // Handle plain number
       const numValue = parseFloat(workloadData.monthlyCost);
@@ -402,12 +410,29 @@ export class ReportDataAggregator {
       
       // Debug: Log first few costs and any issues
       if (idx < 5) {
+        const monthlyCostRaw = workloadData.monthlyCost;
+        let monthlyCostDetails = {};
+        if (monthlyCostRaw !== undefined && monthlyCostRaw !== null) {
+          if (typeof monthlyCostRaw === 'object') {
+            monthlyCostDetails = {
+              hasAmount: 'amount' in monthlyCostRaw,
+              hasValue: 'value' in monthlyCostRaw,
+              hasAmountProp: '_amount' in monthlyCostRaw,
+              amountValue: monthlyCostRaw.amount,
+              valueValue: monthlyCostRaw.value,
+              amountPropValue: monthlyCostRaw._amount,
+              keys: Object.keys(monthlyCostRaw)
+            };
+          }
+        }
         console.log(`Cost extraction sample ${idx}:`, {
-          cost,
-          monthlyCost: workloadData.monthlyCost,
-          monthlyCostType: typeof workloadData.monthlyCost,
+          extractedCost: cost,
+          monthlyCostRaw: monthlyCostRaw,
+          monthlyCostType: typeof monthlyCostRaw,
+          monthlyCostDetails,
           hasToJSON: !!w.toJSON,
-          workloadType: w.constructor?.name || typeof w
+          workloadType: w.constructor?.name || typeof w,
+          workloadId: workloadData.id
         });
       }
       
@@ -440,6 +465,29 @@ export class ReportDataAggregator {
     
     console.log(`ReportDataAggregator: Calculated totalMonthlyCost = $${totalCost.toFixed(2)} from ${totalWorkloads} workloads`);
     console.log(`ReportDataAggregator: Found ${serviceAgg.length} unique AWS services (all will be mapped and included in TCO)`);
+    
+    // CRITICAL DEBUG: Check if costs are actually present
+    if (totalCost === 0 && totalWorkloads > 0) {
+      console.error('⚠️ WARNING: Total cost is $0.00 but there are workloads!');
+      console.error('⚠️ This indicates costs are not being extracted from workloads.');
+      
+      // Sample a few workloads to see their cost structure
+      const sampleWorkloads = workloads.slice(0, 5);
+      console.error('⚠️ Sample workloads cost structure:');
+      sampleWorkloads.forEach((w, idx) => {
+        const workloadData = w.toJSON ? w.toJSON() : w;
+        console.error(`  Workload ${idx}:`, {
+          id: workloadData.id,
+          monthlyCost: workloadData.monthlyCost,
+          monthlyCostType: typeof workloadData.monthlyCost,
+          extractedCost: this._extractCost(workloadData),
+          hasToJSON: !!w.toJSON,
+          rawWorkload: w
+        });
+      });
+    } else if (totalCost > 0) {
+      console.log(`✓ Costs are present: Total = $${totalCost.toFixed(2)}`);
+    }
 
     const complexities = workloads
       .map(w => {

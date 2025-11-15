@@ -17,7 +17,7 @@ const SECRET_MANAGER_CONFIG = {
   projectId: process.env.REACT_APP_GCP_PROJECT_ID || '',
   
   // Backend proxy endpoint (required due to CORS and authentication)
-  backendEndpoint: process.env.REACT_APP_SECRET_MANAGER_BACKEND || 'http://localhost:3001/api/secrets',
+  backendEndpoint: process.env.REACT_APP_SECRET_MANAGER_BACKEND || 'http://localhost:3002/api/secrets',
   
   // Cache settings
   cacheTimeout: 300000, // 5 minutes (secrets should be cached but refreshed regularly)

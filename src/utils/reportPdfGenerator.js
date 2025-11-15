@@ -24,11 +24,23 @@ import autoTable from 'jspdf-autotable';
  */
 export const generateComprehensiveReportPDF = async (
   reportData,
-  costEstimates = null,
+  costEstimates, // REQUIRED - must be provided
   strategyResults = null,
   assessmentResults = null,
   options = {}
 ) => {
+  // CRITICAL: Cost estimates are required for PDF generation
+  if (!costEstimates) {
+    throw new Error('Cost estimates are required for PDF generation. The Cost Agent must complete before generating the PDF.');
+  }
+  
+  if (!Array.isArray(costEstimates)) {
+    throw new Error(`Cost estimates must be an array, but got ${typeof costEstimates}.`);
+  }
+  
+  if (costEstimates.length === 0) {
+    throw new Error('Cost estimates array is empty. The Cost Agent must generate cost estimates before generating the PDF.');
+  }
   // Debug: Log the data being used for PDF generation
   console.log('PDF Generator - reportData:', {
     totalMonthlyCost: reportData?.summary?.totalMonthlyCost,
@@ -37,6 +49,28 @@ export const generateComprehensiveReportPDF = async (
     costEstimatesCount: costEstimates?.length || 0,
     reportDataStructure: Object.keys(reportData || {})
   });
+  
+  // Debug: Log cost data in detail
+  if (reportData?.summary) {
+    console.log('PDF Generator - Cost Summary:', {
+      totalMonthlyCost: reportData.summary.totalMonthlyCost,
+      totalMonthlyCostType: typeof reportData.summary.totalMonthlyCost,
+      hasCostEstimates: !!costEstimates,
+      costEstimatesLength: costEstimates?.length || 0
+    });
+  }
+  
+  // Debug: Check if workloads have costs
+  if (reportData?.workloads && Array.isArray(reportData.workloads)) {
+    const sampleWorkloads = reportData.workloads.slice(0, 5);
+    console.log('PDF Generator - Sample workload costs:', sampleWorkloads.map(w => ({
+      id: w.id,
+      name: w.name,
+      monthlyCost: w.monthlyCost,
+      monthlyCostType: typeof w.monthlyCost,
+      hasAssessment: !!w.assessment
+    })));
+  }
   
   const {
     projectName = 'AWS to GCP Migration Assessment',
@@ -47,8 +81,52 @@ export const generateComprehensiveReportPDF = async (
   // Create jsPDF instance
   const doc = new jsPDF('p', 'mm', 'a4');
   
+  // Font configuration - using helvetica as base (Poppins can be added as custom font later)
+  // Note: jsPDF doesn't have Poppins built-in. To use Poppins, you'd need to:
+  // 1. Load Poppins font file (TTF) and convert to base64
+  // 2. Use doc.addFileToVFS() and doc.addFont() to register it
+  // 3. Change FONT_FAMILY to 'poppins'
+  // For now, using helvetica which is similar to Poppins. Structure allows easy switch.
+  const FONT_FAMILY = 'helvetica'; // Change to 'poppins' if custom font is loaded
+  const FONT_NORMAL = 'normal';
+  const FONT_BOLD = 'bold';
+  
+  // Spacing constants for consistent spacing throughout
+  const SPACING = {
+    XS: 3,      // Extra small spacing (for tight layouts)
+    SM: 5,      // Small spacing (for compact sections)
+    MD: 8,      // Medium spacing (standard between elements)
+    LG: 10,     // Large spacing (after headers, before sections)
+    XL: 15,     // Extra large spacing (between major sections)
+    XXL: 20     // Extra extra large spacing (page breaks, major divisions)
+  };
+  
+  // Font size constants
+  const FONT_SIZE = {
+    XS: 7,      // Extra small (table footnotes, fine print)
+    SM: 8,      // Small (table cells, captions)
+    MD: 9,      // Medium (body text in tables)
+    BASE: 10,   // Base (standard body text)
+    LG: 11,     // Large (subheadings)
+    XL: 12,     // Extra large (section subheadings)
+    XXL: 14,    // Extra extra large (section titles)
+    TITLE: 16,  // Title (section headers)
+    COVER: 18,  // Cover (cover page subtitle)
+    HERO: 24    // Hero (cover page main title)
+  };
+  
+  // Helper function to set font consistently
+  const setFont = (size, style = FONT_NORMAL) => {
+    doc.setFont(FONT_FAMILY, style);
+    doc.setFontSize(size);
+  };
+  
   // Helper function to safely call autoTable
   const callAutoTable = (options) => {
+    // Ensure autoTable uses consistent font
+    if (!options.styles) options.styles = {};
+    if (!options.styles.font) options.styles.font = FONT_FAMILY;
+    if (!options.styles.fontStyle) options.styles.fontStyle = FONT_NORMAL;
     autoTable(doc, options);
   };
   
@@ -134,15 +212,15 @@ export const generateComprehensiveReportPDF = async (
 
   // Helper function to add section header
   const addSectionHeader = (title, color = [0, 102, 204]) => {
-    checkPageBreak(15);
-    doc.setFontSize(16);
+    checkPageBreak(SPACING.XXL);
+    setFont(FONT_SIZE.TITLE, FONT_BOLD);
     doc.setTextColor(color[0], color[1], color[2]);
     doc.text(title, margin, yPos);
-    yPos += 10;
+    yPos += SPACING.LG;
     doc.setDrawColor(color[0], color[1], color[2]);
     doc.setLineWidth(0.5);
     doc.line(margin, yPos - 2, pageWidth - margin, yPos - 2);
-    yPos += 5;
+    yPos += SPACING.SM;
   };
 
   // ==========================================
@@ -152,28 +230,28 @@ export const generateComprehensiveReportPDF = async (
   doc.rect(0, 0, pageWidth, 60, 'F');
   
   doc.setTextColor(255, 255, 255);
-  doc.setFontSize(24);
+  setFont(FONT_SIZE.HERO, FONT_BOLD);
   doc.text('AWS to GCP Migration', pageWidth / 2, 30, { align: 'center' });
-  doc.setFontSize(18);
+  setFont(FONT_SIZE.COVER, FONT_NORMAL);
   doc.text('Assessment Report', pageWidth / 2, 40, { align: 'center' });
   
   doc.setTextColor(0, 0, 0);
-  doc.setFontSize(12);
+  setFont(FONT_SIZE.XL, FONT_NORMAL);
   yPos = 80;
   doc.text(`Project: ${projectName}`, margin, yPos);
-  yPos += 7;
+  yPos += SPACING.MD;
   doc.text(`Generated: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`, margin, yPos);
-  yPos += 7;
+  yPos += SPACING.MD;
   doc.text(`Target GCP Region: ${targetRegion}`, margin, yPos);
   
   // Key metrics on cover
   yPos = 100;
-  doc.setFontSize(14);
+  setFont(FONT_SIZE.XXL, FONT_BOLD);
   doc.setTextColor(0, 102, 204);
   doc.text('Executive Summary', margin, yPos);
-  yPos += 8;
+  yPos += SPACING.MD;
   
-  doc.setFontSize(10);
+  setFont(FONT_SIZE.BASE, FONT_NORMAL);
   doc.setTextColor(0, 0, 0);
   const summary = reportData?.summary || {};
   
@@ -197,12 +275,12 @@ export const generateComprehensiveReportPDF = async (
     head: [['Metric', 'Value']],
     body: summaryData,
     theme: 'grid',
-    headStyles: { fillColor: [0, 102, 204] },
+    headStyles: { fillColor: [0, 102, 204], fontStyle: FONT_BOLD, font: FONT_FAMILY },
     margin: { left: margin, right: margin },
-    styles: { fontSize: 9 }
+    styles: { fontSize: FONT_SIZE.MD, font: FONT_FAMILY }
   });
 
-  yPos = getLastAutoTable().finalY + 15;
+  yPos = getLastAutoTable().finalY + SPACING.XL;
 
   // ==========================================
   // TABLE OF CONTENTS
@@ -221,16 +299,16 @@ export const generateComprehensiveReportPDF = async (
     'Appendices'
   ];
 
-  doc.setFontSize(10);
+  setFont(FONT_SIZE.BASE, FONT_NORMAL);
   doc.setTextColor(0, 0, 0);
   tocItems.forEach((item, index) => {
-    checkPageBreak(8);
+    checkPageBreak(SPACING.MD);
     const itemText = `${index + 1}. ${item}`;
     const pageNum = index + 2; // Approximate page numbers
     // Use tab-like spacing: item on left, page number on right
-    doc.text(itemText, margin + 5, yPos);
-    doc.text(pageNum.toString(), pageWidth - margin - 5, yPos, { align: 'right' });
-    yPos += 7;
+    doc.text(itemText, margin + SPACING.SM, yPos);
+    doc.text(pageNum.toString(), pageWidth - margin - SPACING.SM, yPos, { align: 'right' });
+    yPos += SPACING.MD;
   });
 
   // ==========================================
@@ -240,7 +318,7 @@ export const generateComprehensiveReportPDF = async (
   yPos = margin;
   addSectionHeader('Executive Summary', [0, 102, 204]);
 
-  doc.setFontSize(10);
+  setFont(FONT_SIZE.BASE, FONT_NORMAL);
   doc.setTextColor(0, 0, 0);
   
   const summaryForText = reportData?.summary || {};
@@ -254,23 +332,23 @@ export const generateComprehensiveReportPDF = async (
   
   // Add note if cost seems unusually low (might indicate deduplication issue)
   if (totalCost > 0 && totalCost < 10000 && summaryForText.totalWorkloads > 100) {
-    yPos += 8;
-    doc.setFontSize(9);
+    yPos += SPACING.MD;
+    setFont(FONT_SIZE.MD, FONT_NORMAL);
     doc.setTextColor(200, 0, 0);
     doc.text(
       `Note: Total cost may appear low due to deduplication. Verify against raw bill totals.`,
       margin, yPos, { maxWidth: contentWidth }
     );
     doc.setTextColor(0, 0, 0);
-    yPos += 5;
+    yPos += SPACING.SM;
   }
-  yPos += 15;
+  yPos += SPACING.XL;
 
   // Complexity Distribution
-  doc.setFontSize(12);
+  setFont(FONT_SIZE.XL, FONT_BOLD);
   doc.setTextColor(0, 102, 204);
   doc.text('Complexity Distribution', margin, yPos);
-  yPos += 8;
+  yPos += SPACING.MD;
 
   const complexity = reportData?.complexity || {};
   const totalComplexityCount = (complexity.low?.count || 0) + (complexity.medium?.count || 0) + (complexity.high?.count || 0) + (complexity.unassigned?.count || 0);
@@ -278,7 +356,7 @@ export const generateComprehensiveReportPDF = async (
   
   // Warn if all workloads are unassigned
   if (unassignedCount > 0 && unassignedCount === totalComplexityCount) {
-    doc.setFontSize(9);
+    setFont(FONT_SIZE.MD, FONT_NORMAL);
     doc.setTextColor(200, 0, 0);
     doc.text(
       `⚠️ WARNING: All ${formatNumber(unassignedCount)} workloads are unassigned. ` +
@@ -286,7 +364,7 @@ export const generateComprehensiveReportPDF = async (
       margin, yPos, { maxWidth: contentWidth }
     );
     doc.setTextColor(0, 0, 0);
-    yPos += 10;
+    yPos += SPACING.LG;
   }
   
   const complexityData = [
@@ -301,19 +379,19 @@ export const generateComprehensiveReportPDF = async (
     head: [['Complexity Level', 'Workloads', 'Monthly Cost']],
     body: complexityData,
     theme: 'grid',
-    headStyles: { fillColor: [0, 102, 204] },
+    headStyles: { fillColor: [0, 102, 204], fontStyle: FONT_BOLD, font: FONT_FAMILY },
     margin: { left: margin, right: margin },
-    styles: { fontSize: 9 }
+    styles: { fontSize: FONT_SIZE.MD, font: FONT_FAMILY }
   });
 
-  yPos = getLastAutoTable().finalY + 10;
+  yPos = getLastAutoTable().finalY + SPACING.LG;
 
   // Readiness Distribution
-  checkPageBreak(30);
-  doc.setFontSize(12);
+  checkPageBreak(SPACING.XXL);
+  setFont(FONT_SIZE.XL, FONT_BOLD);
   doc.setTextColor(0, 102, 204);
   doc.text('Migration Readiness', margin, yPos);
-  yPos += 8;
+  yPos += SPACING.MD;
 
   const readiness = reportData?.readiness || {};
   const totalReadinessCount = (readiness.ready?.count || 0) + (readiness.conditional?.count || 0) + (readiness.notReady?.count || 0) + (readiness.unassigned?.count || 0);
@@ -336,12 +414,12 @@ export const generateComprehensiveReportPDF = async (
     head: [['Readiness Level', 'Workloads', 'Monthly Cost']],
     body: readinessData,
     theme: 'grid',
-    headStyles: { fillColor: [0, 102, 204] },
+    headStyles: { fillColor: [0, 102, 204], fontStyle: FONT_BOLD, font: FONT_FAMILY },
     margin: { left: margin, right: margin },
-    styles: { fontSize: 9 }
+    styles: { fontSize: FONT_SIZE.MD, font: FONT_FAMILY }
   });
 
-  yPos = getLastAutoTable().finalY + 15;
+  yPos = getLastAutoTable().finalY + SPACING.XL;
 
   // ==========================================
   // ASSESSMENT AGENT SUMMARY
@@ -350,14 +428,14 @@ export const generateComprehensiveReportPDF = async (
   yPos = margin;
   addSectionHeader('Assessment Agent Summary', [0, 102, 204]);
 
-  doc.setFontSize(10);
+  setFont(FONT_SIZE.BASE, FONT_NORMAL);
   const summaryForAssessment = reportData?.summary || {};
     doc.text(
       `Assessment results for ${formatNumber(summaryForAssessment.totalWorkloads || 0)} workloads across ` +
       `${formatNumber(summaryForAssessment.totalServices || 0)} AWS services.`,
       margin, yPos, { maxWidth: contentWidth }
     );
-  yPos += 10;
+  yPos += SPACING.LG;
 
   // All Services Table - Complete list (ALL services, not just top N)
   // Extract services data once at function level for reuse later
@@ -413,9 +491,9 @@ export const generateComprehensiveReportPDF = async (
       head: [['AWS Service', 'Workloads', 'Monthly Cost', 'Avg Complexity', 'Target GCP Service', 'Strategy']],
       body: serviceTableData,
       theme: 'grid',
-      headStyles: { fillColor: [0, 102, 204] },
+      headStyles: { fillColor: [0, 102, 204], fontStyle: FONT_BOLD, font: FONT_FAMILY },
       margin: { left: margin, right: margin },
-      styles: { fontSize: 8 },
+      styles: { fontSize: FONT_SIZE.SM, font: FONT_FAMILY },
       columnStyles: {
         0: { cellWidth: 35 },
         1: { cellWidth: 20, halign: 'center' },
@@ -425,10 +503,10 @@ export const generateComprehensiveReportPDF = async (
         5: { cellWidth: 25 }
       }
     });
-    yPos = getLastAutoTable().finalY + 15;
+    yPos = getLastAutoTable().finalY + SPACING.XL;
   } else {
     doc.text('No service data available.', margin, yPos);
-    yPos += 10;
+    yPos += SPACING.LG;
   }
 
   // ==========================================
@@ -437,13 +515,13 @@ export const generateComprehensiveReportPDF = async (
   checkPageBreak(30);
   addSectionHeader('Regional Analysis Summary', [0, 102, 204]);
 
-  doc.setFontSize(10);
+  setFont(FONT_SIZE.BASE, FONT_NORMAL);
   const regions = reportData?.regions || [];
   doc.text(
     `Workload distribution across ${regions.length} AWS regions.`,
     margin, yPos, { maxWidth: contentWidth }
   );
-  yPos += 10;
+  yPos += SPACING.LG;
 
   // All regions - sorted by cost
   const sortedRegions = [...regions]
@@ -462,9 +540,9 @@ export const generateComprehensiveReportPDF = async (
       head: [['Region', 'Workloads', 'Monthly Cost', 'Avg Complexity']],
       body: regionTableData,
       theme: 'grid',
-      headStyles: { fillColor: [0, 102, 204] },
+      headStyles: { fillColor: [0, 102, 204], fontStyle: FONT_BOLD, font: FONT_FAMILY },
       margin: { left: margin, right: margin },
-      styles: { fontSize: 8 },
+      styles: { fontSize: FONT_SIZE.SM, font: FONT_FAMILY },
       columnStyles: {
         0: { cellWidth: 50 },
         1: { cellWidth: 30, halign: 'center' },
@@ -472,73 +550,117 @@ export const generateComprehensiveReportPDF = async (
         3: { cellWidth: 30, halign: 'center' }
       }
     });
-    yPos = getLastAutoTable().finalY + 10;
+    yPos = getLastAutoTable().finalY + SPACING.LG;
   } else {
     doc.text('No regional data available.', margin, yPos);
-    yPos += 10;
+    yPos += SPACING.LG;
   }
 
   // ==========================================
   // COST ANALYSIS AGENT SUMMARY
   // ==========================================
-  if (costEstimates && costEstimates.length > 0) {
+  // Show cost section even if costEstimates is empty - use reportData costs
+  const hasCostEstimates = costEstimates && costEstimates.length > 0;
+  const hasReportDataCosts = reportData?.summary?.totalMonthlyCost > 0;
+  
+  if (hasCostEstimates || hasReportDataCosts) {
     doc.addPage();
     yPos = margin;
     addSectionHeader('Cost Analysis Agent Summary', [40, 167, 69]);
 
-    doc.setFontSize(10);
-    doc.text(
-      `Cost comparison summary between AWS and GCP with Committed Use Discounts (CUD) applied. ` +
-      `Complete service cost breakdown.`,
-      margin, yPos, { maxWidth: contentWidth }
-    );
-    yPos += 10;
+    setFont(FONT_SIZE.BASE, FONT_NORMAL);
+    if (hasCostEstimates) {
+      doc.text(
+        `Cost comparison summary between AWS and GCP with Committed Use Discounts (CUD) applied. ` +
+        `Complete service cost breakdown.`,
+        margin, yPos, { maxWidth: contentWidth }
+      );
+    } else if (hasReportDataCosts) {
+      doc.text(
+        `Cost summary from discovered workloads. Total monthly cost: ${formatCurrency(reportData.summary.totalMonthlyCost)}. ` +
+        `Detailed GCP cost estimates will be available after Cost Agent completes.`,
+        margin, yPos, { maxWidth: contentWidth }
+      );
+    }
+    yPos += SPACING.LG;
 
-    // Sort by AWS cost and show all services
-    const sortedCostEstimates = [...costEstimates]
-      .sort((a, b) => {
-        const costA = a.costEstimate?.awsCost || 0;
-        const costB = b.costEstimate?.awsCost || 0;
-        return costB - costA;
+    let costTableData = [];
+    
+    // Sort by AWS cost and show all services (only if we have costEstimates)
+    let sortedCostEstimates = [];
+    if (hasCostEstimates) {
+      sortedCostEstimates = [...costEstimates]
+        .sort((a, b) => {
+          const costA = a.costEstimate?.awsCost || 0;
+          const costB = b.costEstimate?.awsCost || 0;
+          return costB - costA;
+        });
+    }
+    
+    if (hasCostEstimates) {
+      costTableData = sortedCostEstimates.map(estimate => {
+        const costs = estimate?.costEstimate || {};
+        return [
+          estimate?.service || 'Unknown',
+          costs.gcpService || 'N/A',
+          formatCurrency(costs.awsCost || 0),
+          formatCurrency(costs.gcpOnDemand || 0),
+          formatCurrency(costs.gcp1YearCUD || 0),
+          formatCurrency(costs.gcp3YearCUD || 0),
+          formatCurrency(costs.savings3Year || 0)
+        ];
+      });
+    } else if (hasReportDataCosts && reportData?.services?.topServices) {
+      // Fallback: Show costs from reportData if costEstimates not available
+      costTableData = reportData.services.topServices.slice(0, 20).map(service => [
+        service.name || 'Unknown',
+        'N/A', // GCP service mapping not available without Cost Agent
+        formatCurrency(service.totalCost || 0),
+        'N/A',
+        'N/A',
+        'N/A',
+        'N/A'
+      ]);
+      
+      setFont(FONT_SIZE.MD, FONT_NORMAL);
+      doc.setTextColor(100, 100, 100);
+      doc.text('Note: GCP cost estimates require Cost Agent to complete. Showing AWS costs only.', margin, yPos, { maxWidth: contentWidth });
+      yPos += SPACING.MD;
+    }
+
+    if (costTableData.length > 0) {
+      callAutoTable({
+        startY: yPos,
+        head: [['AWS Service', 'GCP Service', 'AWS Cost', 'GCP On-Demand', 'GCP 1Y CUD', 'GCP 3Y CUD', 'Savings (3Y)']],
+        body: costTableData,
+        theme: 'grid',
+        headStyles: { fillColor: [40, 167, 69], fontStyle: FONT_BOLD, font: FONT_FAMILY },
+        margin: { left: margin, right: margin },
+        styles: { fontSize: FONT_SIZE.XS, font: FONT_FAMILY },
+        columnStyles: {
+          0: { cellWidth: 30 },
+          1: { cellWidth: 30 },
+          2: { cellWidth: 25, halign: 'right' },
+          3: { cellWidth: 25, halign: 'right' },
+          4: { cellWidth: 25, halign: 'right' },
+          5: { cellWidth: 25, halign: 'right' },
+          6: { cellWidth: 25, halign: 'right' }
+        }
       });
 
-    const costTableData = sortedCostEstimates.map(estimate => {
-      const costs = estimate?.costEstimate || {};
-      return [
-        estimate?.service || 'Unknown',
-        costs.gcpService || 'N/A',
-        formatCurrency(costs.awsCost || 0),
-        formatCurrency(costs.gcpOnDemand || 0),
-        formatCurrency(costs.gcp1YearCUD || 0),
-        formatCurrency(costs.gcp3YearCUD || 0),
-        formatCurrency(costs.savings3Year || 0)
-      ];
-    });
-
-    callAutoTable({
-      startY: yPos,
-      head: [['AWS Service', 'GCP Service', 'AWS Cost', 'GCP On-Demand', 'GCP 1Y CUD', 'GCP 3Y CUD', 'Savings (3Y)']],
-      body: costTableData,
-      theme: 'grid',
-      headStyles: { fillColor: [40, 167, 69] },
-      margin: { left: margin, right: margin },
-      styles: { fontSize: 7 },
-      columnStyles: {
-        0: { cellWidth: 30 },
-        1: { cellWidth: 30 },
-        2: { cellWidth: 25, halign: 'right' },
-        3: { cellWidth: 25, halign: 'right' },
-        4: { cellWidth: 25, halign: 'right' },
-        5: { cellWidth: 25, halign: 'right' },
-        6: { cellWidth: 25, halign: 'right' }
-      }
-    });
-
-    yPos = getLastAutoTable().finalY + 10;
+      yPos = getLastAutoTable().finalY + SPACING.LG;
+    } else {
+      // No cost data available
+      setFont(FONT_SIZE.BASE, FONT_NORMAL);
+      doc.setTextColor(150, 150, 150);
+      doc.text('No cost data available. Costs will be calculated after Cost Agent completes.', margin, yPos, { maxWidth: contentWidth });
+      yPos += SPACING.XL;
+    }
 
     // Total cost summary - sum ALL services (not just top N)
     // Use absolute values to handle negative costs (credits) properly
-    const totalCosts = (Array.isArray(costEstimates) ? costEstimates : []).reduce((acc, est) => {
+    // Note: costEstimates is validated at function start, so it's guaranteed to be a non-empty array
+    const totalCosts = costEstimates.reduce((acc, est) => {
       const costs = est?.costEstimate || {};
       // Use absolute value for AWS cost (handles credits/refunds)
       acc.aws += Math.abs(costs.awsCost || 0);
@@ -556,6 +678,7 @@ export const generateComprehensiveReportPDF = async (
     }
     
     // Debug: Log cost totals
+    // Note: costEstimates is validated at function start, so it's guaranteed to be a non-empty array
     console.log(`PDF Generator - Cost totals from ${costEstimates.length} services:`, {
       awsTotal: totalCosts.aws,
       gcp3YearTotal: totalCosts.gcp3Year,
@@ -563,10 +686,10 @@ export const generateComprehensiveReportPDF = async (
     });
 
     checkPageBreak(25);
-    doc.setFontSize(12);
+    setFont(FONT_SIZE.XL, FONT_BOLD);
     doc.setTextColor(40, 167, 69);
     doc.text('Total Cost Summary', margin, yPos);
-    yPos += 8;
+    yPos += SPACING.MD;
 
     // Calculate migration costs (one-time)
     // Use more realistic cost model for large-scale migrations
@@ -630,19 +753,19 @@ export const generateComprehensiveReportPDF = async (
       head: [['Cost Type', 'Monthly Cost']],
       body: totalCostData,
       theme: 'grid',
-      headStyles: { fillColor: [40, 167, 69] },
+      headStyles: { fillColor: [40, 167, 69], fontStyle: FONT_BOLD, font: FONT_FAMILY },
       margin: { left: margin, right: margin },
-      styles: { fontSize: 9 }
+      styles: { fontSize: FONT_SIZE.MD, font: FONT_FAMILY }
     });
     
-    yPos = getLastAutoTable().finalY + 15;
+    yPos = getLastAutoTable().finalY + SPACING.XL;
     
     // Migration Costs (One-Time)
     checkPageBreak(30);
-    doc.setFontSize(12);
+    setFont(FONT_SIZE.XL, FONT_BOLD);
     doc.setTextColor(40, 167, 69);
     doc.text('Migration Costs (One-Time)', margin, yPos);
-    yPos += 8;
+    yPos += SPACING.MD;
     
     const migrationCostData = [
       ['Data Egress from AWS', formatCurrency(dataEgressCost)],
@@ -657,19 +780,19 @@ export const generateComprehensiveReportPDF = async (
       head: [['Cost Item', 'One-Time Cost']],
       body: migrationCostData,
       theme: 'grid',
-      headStyles: { fillColor: [40, 167, 69] },
+      headStyles: { fillColor: [40, 167, 69], fontStyle: FONT_BOLD, font: FONT_FAMILY },
       margin: { left: margin, right: margin },
-      styles: { fontSize: 9 }
+      styles: { fontSize: FONT_SIZE.MD, font: FONT_FAMILY }
     });
     
-    yPos = getLastAutoTable().finalY + 15;
+    yPos = getLastAutoTable().finalY + SPACING.XL;
     
     // Operational Costs (Ongoing)
     checkPageBreak(30);
-    doc.setFontSize(12);
+    setFont(FONT_SIZE.XL, FONT_BOLD);
     doc.setTextColor(40, 167, 69);
     doc.text('Operational Costs (Ongoing)', margin, yPos);
-    yPos += 8;
+    yPos += SPACING.MD;
     
     const operationalCostData = [
       ['Licensing (Custom Solutions)', formatCurrency(licensingCost) + '/month'],
@@ -683,23 +806,23 @@ export const generateComprehensiveReportPDF = async (
       head: [['Cost Item', 'Cost']],
       body: operationalCostData,
       theme: 'grid',
-      headStyles: { fillColor: [40, 167, 69] },
+      headStyles: { fillColor: [40, 167, 69], fontStyle: FONT_BOLD, font: FONT_FAMILY },
       margin: { left: margin, right: margin },
-      styles: { fontSize: 9 }
+      styles: { fontSize: FONT_SIZE.MD, font: FONT_FAMILY }
     });
     
-    yPos = getLastAutoTable().finalY + 15;
+    yPos = getLastAutoTable().finalY + SPACING.XL;
     
     // Complete TCO Summary (3 Years)
     checkPageBreak(30);
-    doc.setFontSize(12);
+    setFont(FONT_SIZE.XL, FONT_BOLD);
     doc.setTextColor(0, 0, 0);
-    doc.setFont(undefined, 'bold');
+    setFont(FONT_SIZE.XL, FONT_BOLD);
     doc.text('Complete TCO Analysis (3 Years)', margin, yPos);
-    yPos += 8;
+    yPos += SPACING.MD;
     
-    doc.setFont(undefined, 'normal');
-    doc.setFontSize(10);
+    setFont(FONT_SIZE.BASE, FONT_NORMAL);
+    setFont(FONT_SIZE.BASE, FONT_NORMAL);
     const tcoData = [
       ['AWS Total (3 Years)', formatCurrency(aws3YearTotal)],
       ['GCP 3-Year CUD Total (3 Years)', formatCurrency(gcp3YearTotal)],
@@ -711,8 +834,8 @@ export const generateComprehensiveReportPDF = async (
     
     // Add note if net savings is negative
     if (netSavings < 0) {
-      yPos += 5;
-      doc.setFontSize(9);
+      yPos += SPACING.SM;
+      setFont(FONT_SIZE.MD, FONT_NORMAL);
       doc.setTextColor(200, 0, 0);
       doc.text(
         `Note: Negative net savings indicates GCP TCO exceeds AWS costs over 3 years. ` +
@@ -728,15 +851,15 @@ export const generateComprehensiveReportPDF = async (
       head: [['Cost Category', '3-Year Total']],
       body: tcoData,
       theme: 'grid',
-      headStyles: { fillColor: [0, 102, 204] },
+      headStyles: { fillColor: [0, 102, 204], fontStyle: FONT_BOLD, font: FONT_FAMILY },
       margin: { left: margin, right: margin },
-      styles: { fontSize: 9 },
+      styles: { fontSize: FONT_SIZE.MD, font: FONT_FAMILY },
       columnStyles: {
         1: { halign: 'right', fontStyle: 'bold' }
       }
     });
 
-    yPos = getLastAutoTable().finalY + 15;
+    yPos = getLastAutoTable().finalY + SPACING.XL;
   }
 
   // ==========================================
@@ -746,14 +869,14 @@ export const generateComprehensiveReportPDF = async (
   yPos = margin;
   addSectionHeader('Strategy Agent Summary', [255, 193, 7]);
 
-  doc.setFontSize(10);
+  setFont(FONT_SIZE.BASE, FONT_NORMAL);
   doc.setTextColor(0, 0, 0);
 
   if (strategyResults && strategyResults.wavePlan) {
-    doc.setFontSize(12);
+    setFont(FONT_SIZE.XL, FONT_BOLD);
     doc.setTextColor(0, 102, 204);
     doc.text('Migration Wave Distribution', margin, yPos);
-    yPos += 8;
+    yPos += SPACING.MD;
 
     const waveData = [
       ['Wave 1 - Quick Wins', (strategyResults.wavePlan.wave1?.length || 0).toString()],
@@ -766,20 +889,20 @@ export const generateComprehensiveReportPDF = async (
       head: [['Wave', 'Workloads']],
       body: waveData,
       theme: 'grid',
-      headStyles: { fillColor: [0, 102, 204] },
+      headStyles: { fillColor: [0, 102, 204], fontStyle: FONT_BOLD, font: FONT_FAMILY },
       margin: { left: margin, right: margin },
-      styles: { fontSize: 10 }
+      styles: { fontSize: FONT_SIZE.BASE, font: FONT_FAMILY }
     });
 
-    yPos = getLastAutoTable().finalY + 15;
+    yPos = getLastAutoTable().finalY + SPACING.XL;
   }
 
   if (strategyResults && strategyResults.migrationPlan) {
     checkPageBreak(20);
-    doc.setFontSize(12);
+    setFont(FONT_SIZE.XL, FONT_BOLD);
     doc.setTextColor(0, 102, 204);
     doc.text('Migration Strategy Distribution', margin, yPos);
-    yPos += 8;
+    yPos += SPACING.MD;
 
     if (strategyResults.migrationPlan.metrics && strategyResults.migrationPlan.metrics.strategyDistribution) {
       const strategyData = Object.entries(strategyResults.migrationPlan.metrics.strategyDistribution)
@@ -790,12 +913,12 @@ export const generateComprehensiveReportPDF = async (
         head: [['Strategy', 'Workloads']],
         body: strategyData,
         theme: 'grid',
-        headStyles: { fillColor: [0, 102, 204] },
+        headStyles: { fillColor: [0, 102, 204], fontStyle: FONT_BOLD, font: FONT_FAMILY },
         margin: { left: margin, right: margin },
-        styles: { fontSize: 10 }
+        styles: { fontSize: FONT_SIZE.BASE, font: FONT_FAMILY }
       });
 
-      yPos = getLastAutoTable().finalY + 15;
+      yPos = getLastAutoTable().finalY + SPACING.XL;
     }
     
     // CRITICAL FIX: Convert planItems to plans format if needed
@@ -821,10 +944,10 @@ export const generateComprehensiveReportPDF = async (
     // Complete Service Mappings Summary - Show ALL services (not limited)
     if (plans && plans.length > 0) {
       checkPageBreak(30);
-      doc.setFontSize(12);
+      setFont(FONT_SIZE.XL, FONT_BOLD);
       doc.setTextColor(0, 102, 204);
       doc.text('Complete Service Mappings', margin, yPos);
-      yPos += 8;
+      yPos += SPACING.MD;
       
       // Group by service and show all mappings (ALL workloads, not limited)
       const serviceMap = new Map();
@@ -861,9 +984,9 @@ export const generateComprehensiveReportPDF = async (
         head: [['AWS Service', 'GCP Service', 'GCP API', 'Strategy', 'Effort', 'Workloads']],
         body: allMappings,
         theme: 'grid',
-        headStyles: { fillColor: [0, 102, 204] },
+        headStyles: { fillColor: [0, 102, 204], fontStyle: FONT_BOLD, font: FONT_FAMILY },
         margin: { left: margin, right: margin },
-        styles: { fontSize: 8 },
+        styles: { fontSize: FONT_SIZE.SM, font: FONT_FAMILY },
         columnStyles: {
           0: { cellWidth: 35 },
           1: { cellWidth: 40 },
@@ -874,17 +997,17 @@ export const generateComprehensiveReportPDF = async (
         }
       });
       
-      yPos = getLastAutoTable().finalY + 15;
+      yPos = getLastAutoTable().finalY + SPACING.XL;
     }
   }
   
   // Migration Timeline Summary
   if (strategyResults && strategyResults.wavePlan) {
     checkPageBreak(25);
-    doc.setFontSize(12);
+    setFont(FONT_SIZE.XL, FONT_BOLD);
     doc.setTextColor(0, 102, 204);
     doc.text('Migration Timeline Summary', margin, yPos);
-    yPos += 8;
+    yPos += SPACING.MD;
     
     const wave1Count = strategyResults.wavePlan.wave1?.length || 0;
     const wave2Count = strategyResults.wavePlan.wave2?.length || 0;
@@ -911,22 +1034,22 @@ export const generateComprehensiveReportPDF = async (
       head: [timelineData[0]],
       body: timelineData.slice(1),
       theme: 'grid',
-      headStyles: { fillColor: [0, 102, 204] },
+      headStyles: { fillColor: [0, 102, 204], fontStyle: FONT_BOLD, font: FONT_FAMILY },
       margin: { left: margin, right: margin },
-      styles: { fontSize: 9 }
+      styles: { fontSize: FONT_SIZE.MD, font: FONT_FAMILY }
     });
     
-    yPos = getLastAutoTable().finalY + 15;
+    yPos = getLastAutoTable().finalY + SPACING.XL;
   }
 
   // Recommendations text
   checkPageBreak(30);
-  doc.setFontSize(12);
+  setFont(FONT_SIZE.XL, FONT_BOLD);
   doc.setTextColor(0, 102, 204);
   doc.text('Key Recommendations', margin, yPos);
-  yPos += 8;
+  yPos += SPACING.MD;
 
-  doc.setFontSize(10);
+  setFont(FONT_SIZE.BASE, FONT_NORMAL);
   const wave1Count = strategyResults?.wavePlan?.wave1?.length || 0;
   const highComplexityCount = reportData?.complexity?.high?.count || 0;
   const readyCount = reportData?.readiness?.ready?.count || 0;
@@ -989,7 +1112,7 @@ export const generateComprehensiveReportPDF = async (
   recommendations.forEach(rec => {
     checkPageBreak(8);
     doc.text(rec, margin + 5, yPos, { maxWidth: contentWidth - 10 });
-    yPos += 7;
+    yPos += SPACING.MD;
   });
 
   // ==========================================
@@ -1001,42 +1124,40 @@ export const generateComprehensiveReportPDF = async (
 
   // Helper function to add appendix with proper formatting
   const addAppendix = (letter, title, content, isLast = false) => {
-    checkPageBreak(30);
+    checkPageBreak(SPACING.XXL);
     
     // Appendix letter and title
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'bold');
+    setFont(FONT_SIZE.LG, FONT_BOLD);
     doc.setTextColor(0, 0, 0);
     doc.text(`${letter}. ${title}`, margin, yPos);
-    yPos += 8;
+    yPos += SPACING.MD;
     
-    // Content
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(50, 50, 50);
+    // Content - use base font size like rest of document
+    setFont(FONT_SIZE.BASE, FONT_NORMAL);
+    doc.setTextColor(0, 0, 0);
     
     // Split content into lines and add with proper spacing
     const lines = content.split('\n');
     lines.forEach((line, index) => {
-      checkPageBreak(6);
+      checkPageBreak(SPACING.SM);
       
       if (line.trim() === '') {
-        yPos += 3; // Extra space for blank lines
+        yPos += SPACING.XS; // Extra space for blank lines
       } else {
         // Handle bullet points and indentation
-        const indent = line.startsWith('  -') ? margin + 10 : (line.startsWith('•') ? margin + 5 : margin + 5);
-        doc.text(line.trim(), indent, yPos, { maxWidth: contentWidth - (indent - margin) - 5 });
+        const indent = line.startsWith('  -') ? margin + SPACING.LG : (line.startsWith('•') ? margin + SPACING.SM : margin);
+        doc.text(line.trim(), indent, yPos, { maxWidth: contentWidth - (indent - margin) - SPACING.SM });
         
-        // Calculate height needed for wrapped text
-        const textWidth = contentWidth - (indent - margin) - 5;
+        // Calculate height needed for wrapped text using consistent spacing
+        const textWidth = contentWidth - (indent - margin) - SPACING.SM;
         const wrappedLines = doc.splitTextToSize(line.trim(), textWidth);
-        yPos += wrappedLines.length * 5 + 2;
+        yPos += wrappedLines.length * SPACING.SM + SPACING.XS;
       }
     });
     
     // Add spacing after appendix (except last one)
     if (!isLast) {
-      yPos += 8;
+      yPos += SPACING.MD;
     }
   };
 
@@ -1148,7 +1269,7 @@ export const generateComprehensiveReportPDF = async (
   const totalPages = doc.internal.pages.length - 1;
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
-    doc.setFontSize(8);
+    setFont(FONT_SIZE.SM, FONT_NORMAL);
     doc.setTextColor(128, 128, 128);
     doc.text(
       `Page ${i} of ${totalPages} | ${projectName} | Generated ${new Date().toLocaleDateString()}`,
@@ -1160,7 +1281,32 @@ export const generateComprehensiveReportPDF = async (
 
   // Save the PDF
   const fileName = `migration-assessment-report-${projectName.replace(/\s+/g, '-').toLowerCase()}-${new Date().toISOString().split('T')[0]}.pdf`;
-  doc.save(fileName);
+  
+  console.log('[PDF] Saving PDF file:', fileName);
+  console.log('[PDF] PDF document pages:', doc.internal.getNumberOfPages());
+  
+  try {
+    doc.save(fileName);
+    console.log('[PDF] PDF save() called successfully');
+  } catch (error) {
+    console.error('[PDF] Error saving PDF:', error);
+    // Fallback: Try to get PDF as blob and create download link
+    try {
+      const pdfBlob = doc.output('blob');
+      const url = URL.createObjectURL(pdfBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      console.log('[PDF] PDF downloaded via blob fallback');
+    } catch (fallbackError) {
+      console.error('[PDF] Fallback download also failed:', fallbackError);
+      throw new Error(`Failed to save PDF: ${error.message}`);
+    }
+  }
 };
 
 export default generateComprehensiveReportPDF;

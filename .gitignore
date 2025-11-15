@@ -22,3 +22,15 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# GCP Service Account Keys
+backend/*.json
+!backend/package.json
+!backend/package-lock.json
+
+# Backend logs and PID files
+backend.log
+backend.pid
+
+# Seed data (can be regenerated)
+seed-data/

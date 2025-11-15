@@ -19,8 +19,8 @@ const PRICING_CONFIG = {
   azureRegion: 'eastus',
   
   // GCP Cloud Billing API (requires backend proxy)
-  gcpBillingEndpoint: process.env.REACT_APP_GCP_BILLING_ENDPOINT || 'http://localhost:3001/api/billing',
-  gcpPricingEndpoint: process.env.REACT_APP_GCP_PRICING_ENDPOINT || 'http://localhost:3001/api/pricing',
+  gcpBillingEndpoint: process.env.REACT_APP_GCP_BILLING_ENDPOINT || 'http://localhost:3002/api/billing',
+  gcpPricingEndpoint: process.env.REACT_APP_GCP_PRICING_ENDPOINT || 'http://localhost:3002/api/pricing',
   
   // Cache settings
   cacheTimeout: 3600000, // 1 hour in milliseconds

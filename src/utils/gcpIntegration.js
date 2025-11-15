@@ -70,7 +70,7 @@
 
 // Configuration
 const GCP_CONFIG = {
-  apiEndpoint: process.env.REACT_APP_GCP_API_ENDPOINT || 'http://localhost:3001/api',
+  apiEndpoint: process.env.REACT_APP_GCP_API_ENDPOINT || 'http://localhost:3002/api',
   projectId: process.env.REACT_APP_GCP_PROJECT_ID,
   billingAccount: process.env.REACT_APP_GCP_BILLING_ACCOUNT,
 };

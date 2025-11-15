@@ -46,6 +46,20 @@ export const parseAwsCur = (csvText) => {
   const usageTypeIdx = getColumnIndex(['usagetype', 'usage_type']);
   const costIdx = getColumnIndex(['unblendedcost', 'cost', 'blendedcost']);
   const instanceTypeIdx = getColumnIndex(['instancetype', 'instance_type']);
+  
+  // CRITICAL DEBUG: Log column indices to verify cost column is found
+  console.log('[PARSER] Column indices:', {
+    productCode: productCodeIdx,
+    resourceId: resourceIdIdx,
+    cost: costIdx,
+    headers: headers.slice(0, 10), // First 10 headers
+    costColumnName: costIdx !== -1 ? headers[costIdx] : 'NOT FOUND'
+  });
+  
+  if (costIdx === -1) {
+    console.error('[PARSER] ERROR: Cost column not found! Available headers:', headers);
+    throw new Error('Cost column (UnblendedCost/Cost) not found in CSV headers');
+  }
   const osIdx = getColumnIndex(['operatingsystem', 'os', 'operating_system']);
   const regionIdx = getColumnIndex(['location', 'region', 'availabilityzone']);
   const usageAmountIdx = getColumnIndex(['usageamount', 'usage_amount', 'quantity']);
@@ -76,8 +90,21 @@ export const parseAwsCur = (csvText) => {
     }
     
     const rawResourceId = values[resourceIdIdx]?.trim();
-    const cost = parseFloat(values[costIdx] || '0');
+    const rawCost = values[costIdx] || '0';
+    const cost = parseFloat(rawCost) || 0;
     const instanceType = values[instanceTypeIdx] || '';
+    
+    // Debug first few rows to verify costs are being extracted
+    if (i <= 5) {
+      console.log(`[PARSER] Row ${i}:`, {
+        productCode,
+        resourceId: rawResourceId,
+        rawCost,
+        parsedCost: cost,
+        costIdx,
+        allValues: values.slice(0, 10)
+      });
+    }
     const os = values[osIdx]?.toLowerCase() || 'linux';
     const rawRegion = values[regionIdx]?.trim();
     const region = rawRegion ? rawRegion.split('-').slice(0, 2).join('-') : 'us-east-1';
@@ -154,6 +181,16 @@ export const parseAwsCur = (csvText) => {
     // Note: This sums costs for the same resource across different dates
     // For daily CUR files, this gives monthly total. For monthly files, this aggregates them.
     const workload = workloadMap.get(dedupeKey);
+    
+    // Debug: Log first few costs to verify they're being aggregated
+    if (workloadMap.size <= 5) {
+      console.log(`[PARSER] Aggregating cost for workload ${dedupeKey}:`, {
+        currentCost: workload.monthlyCost,
+        newCost: cost,
+        totalAfter: workload.monthlyCost + cost
+      });
+    }
+    
     workload.monthlyCost += cost;
     
     // Track date range (expand if needed)

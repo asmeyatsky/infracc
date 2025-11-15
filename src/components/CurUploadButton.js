@@ -27,8 +27,12 @@ class FileUploadManager {
     const dedupeMap = new Map();
     const savedDedupeKeys = new Set();
 
+    console.log(`[FileUploadManager] Processing ${files.length} file(s)`);
+
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
+      console.log(`[FileUploadManager] Processing file ${i + 1}/${files.length}: ${file.name} (${(file.size / 1024).toFixed(1)}KB)`);
+      
       onProgress({
         current: i + 1,
         total: files.length,
@@ -39,13 +43,24 @@ class FileUploadManager {
 
       try {
         const workloads = await this._processFile(file);
+        console.log(`[FileUploadManager] File ${file.name}: Parsed ${workloads.length} workloads`);
+        
+        if (workloads.length === 0) {
+          console.warn(`[FileUploadManager] WARNING: File ${file.name} produced 0 workloads. Check file format.`);
+          console.log(`[FileUploadManager] File size: ${file.size} bytes, type: ${file.type}`);
+        }
+        
         const { newWorkloads, updatedWorkloads } = await this._deduplicateAndSave(workloads, dedupeMap, savedDedupeKeys, onProgress);
+        console.log(`[FileUploadManager] File ${file.name}: Saved ${newWorkloads} new, ${updatedWorkloads} updated workloads`);
         totalWorkloadsSaved += newWorkloads;
       } catch (error) {
-        console.error(`Error processing ${file.name}:`, error);
+        console.error(`[FileUploadManager] Error processing ${file.name}:`, error);
+        console.error(`[FileUploadManager] Error stack:`, error.stack);
         toast.error(`Error processing ${file.name}: ${error.message}`);
       }
     }
+
+    console.log(`[FileUploadManager] Total: ${totalWorkloadsSaved} new workloads saved, ${dedupeMap.size} unique workloads`);
 
     return {
       totalWorkloadsSaved,
@@ -118,6 +133,8 @@ class FileUploadManager {
     let updatedWorkloadsCount = 0;
     const batchSize = 100;
 
+    console.log(`[FileUploadManager] Deduplicating and saving ${workloads.length} workloads...`);
+
     for (let i = 0; i < workloads.length; i += batchSize) {
       const batch = workloads.slice(i, i + batchSize);
       onProgress({ status: `Deduplicating and saving batch ${Math.floor(i / batchSize) + 1}...` });
@@ -128,23 +145,99 @@ class FileUploadManager {
         const region = String(data.region || '').trim();
         const dedupeKey = `${resourceId}_${service}_${region}`.toLowerCase();
 
-        if (!dedupeKey || dedupeKey === '__') continue;
+        if (!dedupeKey || dedupeKey === '__') {
+          console.warn(`[FileUploadManager] Skipping invalid workload data:`, { resourceId, service, region });
+          continue;
+        }
+
+        // CRITICAL: Extract monthlyCost properly - handle both number and Money object
+        let monthlyCostValue = 0;
+        if (data.monthlyCost !== undefined && data.monthlyCost !== null) {
+          if (typeof data.monthlyCost === 'object' && 'amount' in data.monthlyCost) {
+            monthlyCostValue = parseFloat(data.monthlyCost.amount) || 0;
+          } else if (typeof data.monthlyCost === 'object' && '_amount' in data.monthlyCost) {
+            monthlyCostValue = parseFloat(data.monthlyCost._amount) || 0;
+          } else {
+            monthlyCostValue = parseFloat(data.monthlyCost) || 0;
+          }
+        }
 
         const existingWorkload = await this.workloadRepository.findById(dedupeKey);
 
         if (existingWorkload) {
-          const currentCost = existingWorkload.monthlyCost.value || 0;
-          const newCost = currentCost + (data.monthlyCost || 0);
+          // CRITICAL: Extract current cost properly - handle Money object
+          let currentCost = 0;
+          if (existingWorkload.monthlyCost) {
+            if (typeof existingWorkload.monthlyCost === 'object' && 'amount' in existingWorkload.monthlyCost) {
+              currentCost = existingWorkload.monthlyCost.amount;
+            } else if (typeof existingWorkload.monthlyCost === 'object' && 'value' in existingWorkload.monthlyCost) {
+              currentCost = existingWorkload.monthlyCost.value;
+            } else if (typeof existingWorkload.monthlyCost === 'number') {
+              currentCost = existingWorkload.monthlyCost;
+            }
+          }
+          
+          const newCost = currentCost + monthlyCostValue;
 
           if (Math.abs(newCost - currentCost) > 0.01) {
-            const updatedWorkload = new Workload({ ...existingWorkload.toJSON(), monthlyCost: newCost });
+            const existingData = existingWorkload.toJSON ? existingWorkload.toJSON() : existingWorkload;
+            const updatedWorkload = new Workload({ ...existingData, monthlyCost: newCost });
             await this.workloadRepository.save(updatedWorkload);
             updatedWorkloadsCount++;
+            
+            // Log first few updates
+            if (updatedWorkloadsCount <= 3) {
+              console.log(`[UPLOAD] Updated workload ${dedupeKey}:`, {
+                currentCost,
+                newCostValue: monthlyCostValue,
+                totalCost: newCost
+              });
+            }
           }
         } else {
-          const workload = new Workload({ ...data, id: dedupeKey, sourceProvider: 'aws' });
-          await this.workloadRepository.save(workload);
-          newWorkloadsCount++;
+          try {
+            // Ensure all required fields are present
+            // monthlyCostValue is already extracted above
+            const workloadData = {
+              id: dedupeKey,
+              name: data.name || resourceId.split('/').pop() || dedupeKey,
+              service: data.service || 'EC2',
+              type: data.type || 'vm',
+              sourceProvider: 'aws',
+              cpu: data.cpu || 0,
+              memory: data.memory || 0,
+              storage: data.storage || 0,
+              monthlyCost: monthlyCostValue, // Use extracted value
+              region: data.region || 'us-east-1',
+              os: data.os || 'linux',
+              monthlyTraffic: data.monthlyTraffic || 0,
+              dependencies: data.dependencies || []
+            };
+            
+            // Log first few to verify costs are being set
+            if (newWorkloadsCount <= 5) {
+              console.log(`[UPLOAD] Workload ${newWorkloadsCount}:`, {
+                id: dedupeKey,
+                dataMonthlyCost: data.monthlyCost,
+                dataMonthlyCostType: typeof data.monthlyCost,
+                extractedValue: monthlyCostValue,
+                extractedType: typeof monthlyCostValue,
+                workloadData: { ...workloadData, monthlyCost: monthlyCostValue }
+              });
+            }
+            
+            const workload = new Workload(workloadData);
+            await this.workloadRepository.save(workload);
+            newWorkloadsCount++;
+            
+            // Log first few to verify they're being created
+            if (newWorkloadsCount <= 3) {
+              console.log(`[UPLOAD] Created workload: ${workload.id} (${workload.name})`);
+            }
+          } catch (error) {
+            console.error(`[UPLOAD] Failed to create workload ${dedupeKey}:`, error);
+            console.error(`[UPLOAD] Data:`, data);
+          }
         }
       }
       await new Promise(resolve => setTimeout(resolve, 0)); // Yield to event loop
@@ -176,14 +269,49 @@ function CurUploadButton({ onUploadComplete }) {
         setUploadProgress(prev => ({ ...prev, ...progress }));
       });
 
-      const summaryMessage = `Successfully imported ${totalWorkloadsSaved} new workloads (${uniqueWorkloads} total unique workloads).`;
+      // CRITICAL: Force persistence to IndexedDB before completing upload
+      console.log(`[UPLOAD] Processing complete. Forcing persistence to IndexedDB...`);
+      console.log(`[UPLOAD] Expected: ${uniqueWorkloads} unique workloads, ${totalWorkloadsSaved} new workloads saved`);
+      
+      // Force persistence multiple times to ensure it completes
+      for (let i = 0; i < 3; i++) {
+        if (typeof workloadRepository._forcePersist === 'function') {
+          await workloadRepository._forcePersist();
+          console.log(`[UPLOAD] Forced persistence attempt ${i + 1}/3 completed`);
+        }
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+      
+      // Reload from storage to verify workloads are saved
+      if (typeof workloadRepository._loadFromStorage === 'function') {
+        await workloadRepository._loadFromStorage();
+        console.log('[UPLOAD] Reloaded from IndexedDB');
+      }
+      
+      // Verify workloads are actually in the repository
+      const verifyWorkloads = await workloadRepository.findAll();
+      console.log(`[UPLOAD] Verified ${verifyWorkloads.length} workloads in repository (expected: ${uniqueWorkloads})`);
+      
+      if (verifyWorkloads.length === 0) {
+        console.error('[UPLOAD] ERROR: No workloads found in repository after upload!');
+        console.error('[UPLOAD] Check IndexedDB in DevTools: Application → IndexedDB → WorkloadRepository → workloads');
+        console.error('[UPLOAD] Repository cache size:', workloadRepository._cache?.size || 'unknown');
+        toast.error('Files processed but no workloads found in repository. Please check console for errors.', { autoClose: 10000 });
+        return;
+      }
+      
+      if (verifyWorkloads.length < uniqueWorkloads * 0.9) {
+        console.warn(`[UPLOAD] WARNING: Only ${verifyWorkloads.length} workloads found, expected ~${uniqueWorkloads}`);
+      }
+
+      const summaryMessage = `Successfully imported ${totalWorkloadsSaved} new workloads (${verifyWorkloads.length} total unique workloads).`;
       toast.success(summaryMessage);
 
       if (onUploadComplete) {
         onUploadComplete({
           count: totalWorkloadsSaved,
           summary: {
-            uniqueWorkloads: uniqueWorkloads,
+            uniqueWorkloads: verifyWorkloads.length, // Use verified count
             workloadsSaved: totalWorkloadsSaved,
           },
           files: files,

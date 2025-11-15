@@ -16,8 +16,6 @@ import PipelineOrchestrator from './PipelineOrchestrator.js';
 import ReportSummaryView from '../report/ReportSummaryView.js';
 import { generateComprehensiveReportPDF } from '../../utils/reportPdfGenerator.js';
 import { getAgentOutput, getPipelineState, savePipelineState, clearPipelineState } from '../../utils/agentCacheService.js';
-import { loadDemoData } from '../../utils/demoData.js';
-import { Workload } from '../../domain/entities/Workload.js';
 import localforage from 'localforage';
 import './MigrationPipeline.css';
 
@@ -194,16 +192,46 @@ export default function MigrationPipeline() {
           await clearPipelineState(fileUUID);
         }
         
-        // Clear workload repository to start fresh
-        try {
-          const container = await import('../../infrastructure/dependency_injection/Container.js').then(m => m.getContainer());
-          if (container.workloadRepository) {
-            await container.workloadRepository.clear();
-            console.log('[CLEAR] Cleared all workloads from repository for fresh start');
+        // Get container - DO NOT CLEAR repository! CurUploadButton already saved workloads
+        const container = await import('../../infrastructure/dependency_injection/Container.js').then(m => m.getContainer());
+        
+        // CRITICAL: Workloads are already saved by CurUploadButton, just verify they're available
+        console.log('[PIPELINE] Verifying workloads are available...');
+        
+        // Reload from IndexedDB to ensure we have the latest persisted data
+        if (typeof container.workloadRepository._loadFromStorage === 'function') {
+          await container.workloadRepository._loadFromStorage();
+          console.log('[PIPELINE] Reloaded from IndexedDB');
+        }
+        
+        // Wait a moment for any pending persistence
+        await new Promise(resolve => setTimeout(resolve, 200));
+        
+        const workloads = await container.workloadRepository.findAll();
+        console.log(`[PIPELINE] Found ${workloads.length} workloads in repository`);
+        
+        if (workloads.length === 0) {
+          // Try one more time with a fresh container instance
+          console.warn('[PIPELINE] No workloads found. Trying fresh container instance...');
+          const freshContainer = await import('../../infrastructure/dependency_injection/Container.js').then(m => m.getContainer());
+          
+          if (typeof freshContainer.workloadRepository._loadFromStorage === 'function') {
+            await freshContainer.workloadRepository._loadFromStorage();
           }
-        } catch (clearError) {
-          console.warn('Could not clear workload repository:', clearError);
-          // Continue anyway - new files will overwrite
+          
+          const freshWorkloads = await freshContainer.workloadRepository.findAll();
+          console.log(`[PIPELINE] Fresh container found ${freshWorkloads.length} workloads`);
+          
+          if (freshWorkloads.length === 0) {
+            console.error('[PIPELINE] ERROR: No workloads found after upload!');
+            console.error('[PIPELINE] Upload summary:', uploadResult.summary);
+            toast.error('No workloads found after upload. Please check file format and console for errors.', { autoClose: 5000 });
+            return; // Don't proceed if no workloads
+          }
+          
+          console.log(`[PIPELINE] Successfully found ${freshWorkloads.length} workloads using fresh container`);
+        } else {
+          console.log(`[PIPELINE] Verified ${workloads.length} workloads ready for pipeline`);
         }
         
         // Generate UUID from actual files for cache consistency
@@ -223,7 +251,7 @@ export default function MigrationPipeline() {
           fileNames: uploadResult.files.map(f => f.name)
         });
         
-        toast.success('Files processed successfully. Select output format to continue.');
+        toast.success(`Files processed successfully. Select output format to continue.`);
       } catch (err) {
         console.error('Error generating UUID from files:', err);
         // Fallback: use summary-based UUID
@@ -286,11 +314,13 @@ export default function MigrationPipeline() {
 
     // If PDF format was selected, generate PDF immediately
     if (outputFormat === 'pdf') {
+      console.log('[PDF] PDF format selected, auto-generating PDF...');
       try {
         await generatePDFReport(outputs);
+        console.log('[PDF] Auto-generation completed');
       } catch (err) {
-        console.error('Error generating PDF:', err);
-        toast.error('Failed to generate PDF report');
+        console.error('[PDF] Error auto-generating PDF:', err);
+        toast.error(`Failed to generate PDF report: ${err.message}`, { autoClose: 10000 });
       }
     }
   };
@@ -302,22 +332,196 @@ export default function MigrationPipeline() {
   };
 
   const generatePDFReport = async (outputs) => {
+    console.log('[PDF] generatePDFReport called:', {
+      hasOutputs: !!outputs,
+      hasFileUUID: !!fileUUID,
+      fileUUID: fileUUID,
+      hasDiscovery: !!outputs?.discovery,
+      hasAssessment: !!outputs?.assessment,
+      hasStrategy: !!outputs?.strategy,
+      hasCost: !!outputs?.cost
+    });
+    
     if (!outputs || !fileUUID) {
-      throw new Error('Missing outputs or file UUID for PDF generation');
+      const errorMsg = `Missing outputs or file UUID for PDF generation. outputs: ${!!outputs}, fileUUID: ${!!fileUUID}`;
+      console.error('[PDF]', errorMsg);
+      throw new Error(errorMsg);
     }
 
-    toast.info('Generating PDF report...');
+    console.log('[PDF] Starting PDF generation process...');
+    toast.info('Generating PDF report...', { autoClose: 2000 });
 
     try {
       // Get all cached outputs
       const discoveryOutput = outputs.discovery || await getAgentOutput(fileUUID, 'discovery');
       const assessmentOutput = outputs.assessment || await getAgentOutput(fileUUID, 'assessment');
       const strategyOutput = outputs.strategy || await getAgentOutput(fileUUID, 'strategy');
-      const costOutput = outputs.cost || await getAgentOutput(fileUUID, 'cost');
+      let costOutput = outputs.cost || await getAgentOutput(fileUUID, 'cost');
+      
+      // CRITICAL: Validate that cost estimates are available
+      // Cost estimates are REQUIRED for PDF generation
+      console.log('[PDF] Validating cost output:', {
+        hasCostOutput: !!costOutput,
+        costOutputKeys: costOutput ? Object.keys(costOutput) : [],
+        hasCostEstimates: !!(costOutput?.costEstimates),
+        costEstimatesType: Array.isArray(costOutput?.costEstimates) ? 'array' : typeof costOutput?.costEstimates,
+        costEstimatesLength: costOutput?.costEstimates?.length || 0
+      });
+      
+      if (!costOutput) {
+        const errorMsg = 'Cost Agent output is missing. The Cost Agent must complete before generating the PDF report.';
+        console.error('[PDF]', errorMsg);
+        toast.error(errorMsg, { autoClose: 10000 });
+        throw new Error(errorMsg);
+      }
+      
+      // CRITICAL: If costEstimates are missing, regenerate them (for backward compatibility)
+      if (!costOutput.costEstimates || !Array.isArray(costOutput.costEstimates) || costOutput.costEstimates.length === 0) {
+        console.log('[PDF] Cost estimates missing from cache, regenerating...');
+        toast.info('Regenerating cost estimates for PDF...', { autoClose: 3000 });
+        
+        try {
+          // Import required services
+          const { GCPCostEstimator } = await import('../../domain/services/GCPCostEstimator.js');
+          const { ReportDataAggregator } = await import('../../domain/services/ReportDataAggregator.js');
+          
+          // CRITICAL: Load actual Workload entities from repository (not plain objects from discovery output)
+          // The discovery output contains plain objects, but we need Workload entities with proper cost data
+          const container = await import('../../infrastructure/dependency_injection/Container.js').then(m => m.getContainer());
+          
+          // Reload from IndexedDB to ensure we have the latest data
+          if (typeof container.workloadRepository._loadFromStorage === 'function') {
+            await container.workloadRepository._loadFromStorage();
+          }
+          
+          // Get actual Workload entities from repository
+          let workloads = await container.workloadRepository.findAll();
+          
+          console.log('[PDF] Regenerating cost estimates - loaded workloads:', {
+            count: workloads.length,
+            fromDiscovery: discoveryOutput?.workloads?.length || 0,
+            usingRepository: workloads.length > 0
+          });
+          
+          // Fallback to discovery output if repository is empty
+          if (workloads.length === 0) {
+            console.warn('[PDF] No workloads in repository, falling back to discovery output');
+            workloads = discoveryOutput?.workloads || [];
+          }
+          
+          if (workloads.length === 0) {
+            throw new Error('No workloads found. Cannot generate cost estimates without workloads.');
+          }
+          
+          // Aggregate services from workloads
+          // aggregateByService returns an array directly, not an object with topServices
+          const serviceAggregation = ReportDataAggregator.aggregateByService(workloads);
+          
+          console.log('[PDF] Service aggregation result:', {
+            serviceCount: serviceAggregation.length,
+            sampleServices: serviceAggregation.slice(0, 5).map(s => ({
+              service: s.service,
+              totalCost: s.totalCost,
+              count: s.count
+            }))
+          });
+          
+          if (!serviceAggregation || serviceAggregation.length === 0) {
+            throw new Error('No services found after aggregation. Cannot generate cost estimates.');
+          }
+          
+          // Generate cost estimates for each service
+          const costEstimates = await GCPCostEstimator.estimateAllServiceCosts(
+            serviceAggregation, // Pass the array directly
+            'us-central1' // target region
+          );
+          
+          console.log('[PDF] Generated cost estimates:', {
+            count: costEstimates.length,
+            sampleEstimate: costEstimates[0] ? {
+              service: costEstimates[0].service,
+              hasCostEstimate: !!costEstimates[0].costEstimate,
+              awsCost: costEstimates[0].costEstimate?.awsCost
+            } : null
+          });
+          
+          if (!costEstimates || costEstimates.length === 0) {
+            throw new Error('Cost estimation returned empty array. This may indicate an issue with the GCP pricing API or service mapping.');
+          }
+          
+          // Update cost output with regenerated costEstimates
+          costOutput = {
+            ...costOutput,
+            costEstimates,
+            timestamp: new Date().toISOString()
+          };
+          
+          // Save updated output back to cache
+          const { saveAgentOutput } = await import('../../utils/agentCacheService.js');
+          await saveAgentOutput(fileUUID, 'cost', costOutput);
+          
+          console.log('[PDF] Successfully regenerated and saved cost estimates:', {
+            count: costEstimates.length
+          });
+        } catch (regenerationError) {
+          console.error('[PDF] Failed to regenerate cost estimates:', regenerationError);
+          const errorMsg = `Failed to generate cost estimates: ${regenerationError.message}. Please ensure the Cost Agent completes successfully.`;
+          toast.error(errorMsg, { autoClose: 10000 });
+          throw new Error(errorMsg);
+        }
+      }
+      
+      // Final validation
+      if (!costOutput.costEstimates || !Array.isArray(costOutput.costEstimates)) {
+        const errorMsg = `Cost estimates must be an array, but got ${typeof costOutput.costEstimates}. Cost Agent output may be corrupted.`;
+        console.error('[PDF]', errorMsg, { costEstimates: costOutput.costEstimates });
+        toast.error(errorMsg, { autoClose: 10000 });
+        throw new Error(errorMsg);
+      }
+      
+      if (costOutput.costEstimates.length === 0) {
+        const errorMsg = 'Cost estimates array is empty. The Cost Agent must generate cost estimates before generating the PDF report.';
+        console.error('[PDF]', errorMsg);
+        toast.error(errorMsg, { autoClose: 10000 });
+        throw new Error(errorMsg);
+      }
+      
+      console.log('[PDF] Cost estimates validated successfully:', {
+        count: costOutput.costEstimates.length,
+        sampleEstimate: costOutput.costEstimates[0] ? {
+          service: costOutput.costEstimates[0].service,
+          hasCostEstimate: !!costOutput.costEstimates[0].costEstimate,
+          awsCost: costOutput.costEstimates[0].costEstimate?.awsCost,
+          gcpOnDemand: costOutput.costEstimates[0].costEstimate?.gcpOnDemand
+        } : null
+      });
 
-      // CRITICAL: Merge assessments with workloads before generating report
-      // This ensures complexity and readiness scores are included
-      let workloads = discoveryOutput?.workloads || [];
+      // CRITICAL: Load actual Workload entities from repository (not plain objects from discovery output)
+      // The discovery output contains plain objects, but we need Workload entities with proper cost data
+      const container = await import('../../infrastructure/dependency_injection/Container.js').then(m => m.getContainer());
+      
+      // Reload from IndexedDB to ensure we have the latest data
+      if (typeof container.workloadRepository._loadFromStorage === 'function') {
+        await container.workloadRepository._loadFromStorage();
+      }
+      
+      // Get actual Workload entities from repository
+      let workloads = await container.workloadRepository.findAll();
+      
+      console.log('[PDF] Loaded workloads from repository:', {
+        count: workloads.length,
+        sampleWorkload: workloads[0] ? {
+          id: workloads[0].id,
+          hasToJSON: typeof workloads[0].toJSON === 'function',
+          monthlyCost: workloads[0].toJSON ? workloads[0].toJSON().monthlyCost : 'N/A',
+          isWorkloadEntity: workloads[0] instanceof (await import('../../domain/entities/Workload.js').then(m => m.Workload))
+        } : null
+      });
+      
+      if (workloads.length === 0) {
+        console.warn('[PDF] No workloads found in repository, falling back to discovery output');
+        workloads = discoveryOutput?.workloads || [];
+      }
       
       // CRITICAL DEBUG: Log what we got from cache
       console.log('[PDF DEBUG] Assessment output from cache:', {
@@ -597,10 +801,30 @@ export default function MigrationPipeline() {
         console.log(`[PDF] Merged with complexity: ${mergedWithComplexity}, without: ${mergedWithoutComplexity}, not found in map: ${notFoundInMap}`);
       }
       
+      // CRITICAL DEBUG: Check workloads before generating report
+      console.log('[PDF] Checking workloads before report generation:', {
+        workloadCount: workloads.length,
+        sampleWorkloads: workloads.slice(0, 3).map(w => {
+          const data = w.toJSON ? w.toJSON() : w;
+          return {
+            id: data.id,
+            monthlyCost: data.monthlyCost,
+            monthlyCostType: typeof data.monthlyCost
+          };
+        })
+      });
+      
       // Generate report data with merged workloads
       const reportData = await import('../../domain/services/ReportDataAggregator.js').then(m => 
         m.ReportDataAggregator.generateReportSummary(workloads)
       );
+      
+      // CRITICAL DEBUG: Verify report data has costs
+      console.log('[PDF] Report data after generation:', {
+        totalMonthlyCost: reportData?.summary?.totalMonthlyCost,
+        totalMonthlyCostType: typeof reportData?.summary?.totalMonthlyCost,
+        hasSummary: !!reportData?.summary
+      });
       
       // Debug: Log complexity and readiness counts
       console.log('[PDF] Report data complexity:', {
@@ -617,18 +841,34 @@ export default function MigrationPipeline() {
       });
 
       // Generate PDF
-      await generateComprehensiveReportPDF(
-        reportData,
-        costOutput?.costEstimates || null,
-        strategyOutput || null,
-        assessmentOutput || null,
-        {
-          projectName: 'AWS to GCP Migration Assessment',
-          targetRegion: 'us-central1'
-        }
-      );
-
-      toast.success('PDF report generated successfully!');
+      console.log('[PDF] Starting PDF generation...');
+      console.log('[PDF] Report data summary:', {
+        totalWorkloads: reportData?.summary?.totalWorkloads,
+        totalMonthlyCost: reportData?.summary?.totalMonthlyCost,
+        hasCostEstimates: !!(costOutput?.costEstimates?.length),
+        costEstimatesCount: costOutput?.costEstimates?.length || 0
+      });
+      
+      try {
+        // Cost estimates are validated above, so we can safely pass them
+        await generateComprehensiveReportPDF(
+          reportData,
+          costOutput.costEstimates, // Required - validated above
+          strategyOutput || null,
+          assessmentOutput || null,
+          {
+            projectName: 'AWS to GCP Migration Assessment',
+            targetRegion: 'us-central1'
+          }
+        );
+        
+        console.log('[PDF] PDF generation completed successfully');
+        toast.success('PDF report generated and downloaded!', { autoClose: 5000 });
+      } catch (pdfError) {
+        console.error('[PDF] PDF generation failed:', pdfError);
+        toast.error(`PDF generation failed: ${pdfError.message}`, { autoClose: 10000 });
+        throw pdfError;
+      }
     } catch (err) {
       console.error('PDF generation error:', err);
       throw err;
@@ -651,118 +891,19 @@ export default function MigrationPipeline() {
     );
   }
 
-  // Load demo data into repository
-  const handleLoadDemoData = async () => {
-    try {
-      const container = await import('../../infrastructure/dependency_injection/Container.js').then(m => m.getContainer());
-      const workloadRepository = container.workloadRepository;
-      
-      // Clear existing workloads
-      await workloadRepository.clear();
-      
-      // Load demo data
-      const demoData = loadDemoData();
-      const { workloads: demoWorkloads } = demoData;
-      
-      // Convert demo workloads to Workload entities and save to repository
-      let savedCount = 0;
-      for (const demoWorkload of demoWorkloads) {
-        try {
-          const workload = new Workload({
-            id: `demo-${demoWorkload.id}`,
-            name: demoWorkload.name,
-            service: demoWorkload.service || 'EC2',
-            type: demoWorkload.type || 'vm',
-            sourceProvider: 'aws',
-            cpu: demoWorkload.cpu || 0,
-            memory: demoWorkload.memory || 0,
-            storage: demoWorkload.storage || 0,
-            monthlyCost: demoWorkload.monthlyCost || 0,
-            region: demoWorkload.region || 'us-east-1',
-            os: demoWorkload.os || 'linux',
-            monthlyTraffic: demoWorkload.monthlyTraffic || 0,
-            dependencies: typeof demoWorkload.dependencies === 'string' 
-              ? demoWorkload.dependencies.split(',').map(d => d.trim()).filter(Boolean)
-              : (demoWorkload.dependencies || [])
-          });
-          
-          await workloadRepository.save(workload);
-          savedCount++;
-        } catch (error) {
-          console.warn(`Failed to save demo workload ${demoWorkload.name}:`, error);
-        }
-      }
-      
-      // Force persistence to ensure workloads are saved to IndexedDB
-      try {
-        await workloadRepository._forcePersist();
-        console.log('[DEBUG] Demo Data: Forced persistence to IndexedDB');
-      } catch (persistError) {
-        console.warn('[DEBUG] Demo Data: Failed to force persist, trying alternative:', persistError);
-        // Wait a bit for debounced persistence to complete
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-      
-      // Wait a bit for persistence to complete
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
-      // Reload from storage to ensure we have the latest data
-      if (typeof workloadRepository._loadFromStorage === 'function') {
-        await workloadRepository._loadFromStorage();
-      }
-      
-      // Verify workloads were saved
-      const verifyWorkloads = await workloadRepository.findAll();
-      console.log(`[DEBUG] Demo Data: Saved ${savedCount} workloads, verified ${verifyWorkloads.length} workloads in repository`);
-      console.log(`[DEBUG] Demo Data: Sample workload IDs:`, verifyWorkloads.slice(0, 5).map(w => w.id));
-      
-      if (verifyWorkloads.length === 0) {
-        throw new Error('Failed to save demo workloads to repository. Please try again.');
-      }
-      
-      if (verifyWorkloads.length !== savedCount) {
-        console.warn(`[DEBUG] Demo Data: Warning - saved ${savedCount} but verified ${verifyWorkloads.length} workloads`);
-      }
-      
-      toast.success(`✅ Loaded ${verifyWorkloads.length} demo workloads into repository. You can now run the pipeline!`, { autoClose: 3000 });
-      
-      // Set a placeholder file so pipeline can proceed
-      // Add a small delay to ensure repository is ready
-      await new Promise(resolve => setTimeout(resolve, 200));
-      setFiles([{ name: 'demo-data', demo: true }]);
-      
-    } catch (error) {
-      console.error('Error loading demo data:', error);
-      toast.error('Failed to load demo data: ' + error.message, { autoClose: 3000 });
-    }
-  };
-
   // Step 1: File Upload
   if (!files || files.length === 0) {
     return (
       <div className="migration-pipeline">
         <div className="pipeline-step-container">
-          <h2>Step 1: Upload CUR Files or Load Demo Data</h2>
+          <h2>Step 1: Upload CUR Files</h2>
           <p className="step-description">
-            Upload your AWS Cost and Usage Report (CUR) files to begin the migration assessment, or load demo data to explore the tool.
+            Upload your AWS Cost and Usage Report (CUR) files to begin the migration assessment.
+            <br />
+            <small className="text-muted">For testing, use the seed-data.zip file from the seed-data folder.</small>
           </p>
           <div className="file-upload-section">
-            <div className="mb-4">
-              <CurUploadButton onUploadComplete={handleFileUpload} />
-            </div>
-            <div className="text-center">
-              <div className="mb-2 text-muted">OR</div>
-              <button 
-                className="btn btn-success btn-lg"
-                onClick={handleLoadDemoData}
-                style={{ minWidth: '200px' }}
-              >
-                🎮 Load Demo Data
-              </button>
-              <p className="text-muted small mt-2">
-                Loads 16 pre-configured workloads (VMs, containers, databases, storage) for testing
-              </p>
-            </div>
+            <CurUploadButton onUploadComplete={handleFileUpload} />
           </div>
         </div>
       </div>
@@ -839,6 +980,32 @@ export default function MigrationPipeline() {
         </div>
       )}
       
+      {/* Always show PDF button if pipeline is complete, regardless of format */}
+      {pipelineComplete && pipelineOutputs && (
+        <div className="mt-3 mb-3">
+          <button
+            className="btn btn-success btn-lg"
+            onClick={async () => {
+              console.log('[PDF] Generate PDF button clicked');
+              console.log('[PDF] pipelineOutputs:', pipelineOutputs);
+              console.log('[PDF] fileUUID:', fileUUID);
+              if (!pipelineOutputs) {
+                toast.error('No pipeline outputs available. Please wait for pipeline to complete.');
+                return;
+              }
+              try {
+                await generatePDFReport(pipelineOutputs);
+              } catch (error) {
+                console.error('[PDF] Error from generate button:', error);
+                toast.error(`Failed to generate PDF: ${error.message}`, { autoClose: 10000 });
+              }
+            }}
+          >
+            📄 Generate PDF Report
+          </button>
+        </div>
+      )}
+      
       {/* Show results below pipeline if screen format and complete */}
       {pipelineComplete && outputFormat === 'screen' && pipelineOutputs && (
         <div className="mt-4">
@@ -847,7 +1014,15 @@ export default function MigrationPipeline() {
               <h2>Migration Assessment Results</h2>
               <button
                 className="btn btn-primary"
-                onClick={() => generatePDFReport(pipelineOutputs)}
+                onClick={async () => {
+                  console.log('[PDF] Button clicked, pipelineOutputs:', pipelineOutputs);
+                  try {
+                    await generatePDFReport(pipelineOutputs);
+                  } catch (error) {
+                    console.error('[PDF] Error from button click:', error);
+                    toast.error(`Failed to generate PDF: ${error.message}`);
+                  }
+                }}
               >
                 📄 Generate PDF Report
               </button>

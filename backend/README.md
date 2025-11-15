@@ -31,7 +31,7 @@ npm run dev
 
 ## Environment Variables
 
-- `PORT` - Server port (default: 3001)
+- `PORT` - Server port (default: 3002)
 - `GOOGLE_APPLICATION_CREDENTIALS` - Path to GCP service account key file (optional if using ADC)
 
 ## Endpoints
