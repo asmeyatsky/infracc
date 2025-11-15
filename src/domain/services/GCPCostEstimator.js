@@ -358,13 +358,8 @@ export class GCPCostEstimator {
         totals.gcpOnDemandTotal += costs.gcpOnDemand || 0;
         totals.gcp1YearCUDTotal += costs.gcp1YearCUD || 0;
         totals.gcp3YearCUDTotal += costs.gcp3YearCUD || 0;
-      return acc;
-    }, {
-      awsTotal: 0,
-      gcpOnDemandTotal: 0,
-      gcp1YearCUDTotal: 0,
-      gcp3YearCUDTotal: 0
-    });
+      }
+    }
 
     return {
       ...totals,
