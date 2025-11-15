@@ -111,17 +111,24 @@ export class PlanMigrationWavesUseCase {
       Total: ${waveAssignments.length} workloads`);
     
     // Log sample complexity scores for each wave
+    // FIX: Avoid stack overflow with large arrays - use reduce instead of spread operator
     if (wave1.length > 0) {
       const wave1Complexities = waveAssignments.filter(w => w.wave === 1).map(w => w.workload.complexityScore);
-      console.log(`Wave 1 complexity range: ${Math.min(...wave1Complexities)} - ${Math.max(...wave1Complexities)}`);
+      const wave1Min = wave1Complexities.reduce((min, val) => val < min ? val : min, wave1Complexities[0]);
+      const wave1Max = wave1Complexities.reduce((max, val) => val > max ? val : max, wave1Complexities[0]);
+      console.log(`Wave 1 complexity range: ${wave1Min} - ${wave1Max}`);
     }
     if (wave2.length > 0) {
       const wave2Complexities = waveAssignments.filter(w => w.wave === 2).map(w => w.workload.complexityScore);
-      console.log(`Wave 2 complexity range: ${Math.min(...wave2Complexities)} - ${Math.max(...wave2Complexities)}`);
+      const wave2Min = wave2Complexities.reduce((min, val) => val < min ? val : min, wave2Complexities[0]);
+      const wave2Max = wave2Complexities.reduce((max, val) => val > max ? val : max, wave2Complexities[0]);
+      console.log(`Wave 2 complexity range: ${wave2Min} - ${wave2Max}`);
     }
     if (wave3.length > 0) {
       const wave3Complexities = waveAssignments.filter(w => w.wave === 3).map(w => w.workload.complexityScore);
-      console.log(`Wave 3 complexity range: ${Math.min(...wave3Complexities)} - ${Math.max(...wave3Complexities)}`);
+      const wave3Min = wave3Complexities.reduce((min, val) => val < min ? val : min, wave3Complexities[0]);
+      const wave3Max = wave3Complexities.reduce((max, val) => val > max ? val : max, wave3Complexities[0]);
+      console.log(`Wave 3 complexity range: ${wave3Min} - ${wave3Max}`);
     }
 
     // Calculate summary
