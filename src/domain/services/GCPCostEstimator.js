@@ -145,7 +145,8 @@ export class GCPCostEstimator {
             }
           };
         }
-      });
+        })
+      );
       
       // Add batch results
       for (const estimate of batchEstimates) {
