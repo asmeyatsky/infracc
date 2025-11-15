@@ -268,11 +268,23 @@ export class CalculateTCOUseCase {
    * Uses discovered workloads to calculate more accurate costs
    */
   async calculateFromWorkloads(workloadIds, timeframe = 36) {
-    const workloads = await Promise.all(
-      workloadIds.map(id => this.workloadRepository.findById(id))
-    );
-
-    const validWorkloads = workloads.filter(w => w !== null);
+    // SAFETY: Batch Promise.all to avoid stack overflow with large workload ID arrays
+    const validWorkloads = [];
+    const TCO_LOAD_BATCH_SIZE = 1000; // Process 1K workload IDs at a time
+    
+    for (let i = 0; i < workloadIds.length; i += TCO_LOAD_BATCH_SIZE) {
+      const batch = workloadIds.slice(i, Math.min(i + TCO_LOAD_BATCH_SIZE, workloadIds.length));
+      const batchWorkloads = await Promise.all(
+        batch.map(id => this.workloadRepository.findById(id))
+      );
+      
+      // Filter and add valid workloads
+      for (const w of batchWorkloads) {
+        if (w !== null) {
+          validWorkloads.push(w);
+        }
+      }
+    }
 
     // Group by provider and calculate costs
     const awsResources = { ec2Instances: 0, s3: 0, rds: 0 };
