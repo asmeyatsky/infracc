@@ -327,6 +327,7 @@ export default function MigrationPipeline() {
     console.log('[PDF] Starting PDF generation process...');
     toast.info('Generating PDF report...', { autoClose: 2000 });
 
+    // SAFETY: Wrap entire PDF generation in stack overflow protection
     try {
       // Get all cached outputs
       const discoveryOutput = outputs.discovery || await getAgentOutput(fileUUID, 'discovery');
@@ -608,7 +609,14 @@ export default function MigrationPipeline() {
         let mergedWithoutComplexity = 0;
         let notFoundInMap = 0;
         
-        workloads = workloads.map(workload => {
+        // FIX: Process workloads in batches to avoid stack overflow with very large datasets (599K+ workloads)
+        // Map operation on 599K workloads can exceed call stack
+        const BATCH_SIZE = 10000; // Process 10K workloads at a time
+        const mappedWorkloads = [];
+        
+        for (let i = 0; i < workloads.length; i += BATCH_SIZE) {
+          const batch = workloads.slice(i, Math.min(i + BATCH_SIZE, workloads.length));
+          const batchMapped = batch.map(workload => {
           // CRITICAL: Get workload data, but prioritize entity getters over serialized data
           // If it's a Workload entity, use the getter; otherwise use serialized data
           const workloadData = workload.toJSON ? workload.toJSON() : workload;
@@ -771,7 +779,21 @@ export default function MigrationPipeline() {
           }
           
           return workloadData;
-        });
+          });
+          
+          // Add batch results to mapped workloads
+          for (const mapped of batchMapped) {
+            mappedWorkloads.push(mapped);
+          }
+          
+          // Log progress for large datasets
+          if (workloads.length > 50000 && (i + BATCH_SIZE) % 50000 === 0) {
+            const percent = ((i + BATCH_SIZE) / workloads.length * 100).toFixed(1);
+            console.log(`[PDF] Merging assessments: ${Math.min(i + BATCH_SIZE, workloads.length)}/${workloads.length} (${percent}%)`);
+          }
+        }
+        
+        workloads = mappedWorkloads;
         
         console.log(`[PDF] Merged ${mergedCount} assessments with ${workloads.length} workloads`);
         console.log(`[PDF] Merged with complexity: ${mergedWithComplexity}, without: ${mergedWithoutComplexity}, not found in map: ${notFoundInMap}`);
@@ -855,6 +877,15 @@ export default function MigrationPipeline() {
         fileUUID: fileUUID,
         hasOutputs: !!outputs
       });
+      
+      // SAFETY: Check for stack overflow and provide helpful error message
+      if (err instanceof RangeError && (err.message.includes('Maximum call stack size exceeded') || err.message.includes('stack'))) {
+        const stackOverflowMsg = 'PDF generation failed due to memory/stack overflow. This may occur with very large datasets. Please try with a smaller dataset or contact support.';
+        console.error('[PDF] Stack overflow detected:', stackOverflowMsg);
+        toast.error(stackOverflowMsg, { autoClose: 15000 });
+        throw new Error(stackOverflowMsg);
+      }
+      
       // Re-throw to allow caller to handle, but ensure state is preserved
       throw err;
     }

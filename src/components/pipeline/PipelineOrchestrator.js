@@ -398,7 +398,29 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         throw new Error(errorMessage);
       }
 
-      const workloadIds = workloads.map(w => w.id);
+      // SAFETY: Batch workload ID extraction to avoid stack overflow with large datasets
+      const workloadIds = [];
+      const BATCH_SIZE = 10000;
+      for (let i = 0; i < workloads.length; i += BATCH_SIZE) {
+        const batch = workloads.slice(i, Math.min(i + BATCH_SIZE, workloads.length));
+        for (const w of batch) {
+          if (w && w.id) {
+            workloadIds.push(w.id);
+          }
+        }
+      }
+      
+      // SAFETY: Batch region extraction to avoid stack overflow
+      const regions = new Set();
+      for (let i = 0; i < workloads.length; i += BATCH_SIZE) {
+        const batch = workloads.slice(i, Math.min(i + BATCH_SIZE, workloads.length));
+        for (const w of batch) {
+          if (w && w.region) {
+            regions.add(w.region);
+          }
+        }
+      }
+      
       setAgentProgress(100);
 
       const output = {
@@ -407,7 +429,7 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         workloadCount: workloads.length,
         summary: {
           uniqueWorkloads: workloads.length,
-          totalRegions: new Set(workloads.map(w => w.region)).size
+          totalRegions: regions.size
         },
         timestamp: new Date().toISOString()
       };
@@ -511,9 +533,22 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       console.log(`[DEBUG] Assessment Agent completed. fileUUID: ${fileUUID}, results count: ${assessmentResult.results.length}`);
 
       // Process results - handle partial success
+      // SAFETY: Batch filtering to avoid stack overflow with large datasets
       const results = assessmentResult.results;
-      const successful = results.filter(r => !r.error);
-      const failed = results.filter(r => r.error);
+      const successful = [];
+      const failed = [];
+      const FILTER_BATCH_SIZE = 10000;
+      
+      for (let i = 0; i < results.length; i += FILTER_BATCH_SIZE) {
+        const batch = results.slice(i, Math.min(i + FILTER_BATCH_SIZE, results.length));
+        for (const r of batch) {
+          if (r && !r.error) {
+            successful.push(r);
+          } else {
+            failed.push(r);
+          }
+        }
+      }
       
       console.log(`Assessment Agent: Processed ${results.length.toLocaleString()} results (${successful.length.toLocaleString()} successful, ${failed.length.toLocaleString()} failed)`);
       
@@ -586,7 +621,13 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
 
       // CRITICAL: Ensure all assessments are properly serialized with complexity scores
       // Convert Assessment entities to plain objects with all properties accessible
-      const serializedSuccessful = successful.map(assessment => {
+      // SAFETY: Batch serialization to avoid stack overflow with large datasets
+      const serializedSuccessful = [];
+      const SERIALIZE_BATCH_SIZE = 10000;
+      
+      for (let i = 0; i < successful.length; i += SERIALIZE_BATCH_SIZE) {
+        const batch = successful.slice(i, Math.min(i + SERIALIZE_BATCH_SIZE, successful.length));
+        const batchSerialized = batch.map(assessment => {
         // If it's an Assessment entity, convert to JSON
         if (assessment && typeof assessment.toJSON === 'function') {
           const json = assessment.toJSON();
@@ -633,7 +674,13 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
           }
         }
         return assessmentObj;
-      });
+        });
+        
+        // Add batch results
+        for (const serialized of batchSerialized) {
+          serializedSuccessful.push(serialized);
+        }
+      }
       
       // Debug: Log sample of serialized assessments
       if (serializedSuccessful.length > 0) {
@@ -777,17 +824,22 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
 
       // Extract workloadIds from assessment results
       // Handle both Assessment entities (with getters) and plain objects
-      const workloadIds = assessmentOutput.results
-        ? assessmentOutput.results
-            .map(r => {
-              // Try multiple ways to get workloadId
-              if (r && typeof r === 'object') {
-                return r.workloadId || r._workloadId || (r.toJSON && r.toJSON().workloadId) || null;
+      // SAFETY: Batch workload ID extraction to avoid stack overflow with large datasets
+      const workloadIds = [];
+      if (assessmentOutput.results && Array.isArray(assessmentOutput.results)) {
+        const ID_BATCH_SIZE = 10000;
+        for (let i = 0; i < assessmentOutput.results.length; i += ID_BATCH_SIZE) {
+          const batch = assessmentOutput.results.slice(i, Math.min(i + ID_BATCH_SIZE, assessmentOutput.results.length));
+          for (const r of batch) {
+            if (r && typeof r === 'object') {
+              const workloadId = r.workloadId || r._workloadId || (r.toJSON && r.toJSON().workloadId) || null;
+              if (workloadId) {
+                workloadIds.push(workloadId);
               }
-              return null;
-            })
-            .filter(Boolean)
-        : [];
+            }
+          }
+        }
+      }
       
       if (workloadIds.length === 0) {
         console.error('[DEBUG] Strategy Agent: Assessment results structure:', assessmentOutput);

@@ -85,27 +85,51 @@ export class GCPCostEstimator {
    * @returns {Promise<Array>} Cost estimates for each service
    */
   static async estimateAllServiceCosts(serviceAggregation, targetRegion = 'us-central1') {
-    const estimates = await Promise.all(
-      serviceAggregation.map(async (serviceData) => {
-        const mapping = getAwsToGcpMapping(serviceData.service);
-        const gcpService = mapping.gcpService;
-        
-        try {
-          const costEstimate = await this.estimateServiceCosts(
-            serviceData,
-            gcpService,
-            targetRegion
-          );
+    // SAFETY: Batch Promise.all to avoid stack overflow with large service lists
+    // Even though serviceAggregation should be small (number of unique services),
+    // we batch to be safe
+    const estimates = [];
+    const BATCH_SIZE = 100; // Process 100 services at a time (should be plenty)
+    
+    for (let i = 0; i < serviceAggregation.length; i += BATCH_SIZE) {
+      const batch = serviceAggregation.slice(i, Math.min(i + BATCH_SIZE, serviceAggregation.length));
+      const batchEstimates = await Promise.all(
+        batch.map(async (serviceData) => {
+          const mapping = getAwsToGcpMapping(serviceData.service);
+          const gcpService = mapping.gcpService;
           
-          return {
-            ...serviceData,
-            costEstimate
-          };
-        } catch (error) {
+          try {
+            const costEstimate = await this.estimateServiceCosts(
+              serviceData,
+              gcpService,
+              targetRegion
+            );
+            
+            // SAFETY: Use object construction instead of spread operator
+            return {
+              service: serviceData.service,
+              gcpService: serviceData.gcpService,
+              gcpApi: serviceData.gcpApi,
+              migrationStrategy: serviceData.migrationStrategy,
+              effort: serviceData.effort,
+              count: serviceData.count,
+              totalCost: serviceData.totalCost,
+              averageComplexity: serviceData.averageComplexity,
+              costEstimate
+            };
+          } catch (error) {
           console.warn(`Failed to estimate costs for ${serviceData.service}:`, error);
           // Return fallback estimate
+          // SAFETY: Use object construction instead of spread operator
           return {
-            ...serviceData,
+            service: serviceData.service,
+            gcpService: serviceData.gcpService,
+            gcpApi: serviceData.gcpApi,
+            migrationStrategy: serviceData.migrationStrategy,
+            effort: serviceData.effort,
+            count: serviceData.count,
+            totalCost: serviceData.totalCost,
+            averageComplexity: serviceData.averageComplexity,
             costEstimate: {
               awsCost: serviceData.totalCost,
               gcpOnDemand: serviceData.totalCost * 0.9,
@@ -121,8 +145,13 @@ export class GCPCostEstimator {
             }
           };
         }
-      })
-    );
+      });
+      
+      // Add batch results
+      for (const estimate of batchEstimates) {
+        estimates.push(estimate);
+      }
+    }
     
     return estimates;
   }

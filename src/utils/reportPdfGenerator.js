@@ -446,7 +446,16 @@ export const generateComprehensiveReportPDF = async (
   // Debug: Log service data
   console.log(`PDF Generator - Processing ${allServicesList.length} services (should be ALL services, not limited)`);
   if (allServicesList.length > 0) {
-    const totalServiceCost = allServicesList.reduce((sum, s) => sum + (s?.totalCost || 0), 0);
+    // SAFETY: Batch reduce to avoid stack overflow with large service lists
+    let totalServiceCost = 0;
+    const COST_BATCH_SIZE = 1000; // Process 1K services at a time
+    for (let i = 0; i < allServicesList.length; i += COST_BATCH_SIZE) {
+      const batch = allServicesList.slice(i, Math.min(i + COST_BATCH_SIZE, allServicesList.length));
+      for (const s of batch) {
+        totalServiceCost += (s?.totalCost || 0);
+      }
+    }
+    
     const expectedTotal = reportData?.summary?.totalMonthlyCost || 0;
     console.log(`PDF Generator - Total cost from services: $${totalServiceCost.toFixed(2)}, Expected: $${expectedTotal.toFixed(2)}`);
     
@@ -454,24 +463,46 @@ export const generateComprehensiveReportPDF = async (
     if (expectedTotal > 0 && Math.abs(totalServiceCost - expectedTotal) > 100) {
       const scaleFactor = expectedTotal / totalServiceCost;
       console.log(`PDF Generator - WARNING: Service costs don't match expected total. Scaling by factor ${scaleFactor.toFixed(4)}`);
-      allServicesList.forEach(service => {
-        if (service.totalCost) {
-          service.totalCost = service.totalCost * scaleFactor;
+      
+      // SAFETY: Batch forEach to avoid stack overflow with large service lists
+      const SCALE_BATCH_SIZE = 1000; // Process 1K services at a time
+      for (let i = 0; i < allServicesList.length; i += SCALE_BATCH_SIZE) {
+        const batch = allServicesList.slice(i, Math.min(i + SCALE_BATCH_SIZE, allServicesList.length));
+        for (const service of batch) {
+          if (service.totalCost) {
+            service.totalCost = service.totalCost * scaleFactor;
+          }
         }
-      });
-      const newTotal = allServicesList.reduce((sum, s) => sum + (s?.totalCost || 0), 0);
+      }
+      
+      // SAFETY: Batch reduce to avoid stack overflow
+      let newTotal = 0;
+      for (let i = 0; i < allServicesList.length; i += SCALE_BATCH_SIZE) {
+        const batch = allServicesList.slice(i, Math.min(i + SCALE_BATCH_SIZE, allServicesList.length));
+        for (const s of batch) {
+          newTotal += (s?.totalCost || 0);
+        }
+      }
       console.log(`PDF Generator - After scaling, service total: $${newTotal.toFixed(2)}`);
     }
   }
 
-  const serviceTableData = allServicesList.map(service => [
-    service?.service || 'Unknown',
-    (service?.count || 0).toLocaleString(),
-    formatCurrency(service?.totalCost || 0),
-    service?.averageComplexity ? service.averageComplexity.toFixed(1) : 'N/A',
-    service?.gcpService || 'N/A',
-    service?.migrationStrategy || 'N/A'
-  ]);
+  // SAFETY: Batch map to avoid stack overflow with large service lists
+  const serviceTableData = [];
+  const TABLE_BATCH_SIZE = 1000; // Process 1K services at a time
+  for (let i = 0; i < allServicesList.length; i += TABLE_BATCH_SIZE) {
+    const batch = allServicesList.slice(i, Math.min(i + TABLE_BATCH_SIZE, allServicesList.length));
+    for (const service of batch) {
+      serviceTableData.push([
+        service?.service || 'Unknown',
+        (service?.count || 0).toLocaleString(),
+        formatCurrency(service?.totalCost || 0),
+        service?.averageComplexity ? service.averageComplexity.toFixed(1) : 'N/A',
+        service?.gcpService || 'N/A',
+        service?.migrationStrategy || 'N/A'
+      ]);
+    }
+  }
 
   // Include "Other" category if it exists (for backward compatibility)
   if (otherService && otherService.count > 0) {
@@ -528,12 +559,20 @@ export const generateComprehensiveReportPDF = async (
   const sortedRegions = Array.from(regions)
     .sort((a, b) => (b?.totalCost || 0) - (a?.totalCost || 0));
 
-  const regionTableData = sortedRegions.map(region => [
-    region?.region || 'Unknown',
-    (region?.count || 0).toLocaleString(),
-    formatCurrency(region?.totalCost || 0),
-    region?.averageComplexity ? region.averageComplexity.toFixed(1) : 'N/A'
-  ]);
+  // SAFETY: Batch map to avoid stack overflow (regions should be small, but batch to be safe)
+  const regionTableData = [];
+  const REGION_BATCH_SIZE = 100; // Process 100 regions at a time (should be plenty)
+  for (let i = 0; i < sortedRegions.length; i += REGION_BATCH_SIZE) {
+    const batch = sortedRegions.slice(i, Math.min(i + REGION_BATCH_SIZE, sortedRegions.length));
+    for (const region of batch) {
+      regionTableData.push([
+        region?.region || 'Unknown',
+        (region?.count || 0).toLocaleString(),
+        formatCurrency(region?.totalCost || 0),
+        region?.averageComplexity ? region.averageComplexity.toFixed(1) : 'N/A'
+      ]);
+    }
+  }
 
   if (regionTableData.length > 0) {
     callAutoTable({
@@ -600,18 +639,24 @@ export const generateComprehensiveReportPDF = async (
     }
     
     if (hasCostEstimates) {
-      costTableData = sortedCostEstimates.map(estimate => {
-        const costs = estimate?.costEstimate || {};
-        return [
-          estimate?.service || 'Unknown',
-          costs.gcpService || 'N/A',
-          formatCurrency(costs.awsCost || 0),
-          formatCurrency(costs.gcpOnDemand || 0),
-          formatCurrency(costs.gcp1YearCUD || 0),
-          formatCurrency(costs.gcp3YearCUD || 0),
-          formatCurrency(costs.savings3Year || 0)
-        ];
-      });
+      // SAFETY: Batch map to avoid stack overflow with large cost estimates arrays
+      costTableData = [];
+      const COST_TABLE_BATCH_SIZE = 1000; // Process 1K estimates at a time
+      for (let i = 0; i < sortedCostEstimates.length; i += COST_TABLE_BATCH_SIZE) {
+        const batch = sortedCostEstimates.slice(i, Math.min(i + COST_TABLE_BATCH_SIZE, sortedCostEstimates.length));
+        for (const estimate of batch) {
+          const costs = estimate?.costEstimate || {};
+          costTableData.push([
+            estimate?.service || 'Unknown',
+            costs.gcpService || 'N/A',
+            formatCurrency(costs.awsCost || 0),
+            formatCurrency(costs.gcpOnDemand || 0),
+            formatCurrency(costs.gcp1YearCUD || 0),
+            formatCurrency(costs.gcp3YearCUD || 0),
+            formatCurrency(costs.savings3Year || 0)
+          ]);
+        }
+      }
     } else if (hasReportDataCosts && reportData?.services?.topServices) {
       // Fallback: Show costs from reportData if costEstimates not available
       costTableData = reportData.services.topServices.slice(0, 20).map(service => [
@@ -662,15 +707,21 @@ export const generateComprehensiveReportPDF = async (
     // Total cost summary - sum ALL services (not just top N)
     // Use absolute values to handle negative costs (credits) properly
     // Note: costEstimates is validated at function start, so it's guaranteed to be a non-empty array
-    const totalCosts = costEstimates.reduce((acc, est) => {
-      const costs = est?.costEstimate || {};
-      // Use absolute value for AWS cost (handles credits/refunds)
-      acc.aws += Math.abs(costs.awsCost || 0);
-      acc.gcpOnDemand += Math.max(0, costs.gcpOnDemand || 0);
-      acc.gcp1Year += Math.max(0, costs.gcp1YearCUD || 0);
-      acc.gcp3Year += Math.max(0, costs.gcp3YearCUD || 0);
-      return acc;
-    }, { aws: 0, gcpOnDemand: 0, gcp1Year: 0, gcp3Year: 0 });
+    // SAFETY: Batch reduce to avoid stack overflow with large cost estimates arrays
+    const totalCosts = { aws: 0, gcpOnDemand: 0, gcp1Year: 0, gcp3Year: 0 };
+    const COST_ESTIMATE_BATCH_SIZE = 1000; // Process 1K estimates at a time
+    
+    for (let i = 0; i < costEstimates.length; i += COST_ESTIMATE_BATCH_SIZE) {
+      const batch = costEstimates.slice(i, Math.min(i + COST_ESTIMATE_BATCH_SIZE, costEstimates.length));
+      for (const est of batch) {
+        const costs = est?.costEstimate || {};
+        // Use absolute value for AWS cost (handles credits/refunds)
+        totalCosts.aws += Math.abs(costs.awsCost || 0);
+        totalCosts.gcpOnDemand += Math.max(0, costs.gcpOnDemand || 0);
+        totalCosts.gcp1Year += Math.max(0, costs.gcp1YearCUD || 0);
+        totalCosts.gcp3Year += Math.max(0, costs.gcp3YearCUD || 0);
+      }
+    }
     
     // If costEstimates total doesn't match reportData total, use reportData total (more accurate)
     const reportDataTotal = reportData?.summary?.totalMonthlyCost || 0;
@@ -927,19 +978,32 @@ export const generateComprehensiveReportPDF = async (
     // The migrationPlan may have planItems instead of plans
     let plans = strategyResults.migrationPlan.plans;
     if (!plans && strategyResults.migrationPlan.planItems) {
-      // Transform planItems to plans format
-      plans = strategyResults.migrationPlan.planItems.map(item => ({
-        workloadId: item.workloadId,
-        workload: { id: item.workloadId, name: item.workloadName },
-        sourceService: item.sourceService,
-        service: item.sourceService,
-        targetGcpService: item.serviceMapping?.gcpService || 'N/A',
-        gcpService: item.serviceMapping?.gcpService || 'N/A',
-        gcpApi: item.serviceMapping?.gcpApi || 'N/A',
-        strategy: item.serviceMapping?.migrationStrategy || 'N/A',
-        effort: item.serviceMapping?.effort?.level || 'N/A',
-        wave: item.migrationWave || 'N/A'
-      }));
+      // SAFETY: Batch planItems mapping to avoid stack overflow with large datasets
+      const planItems = strategyResults.migrationPlan.planItems;
+      plans = [];
+      const PLAN_BATCH_SIZE = 10000; // Process 10K plan items at a time
+      
+      for (let i = 0; i < planItems.length; i += PLAN_BATCH_SIZE) {
+        const batch = planItems.slice(i, Math.min(i + PLAN_BATCH_SIZE, planItems.length));
+        const batchPlans = batch.map(item => ({
+          workloadId: item.workloadId,
+          workload: { id: item.workloadId, name: item.workloadName },
+          sourceService: item.sourceService,
+          service: item.sourceService,
+          targetGcpService: item.serviceMapping?.gcpService || 'N/A',
+          gcpService: item.serviceMapping?.gcpService || 'N/A',
+          gcpApi: item.serviceMapping?.gcpApi || 'N/A',
+          strategy: item.serviceMapping?.migrationStrategy || 'N/A',
+          effort: item.serviceMapping?.effort?.level || 'N/A',
+          wave: item.migrationWave || 'N/A'
+        }));
+        
+        // Add batch results
+        for (const plan of batchPlans) {
+          plans.push(plan);
+        }
+      }
+      
       console.log(`PDF Generator - Converted ${plans.length} planItems to plans format (should be ALL workloads, not limited)`);
     }
     
@@ -952,27 +1016,38 @@ export const generateComprehensiveReportPDF = async (
       yPos += SPACING.MD;
       
       // Group by service and show all mappings (ALL workloads, not limited)
+      // SAFETY: Batch forEach to avoid stack overflow with large datasets
       const serviceMap = new Map();
-      plans.forEach(plan => {
-        const service = plan.sourceService || plan.service || 'Unknown';
-        if (!serviceMap.has(service)) {
-          serviceMap.set(service, {
-            service,
-            gcpService: plan.targetGcpService || plan.gcpService || 'N/A',
-            gcpApi: plan.gcpApi || 'N/A',
-            strategy: plan.strategy || 'N/A',
-            effort: plan.effort || 'N/A',
-            count: 0
-          });
+      const PLANS_BATCH_SIZE = 10000; // Process 10K plans at a time
+      
+      for (let i = 0; i < plans.length; i += PLANS_BATCH_SIZE) {
+        const batch = plans.slice(i, Math.min(i + PLANS_BATCH_SIZE, plans.length));
+        for (const plan of batch) {
+          const service = plan.sourceService || plan.service || 'Unknown';
+          if (!serviceMap.has(service)) {
+            serviceMap.set(service, {
+              service,
+              gcpService: plan.targetGcpService || plan.gcpService || 'N/A',
+              gcpApi: plan.gcpApi || 'N/A',
+              strategy: plan.strategy || 'N/A',
+              effort: plan.effort || 'N/A',
+              count: 0
+            });
+          }
+          serviceMap.get(service).count++;
         }
-        serviceMap.get(service).count++;
-      });
+      }
       
       console.log(`PDF Generator - Processing ${plans.length} migration plans (should match total workloads ~19.5k)`);
       
-      const allMappings = Array.from(serviceMap.values())
-        .sort((a, b) => b.count - a.count)
-        .map(m => [
+      // SAFETY: serviceMap should be small (number of unique services), so operations are safe
+      const serviceValues = Array.from(serviceMap.values());
+      serviceValues.sort((a, b) => b.count - a.count);
+      
+      // SAFETY: Use loop instead of map for extra safety
+      const allMappings = [];
+      for (const m of serviceValues) {
+        allMappings.push([
           m.service,
           m.gcpService,
           m.gcpApi,
@@ -980,6 +1055,7 @@ export const generateComprehensiveReportPDF = async (
           m.effort,
           formatNumber(m.count)
         ]);
+      }
       
       callAutoTable({
         startY: yPos,

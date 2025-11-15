@@ -21,6 +21,16 @@ export class ReportDataAggregator {
    * @returns {Object} Aggregated data by complexity
    */
   static aggregateByComplexity(workloads) {
+    // SAFETY: Memory guard - limit processing to prevent stack overflow
+    const MAX_WORKLOADS = 1000000; // Hard limit of 1M workloads
+    const safeWorkloads = workloads.length > MAX_WORKLOADS 
+      ? workloads.slice(0, MAX_WORKLOADS) 
+      : workloads;
+    
+    if (workloads.length > MAX_WORKLOADS) {
+      console.warn(`[ReportDataAggregator] Limiting complexity aggregation to ${MAX_WORKLOADS} workloads (from ${workloads.length}) to prevent memory issues`);
+    }
+
     const ranges = {
       low: { min: 1, max: 3, label: 'Low (1-3)' },
       medium: { min: 4, max: 6, label: 'Medium (4-6)' },
@@ -34,33 +44,58 @@ export class ReportDataAggregator {
       unassigned: { count: 0, totalCost: 0, workloads: [] }
     };
 
-    workloads.forEach(workload => {
-      const workloadData = workload.toJSON ? workload.toJSON() : workload;
-      const complexity = this._extractComplexity(workloadData);
-      const cost = this._extractCost(workloadData);
+    // FIX: Process in batches to avoid stack overflow with very large datasets (599K+ workloads)
+    const BATCH_SIZE = 10000; // Process 10K workloads at a time
+    const totalWorkloads = safeWorkloads.length;
+    
+    for (let i = 0; i < totalWorkloads; i += BATCH_SIZE) {
+      const batch = safeWorkloads.slice(i, Math.min(i + BATCH_SIZE, totalWorkloads));
+      
+      for (const workload of batch) {
+        const workloadData = workload.toJSON ? workload.toJSON() : workload;
+        const complexity = this._extractComplexity(workloadData);
+        const cost = this._extractCost(workloadData);
 
-      if (complexity === null || complexity === undefined) {
-        result.unassigned.count++;
-        result.unassigned.totalCost += cost;
-        result.unassigned.workloads.push(workloadData);
-      } else if (complexity >= ranges.low.min && complexity <= ranges.low.max) {
-        result.low.count++;
-        result.low.totalCost += cost;
-        result.low.workloads.push(workloadData);
-      } else if (complexity >= ranges.medium.min && complexity <= ranges.medium.max) {
-        result.medium.count++;
-        result.medium.totalCost += cost;
-        result.medium.workloads.push(workloadData);
-      } else if (complexity >= ranges.high.min && complexity <= ranges.high.max) {
-        result.high.count++;
-        result.high.totalCost += cost;
-        result.high.workloads.push(workloadData);
-      } else {
-        result.unassigned.count++;
-        result.unassigned.totalCost += cost;
-        result.unassigned.workloads.push(workloadData);
+        if (complexity === null || complexity === undefined) {
+          result.unassigned.count++;
+          result.unassigned.totalCost += cost;
+          // SAFETY: Limit workload storage to prevent memory issues
+          if (result.unassigned.workloads.length < 1000) {
+            result.unassigned.workloads.push(workloadData);
+          }
+        } else if (complexity >= ranges.low.min && complexity <= ranges.low.max) {
+          result.low.count++;
+          result.low.totalCost += cost;
+          if (result.low.workloads.length < 1000) {
+            result.low.workloads.push(workloadData);
+          }
+        } else if (complexity >= ranges.medium.min && complexity <= ranges.medium.max) {
+          result.medium.count++;
+          result.medium.totalCost += cost;
+          if (result.medium.workloads.length < 1000) {
+            result.medium.workloads.push(workloadData);
+          }
+        } else if (complexity >= ranges.high.min && complexity <= ranges.high.max) {
+          result.high.count++;
+          result.high.totalCost += cost;
+          if (result.high.workloads.length < 1000) {
+            result.high.workloads.push(workloadData);
+          }
+        } else {
+          result.unassigned.count++;
+          result.unassigned.totalCost += cost;
+          if (result.unassigned.workloads.length < 1000) {
+            result.unassigned.workloads.push(workloadData);
+          }
+        }
       }
-    });
+      
+      // Log progress for large datasets
+      if (totalWorkloads > 50000 && (i + BATCH_SIZE) % 50000 === 0) {
+        const percent = ((i + BATCH_SIZE) / totalWorkloads * 100).toFixed(1);
+        console.log(`[ReportDataAggregator] Complexity aggregation: ${Math.min(i + BATCH_SIZE, totalWorkloads)}/${totalWorkloads} (${percent}%)`);
+      }
+    }
 
     return result;
   }
@@ -71,48 +106,88 @@ export class ReportDataAggregator {
    * @returns {Array} Aggregated data by service, sorted by cost (descending)
    */
   static aggregateByService(workloads) {
+    // SAFETY: Memory guard - limit processing to prevent stack overflow
+    const MAX_WORKLOADS = 1000000; // Hard limit of 1M workloads
+    const safeWorkloads = workloads.length > MAX_WORKLOADS 
+      ? workloads.slice(0, MAX_WORKLOADS) 
+      : workloads;
+    
+    if (workloads.length > MAX_WORKLOADS) {
+      console.warn(`[ReportDataAggregator] Limiting service aggregation to ${MAX_WORKLOADS} workloads (from ${workloads.length}) to prevent memory issues`);
+    }
+
     const serviceMap = new Map();
 
-    workloads.forEach(workload => {
-      const workloadData = workload.toJSON ? workload.toJSON() : workload;
-      const service = workloadData.service || 'Unknown';
-      const cost = this._extractCost(workloadData);
-      const complexity = this._extractComplexity(workloadData);
+    // FIX: Process in batches to avoid stack overflow with very large datasets (599K+ workloads)
+    const BATCH_SIZE = 10000; // Process 10K workloads at a time
+    const totalWorkloads = safeWorkloads.length;
+    
+    for (let i = 0; i < totalWorkloads; i += BATCH_SIZE) {
+      const batch = safeWorkloads.slice(i, Math.min(i + BATCH_SIZE, totalWorkloads));
+      
+      for (const workload of batch) {
+        const workloadData = workload.toJSON ? workload.toJSON() : workload;
+        const service = workloadData.service || 'Unknown';
+        const cost = this._extractCost(workloadData);
+        const complexity = this._extractComplexity(workloadData);
 
-      if (!serviceMap.has(service)) {
-        const gcpMapping = getAwsToGcpMapping(service);
-        serviceMap.set(service, {
-          service,
-          gcpService: gcpMapping.gcpService,
-          gcpApi: gcpMapping.gcpApi,
-          migrationStrategy: gcpMapping.migrationStrategy,
-          effort: gcpMapping.effort,
-          count: 0,
-          totalCost: 0,
-          complexities: [],
-          workloads: []
-        });
-      }
+        if (!serviceMap.has(service)) {
+          const gcpMapping = getAwsToGcpMapping(service);
+          serviceMap.set(service, {
+            service,
+            gcpService: gcpMapping.gcpService,
+            gcpApi: gcpMapping.gcpApi,
+            migrationStrategy: gcpMapping.migrationStrategy,
+            effort: gcpMapping.effort,
+            count: 0,
+            totalCost: 0,
+            complexities: [],
+            workloads: [] // SAFETY: Limit workload storage
+          });
+        }
 
-      const serviceData = serviceMap.get(service);
-      serviceData.count++;
-      serviceData.totalCost += cost;
-      if (complexity !== null && complexity !== undefined) {
-        serviceData.complexities.push(complexity);
+        const serviceData = serviceMap.get(service);
+        serviceData.count++;
+        serviceData.totalCost += cost;
+        if (complexity !== null && complexity !== undefined) {
+          serviceData.complexities.push(complexity);
+        }
+        // SAFETY: Limit workload storage to prevent memory issues (keep only first 100 per service)
+        if (serviceData.workloads.length < 100) {
+          serviceData.workloads.push(workloadData);
+        }
       }
-      serviceData.workloads.push(workloadData);
-    });
+      
+      // Log progress for large datasets
+      if (totalWorkloads > 50000 && (i + BATCH_SIZE) % 50000 === 0) {
+        const percent = ((i + BATCH_SIZE) / totalWorkloads * 100).toFixed(1);
+        console.log(`[ReportDataAggregator] Service aggregation: ${Math.min(i + BATCH_SIZE, totalWorkloads)}/${totalWorkloads} (${percent}%)`);
+      }
+    }
 
     // Convert to array and calculate averages
-    const result = Array.from(serviceMap.values()).map(serviceData => ({
-      ...serviceData,
-      averageComplexity: serviceData.complexities.length > 0
-        ? serviceData.complexities.reduce((a, b) => a + b, 0) / serviceData.complexities.length
-        : null,
-      complexities: undefined // Remove raw array
-    }));
+    // SAFETY: Use loop instead of map to avoid any potential issues, and reduce for complexity calculation
+    const result = [];
+    for (const serviceData of serviceMap.values()) {
+      let averageComplexity = null;
+      if (serviceData.complexities.length > 0) {
+        // Use reduce safely (complexities array is per-service, so should be small)
+        averageComplexity = serviceData.complexities.reduce((a, b) => a + b, 0) / serviceData.complexities.length;
+      }
+      result.push({
+        service: serviceData.service,
+        gcpService: serviceData.gcpService,
+        gcpApi: serviceData.gcpApi,
+        migrationStrategy: serviceData.migrationStrategy,
+        effort: serviceData.effort,
+        count: serviceData.count,
+        totalCost: serviceData.totalCost,
+        averageComplexity,
+        workloads: serviceData.workloads // Limited to 100 per service
+      });
+    }
 
-    // Sort by total cost (descending)
+    // Sort by total cost (descending) - safe, result array should be small (number of unique services)
     result.sort((a, b) => b.totalCost - a.totalCost);
 
     return result;
@@ -124,64 +199,105 @@ export class ReportDataAggregator {
    * @returns {Array} Aggregated data by region, sorted by cost (descending)
    */
   static aggregateByRegion(workloads) {
+    // SAFETY: Memory guard - limit processing to prevent stack overflow
+    const MAX_WORKLOADS = 1000000; // Hard limit of 1M workloads
+    const safeWorkloads = workloads.length > MAX_WORKLOADS 
+      ? workloads.slice(0, MAX_WORKLOADS) 
+      : workloads;
+    
+    if (workloads.length > MAX_WORKLOADS) {
+      console.warn(`[ReportDataAggregator] Limiting region aggregation to ${MAX_WORKLOADS} workloads (from ${workloads.length}) to prevent memory issues`);
+    }
+
     const regionMap = new Map();
 
-    workloads.forEach(workload => {
-      const workloadData = workload.toJSON ? workload.toJSON() : workload;
-      const region = workloadData.region || 'Unknown';
-      const cost = this._extractCost(workloadData);
-      const complexity = this._extractComplexity(workloadData);
-      const service = workloadData.service || 'Unknown';
+    // FIX: Process in batches to avoid stack overflow with very large datasets (599K+ workloads)
+    const BATCH_SIZE = 10000; // Process 10K workloads at a time
+    const totalWorkloads = safeWorkloads.length;
+    
+    for (let i = 0; i < totalWorkloads; i += BATCH_SIZE) {
+      const batch = safeWorkloads.slice(i, Math.min(i + BATCH_SIZE, totalWorkloads));
+      
+      for (const workload of batch) {
+        const workloadData = workload.toJSON ? workload.toJSON() : workload;
+        const region = workloadData.region || 'Unknown';
+        const cost = this._extractCost(workloadData);
+        const complexity = this._extractComplexity(workloadData);
+        const service = workloadData.service || 'Unknown';
 
-      if (!regionMap.has(region)) {
-        regionMap.set(region, {
-          region,
-          count: 0,
-          totalCost: 0,
-          complexities: [],
-          services: new Map(),
-          workloads: []
-        });
+        if (!regionMap.has(region)) {
+          regionMap.set(region, {
+            region,
+            count: 0,
+            totalCost: 0,
+            complexities: [],
+            services: new Map(),
+            workloads: [] // SAFETY: Limit workload storage
+          });
+        }
+
+        const regionData = regionMap.get(region);
+        regionData.count++;
+        regionData.totalCost += cost;
+        if (complexity !== null && complexity !== undefined) {
+          regionData.complexities.push(complexity);
+        }
+
+        // Track services in this region
+        if (!regionData.services.has(service)) {
+          regionData.services.set(service, { service, count: 0, cost: 0 });
+        }
+        const serviceData = regionData.services.get(service);
+        serviceData.count++;
+        serviceData.cost += cost;
+
+        // SAFETY: Limit workload storage to prevent memory issues (keep only first 100 per region)
+        if (regionData.workloads.length < 100) {
+          regionData.workloads.push(workloadData);
+        }
       }
-
-      const regionData = regionMap.get(region);
-      regionData.count++;
-      regionData.totalCost += cost;
-      if (complexity !== null && complexity !== undefined) {
-        regionData.complexities.push(complexity);
+      
+      // Log progress for large datasets
+      if (totalWorkloads > 50000 && (i + BATCH_SIZE) % 50000 === 0) {
+        const percent = ((i + BATCH_SIZE) / totalWorkloads * 100).toFixed(1);
+        console.log(`[ReportDataAggregator] Region aggregation: ${Math.min(i + BATCH_SIZE, totalWorkloads)}/${totalWorkloads} (${percent}%)`);
       }
-
-      // Track services in this region
-      if (!regionData.services.has(service)) {
-        regionData.services.set(service, { service, count: 0, cost: 0 });
-      }
-      const serviceData = regionData.services.get(service);
-      serviceData.count++;
-      serviceData.cost += cost;
-
-      regionData.workloads.push(workloadData);
-    });
+    }
 
     // Convert to array and calculate averages
-    const result = Array.from(regionMap.values()).map(regionData => {
+    // SAFETY: regionMap should be small (number of unique regions), so map is safe
+    const result = [];
+    for (const regionData of regionMap.values()) {
       const servicesArray = Array.from(regionData.services.values())
         .sort((a, b) => b.cost - a.cost)
         .slice(0, 3); // Top 3 services
 
-      return {
+      // SAFETY: Use loops instead of map for small arrays
+      const topServices = [];
+      const topServicesCosts = [];
+      for (const s of servicesArray) {
+        topServices.push(s.service);
+        topServicesCosts.push(s.cost);
+      }
+
+      let averageComplexity = null;
+      if (regionData.complexities.length > 0) {
+        // Use reduce safely (complexities array is per-region, should be manageable)
+        averageComplexity = regionData.complexities.reduce((a, b) => a + b, 0) / regionData.complexities.length;
+      }
+
+      result.push({
         region: regionData.region,
         count: regionData.count,
         totalCost: regionData.totalCost,
-        averageComplexity: regionData.complexities.length > 0
-          ? regionData.complexities.reduce((a, b) => a + b, 0) / regionData.complexities.length
-          : null,
-        topServices: servicesArray.map(s => s.service),
-        topServicesCosts: servicesArray.map(s => s.cost),
+        averageComplexity,
+        topServices,
+        topServicesCosts,
         complexities: undefined,
         services: undefined,
         workloads: undefined // Don't include full workload list in summary
-      };
-    });
+      });
+    }
 
     // Sort by total cost (descending)
     result.sort((a, b) => b.totalCost - a.totalCost);
@@ -225,6 +341,16 @@ export class ReportDataAggregator {
    * @returns {Object} Aggregated data by readiness
    */
   static aggregateByReadiness(workloads) {
+    // SAFETY: Memory guard - limit processing to prevent stack overflow
+    const MAX_WORKLOADS = 1000000; // Hard limit of 1M workloads
+    const safeWorkloads = workloads.length > MAX_WORKLOADS 
+      ? workloads.slice(0, MAX_WORKLOADS) 
+      : workloads;
+    
+    if (workloads.length > MAX_WORKLOADS) {
+      console.warn(`[ReportDataAggregator] Limiting readiness aggregation to ${MAX_WORKLOADS} workloads (from ${workloads.length}) to prevent memory issues`);
+    }
+
     const result = {
       ready: { count: 0, totalCost: 0 },
       conditional: { count: 0, totalCost: 0 },
@@ -232,45 +358,59 @@ export class ReportDataAggregator {
       unassigned: { count: 0, totalCost: 0 }
     };
 
-    workloads.forEach(workload => {
-      const workloadData = workload.toJSON ? workload.toJSON() : workload;
-      const cost = this._extractCost(workloadData);
+    // FIX: Process in batches to avoid stack overflow with very large datasets (599K+ workloads)
+    const BATCH_SIZE = 10000; // Process 10K workloads at a time
+    const totalWorkloads = safeWorkloads.length;
+    
+    for (let i = 0; i < totalWorkloads; i += BATCH_SIZE) {
+      const batch = safeWorkloads.slice(i, Math.min(i + BATCH_SIZE, totalWorkloads));
       
-      // Use the proper readiness extraction method
-      const readinessScore = this._extractReadiness(workloadData);
-      
-      let readiness = 'unassigned';
-      if (readinessScore !== null && readinessScore !== undefined) {
-        // Use readiness score thresholds (matching Assessment.getReadinessScore logic)
-        if (readinessScore >= 70) {
-          readiness = 'ready';
-        } else if (readinessScore >= 40) {
-          readiness = 'conditional';
-        } else {
-          readiness = 'notReady';
-        }
-      } else {
-        // Fallback: calculate from complexity if readiness not available
-        const complexity = this._extractComplexity(workloadData);
-        if (complexity !== null && complexity !== undefined) {
-          const riskFactors = workloadData.assessment?.riskFactors || 
-                            workloadData.assessment?.infrastructureAssessment?.riskFactors || 
-                            [];
-          const riskCount = Array.isArray(riskFactors) ? riskFactors.length : 0;
-          
-          if (complexity <= 3 && riskCount === 0) {
+      for (const workload of batch) {
+        const workloadData = workload.toJSON ? workload.toJSON() : workload;
+        const cost = this._extractCost(workloadData);
+        
+        // Use the proper readiness extraction method
+        const readinessScore = this._extractReadiness(workloadData);
+        
+        let readiness = 'unassigned';
+        if (readinessScore !== null && readinessScore !== undefined) {
+          // Use readiness score thresholds (matching Assessment.getReadinessScore logic)
+          if (readinessScore >= 70) {
             readiness = 'ready';
-          } else if (complexity <= 6 && riskCount <= 2) {
+          } else if (readinessScore >= 40) {
             readiness = 'conditional';
           } else {
             readiness = 'notReady';
           }
+        } else {
+          // Fallback: calculate from complexity if readiness not available
+          const complexity = this._extractComplexity(workloadData);
+          if (complexity !== null && complexity !== undefined) {
+            const riskFactors = workloadData.assessment?.riskFactors || 
+                              workloadData.assessment?.infrastructureAssessment?.riskFactors || 
+                              [];
+            const riskCount = Array.isArray(riskFactors) ? riskFactors.length : 0;
+            
+            if (complexity <= 3 && riskCount === 0) {
+              readiness = 'ready';
+            } else if (complexity <= 6 && riskCount <= 2) {
+              readiness = 'conditional';
+            } else {
+              readiness = 'notReady';
+            }
+          }
         }
-      }
 
-      result[readiness].count++;
-      result[readiness].totalCost += cost;
-    });
+        result[readiness].count++;
+        result[readiness].totalCost += cost;
+      }
+      
+      // Log progress for large datasets
+      if (totalWorkloads > 50000 && (i + BATCH_SIZE) % 50000 === 0) {
+        const percent = ((i + BATCH_SIZE) / totalWorkloads * 100).toFixed(1);
+        console.log(`[ReportDataAggregator] Readiness aggregation: ${Math.min(i + BATCH_SIZE, totalWorkloads)}/${totalWorkloads} (${percent}%)`);
+      }
+    }
 
     return result;
   }
@@ -389,10 +529,12 @@ export class ReportDataAggregator {
    * @returns {Object} Complete report summary
    */
   static generateReportSummary(workloads) {
-    const complexityAgg = this.aggregateByComplexity(workloads);
-    const serviceAgg = this.aggregateByService(workloads);
-    const regionAgg = this.aggregateByRegion(workloads);
-    const readinessAgg = this.aggregateByReadiness(workloads);
+    // SAFETY: Wrap aggregation in try-catch to handle any stack overflow errors
+    try {
+      const complexityAgg = this.aggregateByComplexity(workloads);
+      const serviceAgg = this.aggregateByService(workloads);
+      const regionAgg = this.aggregateByRegion(workloads);
+      const readinessAgg = this.aggregateByReadiness(workloads);
     
     // Return ALL services, not just top N - all services must be mapped and included in TCO
     const allServicesData = {
@@ -528,20 +670,31 @@ export class ReportDataAggregator {
       ? complexities.reduce((a, b) => a + b, 0) / complexities.length
       : null;
 
-    return {
-      summary: {
-        totalWorkloads,
-        totalMonthlyCost: totalCost,
-        averageComplexity,
-        totalRegions: regionAgg.length,
-        totalServices: serviceAgg.length
-      },
-      complexity: complexityAgg,
-      readiness: readinessAgg,
-      services: allServicesData, // All services (not limited to top N)
-      regions: regionAgg,
-      allServices: serviceAgg // Keep full list for detailed analysis (same as services.topServices now)
-    };
+      return {
+        summary: {
+          totalWorkloads,
+          totalMonthlyCost: totalCost,
+          averageComplexity,
+          totalRegions: regionAgg.length,
+          totalServices: serviceAgg.length
+        },
+        complexity: complexityAgg,
+        readiness: readinessAgg,
+        services: allServicesData, // All services (not limited to top N)
+        regions: regionAgg,
+        allServices: serviceAgg // Keep full list for detailed analysis (same as services.topServices now)
+      };
+    } catch (error) {
+      // SAFETY: Catch stack overflow errors and provide helpful message
+      if (error instanceof RangeError && (error.message.includes('Maximum call stack size exceeded') || error.message.includes('stack'))) {
+        console.error('[ReportDataAggregator] Stack overflow in generateReportSummary:', error);
+        throw new Error(
+          `Report summary generation failed due to stack overflow with ${workloads.length} workloads. ` +
+          `This operation needs to be batched. Please check the code for unbatched array operations.`
+        );
+      }
+      throw error;
+    }
   }
 }
 
