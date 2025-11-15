@@ -14,6 +14,19 @@ import { toast } from 'react-toastify';
 import { getAgenticContainer } from '../../agentic/dependency_injection/AgenticContainer.js';
 import { getContainer } from '../../infrastructure/dependency_injection/Container.js';
 import { agentStatusManager } from '../../agentic/core/AgentStatusManager.js';
+import {
+  saveAgentOutput,
+  getAgentOutput,
+  hasAgentOutput,
+  savePipelineState,
+  getPipelineState,
+  getCachedAgentIds,
+  clearAgentOutput
+} from '../../utils/agentCacheService.js';
+import { generateFileUUID, generateFilesUUID } from '../../utils/uuidGenerator.js';
+import { GCPCostEstimator } from '../../domain/services/GCPCostEstimator.js';
+import { ReportDataAggregator } from '../../domain/services/ReportDataAggregator.js';
+import './PipelineOrchestrator.css';
 
 // SAFETY: Global error handlers to catch crashes that prevent normal logging
 // LOGS ARE WRITTEN TO: Browser Console (F12 or Cmd+Option+I)
@@ -98,19 +111,6 @@ if (typeof window !== 'undefined') {
   console.log('Crash logs also saved to: localStorage key "crashLogs"');
   console.log('To view crash logs: localStorage.getItem("crashLogs") in console');
 }
-import {
-  saveAgentOutput,
-  getAgentOutput,
-  hasAgentOutput,
-  savePipelineState,
-  getPipelineState,
-  getCachedAgentIds,
-  clearAgentOutput
-} from '../../utils/agentCacheService.js';
-import { generateFileUUID, generateFilesUUID } from '../../utils/uuidGenerator.js';
-import { GCPCostEstimator } from '../../domain/services/GCPCostEstimator.js';
-import { ReportDataAggregator } from '../../domain/services/ReportDataAggregator.js';
-import './PipelineOrchestrator.css';
 
 const AGENTS = [
   { 
