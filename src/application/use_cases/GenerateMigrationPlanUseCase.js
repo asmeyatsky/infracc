@@ -82,9 +82,27 @@ export class GenerateMigrationPlanUseCase {
     }
 
     // Generate migration plan for each workload
-    const planItems = await Promise.all(
-      validWorkloads.map(workload => this._planWorkloadMigration(workload, useCodeMod))
-    );
+    // SAFETY: Batch Promise.all to avoid stack overflow with large datasets (599K+ workloads)
+    const planItems = [];
+    const PLAN_BATCH_SIZE = 1000; // Process 1K workloads at a time
+    
+    for (let i = 0; i < validWorkloads.length; i += PLAN_BATCH_SIZE) {
+      const batch = validWorkloads.slice(i, Math.min(i + PLAN_BATCH_SIZE, validWorkloads.length));
+      const batchPlans = await Promise.all(
+        batch.map(workload => this._planWorkloadMigration(workload, useCodeMod))
+      );
+      
+      // Add batch results
+      for (const plan of batchPlans) {
+        planItems.push(plan);
+      }
+      
+      // Log progress for large datasets
+      if (validWorkloads.length > 10000 && (i + PLAN_BATCH_SIZE) % 10000 === 0) {
+        const percent = ((i + PLAN_BATCH_SIZE) / validWorkloads.length * 100).toFixed(1);
+        console.log(`[GenerateMigrationPlanUseCase] Progress: ${Math.min(i + PLAN_BATCH_SIZE, validWorkloads.length)}/${validWorkloads.length} (${percent}%)`);
+      }
+    }
 
     // Organize by migration wave
     const waves = this._organizeIntoWaves(planItems);

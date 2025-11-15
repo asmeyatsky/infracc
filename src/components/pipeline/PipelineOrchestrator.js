@@ -469,7 +469,17 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       // The repository may have quota limits (localStorage), so we need to check what's actually available
       const container = getContainer();
       const allWorkloads = await container.workloadRepository.findAll();
-      const availableWorkloadIds = allWorkloads.map(w => w.id);
+      // SAFETY: Batch ID extraction to avoid stack overflow with large datasets
+      const availableWorkloadIds = [];
+      const ID_BATCH_SIZE = 10000;
+      for (let i = 0; i < allWorkloads.length; i += ID_BATCH_SIZE) {
+        const batch = allWorkloads.slice(i, Math.min(i + ID_BATCH_SIZE, allWorkloads.length));
+        for (const w of batch) {
+          if (w && w.id) {
+            availableWorkloadIds.push(w.id);
+          }
+        }
+      }
       
       // Use available workloads from repository instead of all discovery workloadIds
       // This ensures we only assess workloads that can actually be found
@@ -903,7 +913,16 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
             }
             
             // Use fresh container's workloads
-            const freshWorkloadIds = freshWorkloads.map(w => w.id);
+            // SAFETY: Batch ID extraction to avoid stack overflow
+            const freshWorkloadIds = [];
+            for (let i = 0; i < freshWorkloads.length; i += ID_BATCH_SIZE) {
+              const batch = freshWorkloads.slice(i, Math.min(i + ID_BATCH_SIZE, freshWorkloads.length));
+              for (const w of batch) {
+                if (w && w.id) {
+                  freshWorkloadIds.push(w.id);
+                }
+              }
+            }
             console.log(`[DEBUG] Strategy Agent: Using ${freshWorkloadIds.length} workloads from fresh container`);
             
             strategyResult = await agenticContainer.current.planningAgent.execute({
@@ -913,7 +932,16 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
             });
           } else {
             // Use all workload IDs from repository
-            const allWorkloadIds = allWorkloads.map(w => w.id);
+            // SAFETY: Batch ID extraction to avoid stack overflow
+            const allWorkloadIds = [];
+            for (let i = 0; i < allWorkloads.length; i += ID_BATCH_SIZE) {
+              const batch = allWorkloads.slice(i, Math.min(i + ID_BATCH_SIZE, allWorkloads.length));
+              for (const w of batch) {
+                if (w && w.id) {
+                  allWorkloadIds.push(w.id);
+                }
+              }
+            }
             console.log(`[DEBUG] Strategy Agent: Using ${allWorkloadIds.length} workloads from repository as fallback`);
             
             strategyResult = await agenticContainer.current.planningAgent.execute({

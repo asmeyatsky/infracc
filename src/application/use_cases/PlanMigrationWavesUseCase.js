@@ -156,15 +156,24 @@ export class PlanMigrationWavesUseCase {
     console.log(`[PlanMigrationWavesUseCase] Completed analysis of ${waveAssignments.length} workloads`);
 
     // Organize into waves
-    const wave1 = waveAssignments
-      .filter(w => w.wave === 1)
-      .map(w => w.workload);
-    const wave2 = waveAssignments
-      .filter(w => w.wave === 2)
-      .map(w => w.workload);
-    const wave3 = waveAssignments
-      .filter(w => w.wave === 3)
-      .map(w => w.workload);
+    // SAFETY: Batch filter and map to avoid stack overflow with large datasets (599K+ workloads)
+    const wave1 = [];
+    const wave2 = [];
+    const wave3 = [];
+    const WAVE_BATCH_SIZE = 10000; // Process 10K assignments at a time
+    
+    for (let i = 0; i < waveAssignments.length; i += WAVE_BATCH_SIZE) {
+      const batch = waveAssignments.slice(i, Math.min(i + WAVE_BATCH_SIZE, waveAssignments.length));
+      for (const w of batch) {
+        if (w.wave === 1) {
+          wave1.push(w.workload);
+        } else if (w.wave === 2) {
+          wave2.push(w.workload);
+        } else if (w.wave === 3) {
+          wave3.push(w.workload);
+        }
+      }
+    }
 
     // Debug logging for wave distribution
     console.log(`Wave Planning Results:
@@ -174,24 +183,57 @@ export class PlanMigrationWavesUseCase {
       Total: ${waveAssignments.length} workloads`);
     
     // Log sample complexity scores for each wave
-    // FIX: Avoid stack overflow with large arrays - use reduce instead of spread operator
+    // SAFETY: Batch filter and map to avoid stack overflow with large datasets
     if (wave1.length > 0) {
-      const wave1Complexities = waveAssignments.filter(w => w.wave === 1).map(w => w.workload.complexityScore);
-      const wave1Min = wave1Complexities.reduce((min, val) => val < min ? val : min, wave1Complexities[0]);
-      const wave1Max = wave1Complexities.reduce((max, val) => val > max ? val : max, wave1Complexities[0]);
-      console.log(`Wave 1 complexity range: ${wave1Min} - ${wave1Max}`);
+      let wave1Min = Infinity;
+      let wave1Max = -Infinity;
+      for (let i = 0; i < waveAssignments.length; i += WAVE_BATCH_SIZE) {
+        const batch = waveAssignments.slice(i, Math.min(i + WAVE_BATCH_SIZE, waveAssignments.length));
+        for (const w of batch) {
+          if (w.wave === 1 && w.workload && w.workload.complexityScore !== undefined) {
+            const score = w.workload.complexityScore;
+            if (score < wave1Min) wave1Min = score;
+            if (score > wave1Max) wave1Max = score;
+          }
+        }
+      }
+      if (wave1Min !== Infinity) {
+        console.log(`Wave 1 complexity range: ${wave1Min} - ${wave1Max}`);
+      }
     }
     if (wave2.length > 0) {
-      const wave2Complexities = waveAssignments.filter(w => w.wave === 2).map(w => w.workload.complexityScore);
-      const wave2Min = wave2Complexities.reduce((min, val) => val < min ? val : min, wave2Complexities[0]);
-      const wave2Max = wave2Complexities.reduce((max, val) => val > max ? val : max, wave2Complexities[0]);
-      console.log(`Wave 2 complexity range: ${wave2Min} - ${wave2Max}`);
+      let wave2Min = Infinity;
+      let wave2Max = -Infinity;
+      for (let i = 0; i < waveAssignments.length; i += WAVE_BATCH_SIZE) {
+        const batch = waveAssignments.slice(i, Math.min(i + WAVE_BATCH_SIZE, waveAssignments.length));
+        for (const w of batch) {
+          if (w.wave === 2 && w.workload && w.workload.complexityScore !== undefined) {
+            const score = w.workload.complexityScore;
+            if (score < wave2Min) wave2Min = score;
+            if (score > wave2Max) wave2Max = score;
+          }
+        }
+      }
+      if (wave2Min !== Infinity) {
+        console.log(`Wave 2 complexity range: ${wave2Min} - ${wave2Max}`);
+      }
     }
     if (wave3.length > 0) {
-      const wave3Complexities = waveAssignments.filter(w => w.wave === 3).map(w => w.workload.complexityScore);
-      const wave3Min = wave3Complexities.reduce((min, val) => val < min ? val : min, wave3Complexities[0]);
-      const wave3Max = wave3Complexities.reduce((max, val) => val > max ? val : max, wave3Complexities[0]);
-      console.log(`Wave 3 complexity range: ${wave3Min} - ${wave3Max}`);
+      let wave3Min = Infinity;
+      let wave3Max = -Infinity;
+      for (let i = 0; i < waveAssignments.length; i += WAVE_BATCH_SIZE) {
+        const batch = waveAssignments.slice(i, Math.min(i + WAVE_BATCH_SIZE, waveAssignments.length));
+        for (const w of batch) {
+          if (w.wave === 3 && w.workload && w.workload.complexityScore !== undefined) {
+            const score = w.workload.complexityScore;
+            if (score < wave3Min) wave3Min = score;
+            if (score > wave3Max) wave3Max = score;
+          }
+        }
+      }
+      if (wave3Min !== Infinity) {
+        console.log(`Wave 3 complexity range: ${wave3Min} - ${wave3Max}`);
+      }
     }
 
     // Calculate summary
@@ -380,11 +422,28 @@ export class PlanMigrationWavesUseCase {
    */
   _calculateSummary(waveAssignments) {
     const total = waveAssignments.length;
-    const wave1Count = waveAssignments.filter(w => w.wave === 1).length;
-    const wave2Count = waveAssignments.filter(w => w.wave === 2).length;
-    const wave3Count = waveAssignments.filter(w => w.wave === 3).length;
-
-    const avgComplexity = waveAssignments.reduce((sum, w) => 
+    // SAFETY: Batch filter and reduce to avoid stack overflow with large datasets
+    let wave1Count = 0;
+    let wave2Count = 0;
+    let wave3Count = 0;
+    let complexitySum = 0;
+    let complexityCount = 0;
+    
+    for (let i = 0; i < waveAssignments.length; i += WAVE_BATCH_SIZE) {
+      const batch = waveAssignments.slice(i, Math.min(i + WAVE_BATCH_SIZE, waveAssignments.length));
+      for (const w of batch) {
+        if (w.wave === 1) wave1Count++;
+        else if (w.wave === 2) wave2Count++;
+        else if (w.wave === 3) wave3Count++;
+        
+        if (w.workload && w.workload.complexityScore !== undefined) {
+          complexitySum += w.workload.complexityScore;
+          complexityCount++;
+        }
+      }
+    }
+    
+    const avgComplexity = complexityCount > 0 ? complexitySum / complexityCount : null; 
       sum + w.workload.complexityScore, 0) / total;
 
     const estimatedDuration = {
