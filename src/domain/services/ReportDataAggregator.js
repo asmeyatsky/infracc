@@ -161,6 +161,7 @@ export class ReportDataAggregator {
           serviceData.workloads.push(workloadData);
         }
       }
+      console.log(`[ReportDataAggregator.aggregateByService] COMPLETED BATCH: ${i}-${batchEnd}, serviceMap now has ${serviceMap.size} services`);
       
       // Log progress for large datasets
       if (totalWorkloads > 50000 && (i + BATCH_SIZE) % 50000 === 0) {
@@ -168,6 +169,7 @@ export class ReportDataAggregator {
         console.log(`[ReportDataAggregator] Service aggregation: ${Math.min(i + BATCH_SIZE, totalWorkloads)}/${totalWorkloads} (${percent}%)`);
       }
     }
+    console.log(`[ReportDataAggregator.aggregateByService] ALL BATCHES COMPLETE: Processed ${totalWorkloads} workloads, found ${serviceMap.size} unique services`);
 
     // Convert to array and calculate averages
     // SAFETY: Use loop instead of map to avoid any potential issues, and reduce for complexity calculation

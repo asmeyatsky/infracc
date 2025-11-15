@@ -97,10 +97,10 @@ export class GCPCostEstimator {
     console.log(`[GCPCostEstimator.estimateAllServiceCosts] Processing ${serviceAggregation.length} services in batches of ${BATCH_SIZE}...`);
     
     for (let i = 0; i < serviceAggregation.length; i += BATCH_SIZE) {
-      if (i === 0) {
-        console.log(`[GCPCostEstimator.estimateAllServiceCosts] Processing first batch (0-${Math.min(BATCH_SIZE, serviceAggregation.length)})...`);
-      }
-      const batch = serviceAggregation.slice(i, Math.min(i + BATCH_SIZE, serviceAggregation.length));
+      const batchEnd = Math.min(i + BATCH_SIZE, serviceAggregation.length);
+      console.log(`[GCPCostEstimator.estimateAllServiceCosts] Processing batch ${i}-${batchEnd} of ${serviceAggregation.length}...`);
+      const batch = serviceAggregation.slice(i, batchEnd);
+      console.log(`[GCPCostEstimator.estimateAllServiceCosts] INSIDE BATCH: About to call Promise.all for ${batch.length} services...`);
       const batchEstimates = await Promise.all(
         batch.map(async (serviceData) => {
           const mapping = getAwsToGcpMapping(serviceData.service);
