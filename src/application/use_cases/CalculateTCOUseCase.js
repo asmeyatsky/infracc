@@ -284,16 +284,17 @@ export class CalculateTCOUseCase {
     for (let i = 0; i < validWorkloads.length; i += TCO_BATCH_SIZE) {
       const batch = validWorkloads.slice(i, Math.min(i + TCO_BATCH_SIZE, validWorkloads.length));
       for (const workload of batch) {
-      if (workload.sourceProvider.type === 'aws') {
-        if (workload.type.type === 'vm') awsResources.ec2Instances += 1;
-        if (workload.type.type === 'storage') awsResources.s3 += workload.storage;
-        if (workload.type.type === 'database') awsResources.rds += 1;
-      } else if (workload.sourceProvider.type === 'azure') {
-        if (workload.type.type === 'vm') azureResources.virtualMachines += 1;
-        if (workload.type.type === 'storage') azureResources.blobStorage += workload.storage;
-        if (workload.type.type === 'database') azureResources.sqlDatabase += 1;
+        if (workload.sourceProvider.type === 'aws') {
+          if (workload.type.type === 'vm') awsResources.ec2Instances += 1;
+          if (workload.type.type === 'storage') awsResources.s3 += workload.storage;
+          if (workload.type.type === 'database') awsResources.rds += 1;
+        } else if (workload.sourceProvider.type === 'azure') {
+          if (workload.type.type === 'vm') azureResources.virtualMachines += 1;
+          if (workload.type.type === 'storage') azureResources.blobStorage += workload.storage;
+          if (workload.type.type === 'database') azureResources.sqlDatabase += 1;
+        }
       }
-    });
+    }
 
     // Calculate estimated GCP costs based on workload characteristics
     // SAFETY: Batch forEach to avoid stack overflow with large datasets
@@ -301,10 +302,11 @@ export class CalculateTCOUseCase {
     for (let i = 0; i < validWorkloads.length; i += TCO_BATCH_SIZE) {
       const batch = validWorkloads.slice(i, Math.min(i + TCO_BATCH_SIZE, validWorkloads.length));
       for (const workload of batch) {
-      if (workload.type.type === 'vm') gcpResources.compute += 1;
-      if (workload.type.type === 'storage') gcpResources.storage += workload.storage;
-      if (workload.type.type === 'database') gcpResources.database += 1;
-    });
+        if (workload.type.type === 'vm') gcpResources.compute += 1;
+        if (workload.type.type === 'storage') gcpResources.storage += workload.storage;
+        if (workload.type.type === 'database') gcpResources.database += 1;
+      }
+    }
 
     const input = new TCOInput({
       onPremise: {},
