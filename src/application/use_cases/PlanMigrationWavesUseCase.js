@@ -423,6 +423,7 @@ export class PlanMigrationWavesUseCase {
   _calculateSummary(waveAssignments) {
     const total = waveAssignments.length;
     // SAFETY: Batch filter and reduce to avoid stack overflow with large datasets
+    const WAVE_BATCH_SIZE = 10000; // Process 10K assignments at a time
     let wave1Count = 0;
     let wave2Count = 0;
     let wave3Count = 0;

@@ -914,9 +914,10 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
             
             // Use fresh container's workloads
             // SAFETY: Batch ID extraction to avoid stack overflow
+            const ID_BATCH_SIZE_LOCAL = 10000; // Process 10K workloads at a time
             const freshWorkloadIds = [];
-            for (let i = 0; i < freshWorkloads.length; i += ID_BATCH_SIZE) {
-              const batch = freshWorkloads.slice(i, Math.min(i + ID_BATCH_SIZE, freshWorkloads.length));
+            for (let i = 0; i < freshWorkloads.length; i += ID_BATCH_SIZE_LOCAL) {
+              const batch = freshWorkloads.slice(i, Math.min(i + ID_BATCH_SIZE_LOCAL, freshWorkloads.length));
               for (const w of batch) {
                 if (w && w.id) {
                   freshWorkloadIds.push(w.id);
@@ -933,9 +934,10 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
           } else {
             // Use all workload IDs from repository
             // SAFETY: Batch ID extraction to avoid stack overflow
+            const ID_BATCH_SIZE_LOCAL = 10000; // Process 10K workloads at a time
             const allWorkloadIds = [];
-            for (let i = 0; i < allWorkloads.length; i += ID_BATCH_SIZE) {
-              const batch = allWorkloads.slice(i, Math.min(i + ID_BATCH_SIZE, allWorkloads.length));
+            for (let i = 0; i < allWorkloads.length; i += ID_BATCH_SIZE_LOCAL) {
+              const batch = allWorkloads.slice(i, Math.min(i + ID_BATCH_SIZE_LOCAL, allWorkloads.length));
               for (const w of batch) {
                 if (w && w.id) {
                   allWorkloadIds.push(w.id);

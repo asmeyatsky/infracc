@@ -297,8 +297,7 @@ export class CalculateTCOUseCase {
     }
 
     // Calculate estimated GCP costs based on workload characteristics
-    // SAFETY: Batch forEach to avoid stack overflow with large datasets
-    const TCO_BATCH_SIZE = 10000;
+    // SAFETY: Batch forEach to avoid stack overflow (reusing TCO_BATCH_SIZE from above)
     for (let i = 0; i < validWorkloads.length; i += TCO_BATCH_SIZE) {
       const batch = validWorkloads.slice(i, Math.min(i + TCO_BATCH_SIZE, validWorkloads.length));
       for (const workload of batch) {
