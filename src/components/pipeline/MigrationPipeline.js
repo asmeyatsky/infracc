@@ -295,6 +295,8 @@ export default function MigrationPipeline() {
       } catch (err) {
         console.error('[PDF] Error auto-generating PDF:', err);
         toast.error(`Failed to generate PDF report: ${err.message}`, { autoClose: 10000 });
+        // Don't reset state on PDF error - keep pipeline complete so user can retry
+        // The pipeline completed successfully, PDF generation is separate
       }
     }
   };
@@ -845,6 +847,15 @@ export default function MigrationPipeline() {
       }
     } catch (err) {
       console.error('PDF generation error:', err);
+      // Log full error details for debugging
+      console.error('PDF generation error details:', {
+        message: err.message,
+        stack: err.stack,
+        name: err.name,
+        fileUUID: fileUUID,
+        hasOutputs: !!outputs
+      });
+      // Re-throw to allow caller to handle, but ensure state is preserved
       throw err;
     }
   };
@@ -866,7 +877,9 @@ export default function MigrationPipeline() {
   }
 
   // Step 1: File Upload
-  if (!files || files.length === 0) {
+  // CRITICAL: Don't reset to file upload if pipeline is complete - preserve state even if files state is lost
+  // This prevents UI from resetting when PDF generation fails or component remounts
+  if ((!files || files.length === 0) && !pipelineComplete) {
     return (
       <div className="migration-pipeline">
         <div className="pipeline-step-container">
