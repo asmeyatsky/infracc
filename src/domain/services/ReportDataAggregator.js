@@ -127,8 +127,13 @@ export class ReportDataAggregator {
     const totalWorkloads = safeWorkloads.length;
     
     for (let i = 0; i < totalWorkloads; i += BATCH_SIZE) {
-      const batch = safeWorkloads.slice(i, Math.min(i + BATCH_SIZE, totalWorkloads));
+      const batchEnd = Math.min(i + BATCH_SIZE, totalWorkloads);
+      if (i % 50000 === 0 || i === 0) {
+        console.log(`[ReportDataAggregator.aggregateByService] Processing batch ${i}-${batchEnd} of ${totalWorkloads}...`);
+      }
+      const batch = safeWorkloads.slice(i, batchEnd);
       
+      console.log(`[ReportDataAggregator.aggregateByService] INSIDE BATCH LOOP: Processing ${batch.length} workloads in batch starting at index ${i}...`);
       for (const workload of batch) {
         const workloadData = workload.toJSON ? workload.toJSON() : workload;
         const service = workloadData.service || 'Unknown';
