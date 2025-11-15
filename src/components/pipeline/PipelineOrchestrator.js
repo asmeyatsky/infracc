@@ -1067,11 +1067,31 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       }, 300);
 
       // Execute Cost Analysis Agent (for TCO, insights, optimizations)
-      const costResult = await agenticContainer.current.costAnalysisAgent.execute({
-        workloads: discoveryOutput.workloads,
-        assessments: assessmentOutput.results,
-        strategy: strategyOutput
-      });
+      // SAFETY: Wrap in try-catch to catch and log any stack overflow errors
+      let costResult;
+      try {
+        console.log('[Cost Agent] Starting cost analysis agent execution...');
+        costResult = await agenticContainer.current.costAnalysisAgent.execute({
+          workloads: discoveryOutput.workloads,
+          assessments: assessmentOutput.results,
+          strategy: strategyOutput
+        });
+        console.log('[Cost Agent] Cost analysis agent completed successfully');
+      } catch (costAgentError) {
+        console.error('[Cost Agent] ERROR in costAnalysisAgent.execute:', costAgentError);
+        console.error('[Cost Agent] Error name:', costAgentError?.name);
+        console.error('[Cost Agent] Error message:', costAgentError?.message);
+        console.error('[Cost Agent] Error stack:', costAgentError?.stack);
+        
+        // Check for stack overflow
+        if (costAgentError instanceof RangeError || 
+            (costAgentError?.message && costAgentError.message.includes('Maximum call stack size exceeded'))) {
+          console.error('[Cost Agent] STACK OVERFLOW DETECTED in costAnalysisAgent.execute!');
+          console.error('[Cost Agent] This indicates an unbatch operation in cost analysis');
+          throw new Error(`Cost Agent failed due to stack overflow: ${costAgentError.message}. Check console for details.`);
+        }
+        throw costAgentError;
+      }
 
       // CRITICAL: Generate costEstimates using GCPCostEstimator for PDF generation
       // Load actual Workload entities from repository (not plain objects from discovery output)
@@ -1090,7 +1110,24 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       
       // Aggregate services from workloads
       // aggregateByService returns an array directly, not an object with topServices
-      const serviceAggregation = ReportDataAggregator.aggregateByService(workloads);
+      // SAFETY: Wrap in try-catch to catch stack overflow
+      let serviceAggregation;
+      try {
+        console.log(`[Cost Agent] Aggregating ${workloads.length} workloads by service...`);
+        serviceAggregation = ReportDataAggregator.aggregateByService(workloads);
+        console.log(`[Cost Agent] Service aggregation complete: ${serviceAggregation.length} services`);
+      } catch (aggError) {
+        console.error('[Cost Agent] ERROR in aggregateByService:', aggError);
+        console.error('[Cost Agent] Error name:', aggError?.name);
+        console.error('[Cost Agent] Error message:', aggError?.message);
+        console.error('[Cost Agent] Error stack:', aggError?.stack);
+        if (aggError instanceof RangeError || 
+            (aggError?.message && aggError.message.includes('Maximum call stack size exceeded'))) {
+          console.error('[Cost Agent] STACK OVERFLOW in aggregateByService!');
+          throw new Error(`Service aggregation failed due to stack overflow: ${aggError.message}`);
+        }
+        throw aggError;
+      }
       
       console.log(`[Cost Agent] Service aggregation result:`, {
         workloadCount: workloads.length,
@@ -1115,10 +1152,27 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       }
       
       // Generate cost estimates for each service
-      const costEstimates = await GCPCostEstimator.estimateAllServiceCosts(
-        serviceAggregation, // Pass array directly
-        'us-central1' // target region
-      );
+      // SAFETY: Wrap in try-catch to catch stack overflow
+      let costEstimates;
+      try {
+        console.log(`[Cost Agent] Estimating costs for ${serviceAggregation.length} services...`);
+        costEstimates = await GCPCostEstimator.estimateAllServiceCosts(
+          serviceAggregation, // Pass array directly
+          'us-central1' // target region
+        );
+        console.log(`[Cost Agent] Cost estimation complete: ${costEstimates.length} estimates`);
+      } catch (estimateError) {
+        console.error('[Cost Agent] ERROR in estimateAllServiceCosts:', estimateError);
+        console.error('[Cost Agent] Error name:', estimateError?.name);
+        console.error('[Cost Agent] Error message:', estimateError?.message);
+        console.error('[Cost Agent] Error stack:', estimateError?.stack);
+        if (estimateError instanceof RangeError || 
+            (estimateError?.message && estimateError.message.includes('Maximum call stack size exceeded'))) {
+          console.error('[Cost Agent] STACK OVERFLOW in estimateAllServiceCosts!');
+          throw new Error(`Cost estimation failed due to stack overflow: ${estimateError.message}`);
+        }
+        throw estimateError;
+      }
       
       console.log(`[Cost Agent] Generated ${costEstimates.length} cost estimates`);
       

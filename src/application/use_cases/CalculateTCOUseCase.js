@@ -83,20 +83,24 @@ export class CalculateTCOUseCase {
    * @returns {Promise<TCOResult>} TCO calculation result
    */
   async execute(input) {
-    if (!(input instanceof TCOInput)) {
-      throw new Error('TCOInput instance required');
-    }
+    // SAFETY: Wrap entire execute in try-catch to catch and log stack overflow
+    try {
+      console.log('[CalculateTCOUseCase] Starting execute...');
+      
+      if (!(input instanceof TCOInput)) {
+        throw new Error('TCOInput instance required');
+      }
 
-    // Validate input data
-    validateTCOInput({
-      timeframe: input.timeframe,
-      region: input.region,
-      onPremise: input.onPremise,
-      aws: input.aws,
-      azure: input.azure,
-      gcp: input.gcp,
-      migration: input.migration
-    });
+      // Validate input data
+      validateTCOInput({
+        timeframe: input.timeframe,
+        region: input.region,
+        onPremise: input.onPremise,
+        aws: input.aws,
+        azure: input.azure,
+        gcp: input.gcp,
+        migration: input.migration
+      });
 
     // Calculate on-premise TCO
     const onPremiseTCO = this._calculateOnPremiseTCO(input.onPremise, input.timeframe);
@@ -128,7 +132,8 @@ export class CalculateTCOUseCase {
       gcp: onPremiseTCO.subtract(totalGcp)
     };
 
-    return new TCOResult({
+      console.log('[CalculateTCOUseCase] Creating TCOResult...');
+      const result = new TCOResult({
       onPremise: onPremiseTCO,
       aws: awsCost,
       azure: azureCost,
@@ -141,6 +146,24 @@ export class CalculateTCOUseCase {
       savings,
       timeframe: input.timeframe
     });
+      
+      console.log('[CalculateTCOUseCase] execute completed successfully');
+      return result;
+    } catch (error) {
+      console.error('[CalculateTCOUseCase] ERROR in execute:', error);
+      console.error('[CalculateTCOUseCase] Error name:', error?.name);
+      console.error('[CalculateTCOUseCase] Error message:', error?.message);
+      console.error('[CalculateTCOUseCase] Error stack:', error?.stack);
+      
+      // Check for stack overflow
+      if (error instanceof RangeError || 
+          (error?.message && error.message.includes('Maximum call stack size exceeded'))) {
+        console.error('[CalculateTCOUseCase] STACK OVERFLOW DETECTED in execute!');
+        console.error('[CalculateTCOUseCase] This indicates an unbatch operation in TCO calculation');
+        throw new Error(`TCO calculation failed due to stack overflow: ${error.message}. Check console for details.`);
+      }
+      throw error;
+    }
   }
 
   /**

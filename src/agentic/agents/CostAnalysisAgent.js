@@ -56,10 +56,28 @@ export class CostAnalysisAgent extends BaseAgent {
           });
 
       // Step 1: Calculate TCO (use case)
-      const tcoResult = await this.executeStep('Calculating TCO', async () => {
-        this.think('Computing total cost of ownership across all cloud providers');
-        return await this.calculateTCOUseCase.execute(tcoInput);
-      }, 40);
+      // SAFETY: Wrap in try-catch to catch stack overflow
+      let tcoResult;
+      try {
+        tcoResult = await this.executeStep('Calculating TCO', async () => {
+          this.think('Computing total cost of ownership across all cloud providers');
+          console.log('[CostAnalysisAgent] Executing calculateTCOUseCase.execute...');
+          const result = await this.calculateTCOUseCase.execute(tcoInput);
+          console.log('[CostAnalysisAgent] calculateTCOUseCase.execute completed');
+          return result;
+        }, 40);
+      } catch (tcoError) {
+        console.error('[CostAnalysisAgent] ERROR in calculateTCOUseCase.execute:', tcoError);
+        console.error('[CostAnalysisAgent] Error name:', tcoError?.name);
+        console.error('[CostAnalysisAgent] Error message:', tcoError?.message);
+        console.error('[CostAnalysisAgent] Error stack:', tcoError?.stack);
+        if (tcoError instanceof RangeError || 
+            (tcoError?.message && tcoError.message.includes('Maximum call stack size exceeded'))) {
+          console.error('[CostAnalysisAgent] STACK OVERFLOW in calculateTCOUseCase.execute!');
+          throw new Error(`TCO calculation failed due to stack overflow: ${tcoError.message}`);
+        }
+        throw tcoError;
+      }
 
       // Step 2: Generate AI insights
       const insights = await this.executeStep('Generating cost insights', async () => {
