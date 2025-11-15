@@ -88,9 +88,38 @@ export class PlanMigrationWavesUseCase {
     }
 
     // Analyze each workload and assign to wave
-    const waveAssignments = await Promise.all(
-      validWorkloads.map(workload => this._analyzeWorkload(workload))
-    );
+    // FIX: Process in batches to avoid stack overflow with very large datasets (599K+ workloads)
+    // Promise.all() with 599K promises can exceed call stack
+    const waveAssignments = [];
+    const BATCH_SIZE = 1000; // Process 1000 workloads at a time
+    
+    console.log(`[PlanMigrationWavesUseCase] Processing ${validWorkloads.length} workloads in batches of ${BATCH_SIZE}...`);
+    
+    for (let i = 0; i < validWorkloads.length; i += BATCH_SIZE) {
+      const batch = validWorkloads.slice(i, i + BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map(workload => this._analyzeWorkload(workload))
+      );
+      
+      // FIX: Use loop instead of spread operator to avoid any stack issues
+      // Even with batches of 1000, spread operator can be risky with very large datasets
+      for (const result of batchResults) {
+        waveAssignments.push(result);
+      }
+      
+      // Log progress for large datasets
+      if (validWorkloads.length > 10000 && (i + BATCH_SIZE) % 10000 === 0) {
+        const percent = ((i + BATCH_SIZE) / validWorkloads.length * 100).toFixed(1);
+        console.log(`[PlanMigrationWavesUseCase] Progress: ${Math.min(i + BATCH_SIZE, validWorkloads.length)}/${validWorkloads.length} (${percent}%)`);
+      }
+      
+      // Yield to event loop periodically to prevent blocking
+      if (i % (BATCH_SIZE * 10) === 0 && i > 0) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+    }
+    
+    console.log(`[PlanMigrationWavesUseCase] Completed analysis of ${waveAssignments.length} workloads`);
 
     // Organize into waves
     const wave1 = waveAssignments
