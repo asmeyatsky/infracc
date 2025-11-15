@@ -524,7 +524,8 @@ export const generateComprehensiveReportPDF = async (
   yPos += SPACING.LG;
 
   // All regions - sorted by cost
-  const sortedRegions = [...regions]
+  // FIX: Avoid stack overflow with large arrays - use Array.from() instead of spread operator
+  const sortedRegions = Array.from(regions)
     .sort((a, b) => (b?.totalCost || 0) - (a?.totalCost || 0));
 
   const regionTableData = sortedRegions.map(region => [
@@ -589,7 +590,8 @@ export const generateComprehensiveReportPDF = async (
     // Sort by AWS cost and show all services (only if we have costEstimates)
     let sortedCostEstimates = [];
     if (hasCostEstimates) {
-      sortedCostEstimates = [...costEstimates]
+      // FIX: Avoid stack overflow with large arrays - use Array.from() instead of spread operator
+      sortedCostEstimates = Array.from(costEstimates)
         .sort((a, b) => {
           const costA = a.costEstimate?.awsCost || 0;
           const costB = b.costEstimate?.awsCost || 0;
