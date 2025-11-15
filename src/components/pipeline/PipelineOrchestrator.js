@@ -29,6 +29,7 @@ if (typeof window !== 'undefined') {
       existingLogs.push(logEntry);
       if (existingLogs.length > 100) {
         existingLogs.shift(); // Keep only last 100
+      }
       localStorage.setItem('crashLogs', JSON.stringify(existingLogs));
     } catch (e) {
       // If localStorage fails, at least try console
