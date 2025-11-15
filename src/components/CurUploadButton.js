@@ -294,22 +294,32 @@ function CurUploadButton({ onUploadComplete }) {
       console.log(`[UPLOAD] Processing complete. Forcing persistence to IndexedDB...`);
       console.log(`[UPLOAD] Expected: ${uniqueWorkloads} unique workloads, ${totalWorkloadsSaved} new workloads saved`);
       
+      // Update progress during persistence
+      setUploadProgress(prev => ({ ...prev, status: 'Saving to database...', percent: 90 }));
+      
       // Force persistence multiple times to ensure it completes
       for (let i = 0; i < 3; i++) {
         if (typeof workloadRepository._forcePersist === 'function') {
+          console.log(`[UPLOAD] Starting forced persistence attempt ${i + 1}/3...`);
           await workloadRepository._forcePersist();
           console.log(`[UPLOAD] Forced persistence attempt ${i + 1}/3 completed`);
+          setUploadProgress(prev => ({ ...prev, status: `Saving to database... (${i + 1}/3)`, percent: 90 + (i + 1) * 3 }));
         }
         await new Promise(resolve => setTimeout(resolve, 200));
       }
       
+      // Update progress during verification
+      setUploadProgress(prev => ({ ...prev, status: 'Verifying saved workloads...', percent: 98 }));
+      
       // Reload from storage to verify workloads are saved
       if (typeof workloadRepository._loadFromStorage === 'function') {
+        console.log('[UPLOAD] Reloading from IndexedDB...');
         await workloadRepository._loadFromStorage();
         console.log('[UPLOAD] Reloaded from IndexedDB');
       }
       
       // Verify workloads are actually in the repository
+      console.log('[UPLOAD] Verifying workloads in repository...');
       const verifyWorkloads = await workloadRepository.findAll();
       console.log(`[UPLOAD] Verified ${verifyWorkloads.length} workloads in repository (expected: ${uniqueWorkloads})`);
       

@@ -208,6 +208,7 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
         const chunkSize = 1000; // Increased from 500 to 1000 for better performance
         let persistedCount = 0;
         let index = 0;
+        const startTime = Date.now();
         
         // Process cache values in chunks
         for (const workload of this._cache.values()) {
@@ -215,6 +216,13 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
             const workloadData = workload.toJSON();
             await this._storage.setItem(workload.id, workloadData);
             persistedCount++;
+            
+            // Log progress every 50K items for large datasets
+            if (cacheSize > 50000 && persistedCount % 50000 === 0) {
+              const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+              const percent = ((persistedCount / cacheSize) * 100).toFixed(1);
+              console.log(`[PERSIST] Progress: ${persistedCount.toLocaleString()}/${cacheSize.toLocaleString()} (${percent}%) - ${elapsed}s elapsed`);
+            }
             
             // Yield to event loop every chunk to prevent blocking
             if (index % chunkSize === 0 && index > 0) {
@@ -226,7 +234,8 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
           }
         }
         
-        console.log(`WorkloadRepository._persistToStorage() - Persisted ${persistedCount.toLocaleString()} workloads to IndexedDB (cache size: ${cacheSize.toLocaleString()})`);
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.log(`WorkloadRepository._persistToStorage() - Persisted ${persistedCount.toLocaleString()} workloads to IndexedDB (cache size: ${cacheSize.toLocaleString()}) in ${elapsed}s`);
       } else {
         // For smaller caches, persist all at once
         const persistPromises = [];
