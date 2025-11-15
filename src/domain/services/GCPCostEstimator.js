@@ -341,12 +341,23 @@ export class GCPCostEstimator {
    * @returns {Object} Total cost summary
    */
   static calculateTotalCosts(costEstimates) {
-    const totals = costEstimates.reduce((acc, estimate) => {
-      const costs = estimate.costEstimate || {};
-      acc.awsTotal += costs.awsCost || 0;
-      acc.gcpOnDemandTotal += costs.gcpOnDemand || 0;
-      acc.gcp1YearCUDTotal += costs.gcp1YearCUD || 0;
-      acc.gcp3YearCUDTotal += costs.gcp3YearCUD || 0;
+    // SAFETY: Batch reduce to avoid stack overflow with large cost estimates arrays
+    const totals = {
+      awsTotal: 0,
+      gcpOnDemandTotal: 0,
+      gcp1YearCUDTotal: 0,
+      gcp3YearCUDTotal: 0
+    };
+    
+    const COST_TOTALS_BATCH_SIZE = 1000; // Process 1K estimates at a time
+    for (let i = 0; i < costEstimates.length; i += COST_TOTALS_BATCH_SIZE) {
+      const batch = costEstimates.slice(i, Math.min(i + COST_TOTALS_BATCH_SIZE, costEstimates.length));
+      for (const estimate of batch) {
+        const costs = estimate.costEstimate || {};
+        totals.awsTotal += costs.awsCost || 0;
+        totals.gcpOnDemandTotal += costs.gcpOnDemand || 0;
+        totals.gcp1YearCUDTotal += costs.gcp1YearCUD || 0;
+        totals.gcp3YearCUDTotal += costs.gcp3YearCUD || 0;
       return acc;
     }, {
       awsTotal: 0,
