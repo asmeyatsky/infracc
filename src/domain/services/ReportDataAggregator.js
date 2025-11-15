@@ -404,54 +404,72 @@ export class ReportDataAggregator {
     let totalCost = 0;
     let costExtractionIssues = 0;
     
-    workloads.forEach((w, idx) => {
-      const workloadData = w.toJSON ? w.toJSON() : w;
-      const cost = this._extractCost(workloadData);
+    // FIX: Process workloads in batches to avoid stack overflow with very large datasets (599K+ workloads)
+    // Processing all 599K workloads at once with forEach can exceed call stack
+    const BATCH_SIZE = 10000; // Process 10K workloads at a time
+    let processedCount = 0;
+    
+    for (let i = 0; i < workloads.length; i += BATCH_SIZE) {
+      const batch = workloads.slice(i, Math.min(i + BATCH_SIZE, workloads.length));
       
-      // Debug: Log first few costs and any issues
-      if (idx < 5) {
-        const monthlyCostRaw = workloadData.monthlyCost;
-        let monthlyCostDetails = {};
-        if (monthlyCostRaw !== undefined && monthlyCostRaw !== null) {
-          if (typeof monthlyCostRaw === 'object') {
-            monthlyCostDetails = {
-              hasAmount: 'amount' in monthlyCostRaw,
-              hasValue: 'value' in monthlyCostRaw,
-              hasAmountProp: '_amount' in monthlyCostRaw,
-              amountValue: monthlyCostRaw.amount,
-              valueValue: monthlyCostRaw.value,
-              amountPropValue: monthlyCostRaw._amount,
-              keys: Object.keys(monthlyCostRaw)
-            };
+      for (let idx = 0; idx < batch.length; idx++) {
+        const w = batch[idx];
+        const globalIdx = i + idx;
+        const workloadData = w.toJSON ? w.toJSON() : w;
+        const cost = this._extractCost(workloadData);
+        
+        // Debug: Log first few costs and any issues
+        if (globalIdx < 5) {
+          const monthlyCostRaw = workloadData.monthlyCost;
+          let monthlyCostDetails = {};
+          if (monthlyCostRaw !== undefined && monthlyCostRaw !== null) {
+            if (typeof monthlyCostRaw === 'object') {
+              monthlyCostDetails = {
+                hasAmount: 'amount' in monthlyCostRaw,
+                hasValue: 'value' in monthlyCostRaw,
+                hasAmountProp: '_amount' in monthlyCostRaw,
+                amountValue: monthlyCostRaw.amount,
+                valueValue: monthlyCostRaw.value,
+                amountPropValue: monthlyCostRaw._amount,
+                keys: Object.keys(monthlyCostRaw)
+              };
+            }
           }
-        }
-        console.log(`Cost extraction sample ${idx}:`, {
-          extractedCost: cost,
-          monthlyCostRaw: monthlyCostRaw,
-          monthlyCostType: typeof monthlyCostRaw,
-          monthlyCostDetails,
-          hasToJSON: !!w.toJSON,
-          workloadType: w.constructor?.name || typeof w,
-          workloadId: workloadData.id
-        });
-      }
-      
-      // Track if cost seems incorrect (very small compared to expected)
-      if (cost > 0 && cost < 1 && workloads.length > 1000) {
-        costExtractionIssues++;
-        if (costExtractionIssues <= 5) {
-          console.warn('Very small cost detected:', { 
-            cost, 
-            monthlyCost: workloadData.monthlyCost,
-            monthlyCostType: typeof workloadData.monthlyCost,
+          console.log(`Cost extraction sample ${globalIdx}:`, {
+            extractedCost: cost,
+            monthlyCostRaw: monthlyCostRaw,
+            monthlyCostType: typeof monthlyCostRaw,
+            monthlyCostDetails,
             hasToJSON: !!w.toJSON,
-            workloadType: w.constructor?.name || typeof w
+            workloadType: w.constructor?.name || typeof w,
+            workloadId: workloadData.id
           });
         }
+        
+        // Track if cost seems incorrect (very small compared to expected)
+        if (cost > 0 && cost < 1 && workloads.length > 1000) {
+          costExtractionIssues++;
+          if (costExtractionIssues <= 5) {
+            console.warn('Very small cost detected:', { 
+              cost, 
+              monthlyCost: workloadData.monthlyCost,
+              monthlyCostType: typeof workloadData.monthlyCost,
+              hasToJSON: !!w.toJSON,
+              workloadType: w.constructor?.name || typeof w
+            });
+          }
+        }
+        
+        totalCost += cost;
+        processedCount++;
       }
       
-      totalCost += cost;
-    });
+      // Log progress for large datasets
+      if (workloads.length > 50000 && (i + BATCH_SIZE) % 50000 === 0) {
+        const percent = ((i + BATCH_SIZE) / workloads.length * 100).toFixed(1);
+        console.log(`[ReportDataAggregator] Processing costs: ${Math.min(i + BATCH_SIZE, workloads.length)}/${workloads.length} (${percent}%)`);
+      }
+    }
     
     // CRITICAL FIX: Ensure totalCost is never negative (handle credits/refunds)
     if (totalCost < 0) {
@@ -489,12 +507,19 @@ export class ReportDataAggregator {
       console.log(`✓ Costs are present: Total = $${totalCost.toFixed(2)}`);
     }
 
-    const complexities = workloads
-      .map(w => {
-        const workloadData = w.toJSON ? w.toJSON() : w;
-        return this._extractComplexity(workloadData);
-      })
-      .filter(c => c !== null && c !== undefined);
+    // FIX: Process complexities in batches to avoid stack overflow with large datasets
+    const complexities = [];
+    const COMPLEXITY_BATCH_SIZE = 10000;
+    for (let i = 0; i < workloads.length; i += COMPLEXITY_BATCH_SIZE) {
+      const batch = workloads.slice(i, Math.min(i + COMPLEXITY_BATCH_SIZE, workloads.length));
+      const batchComplexities = batch
+        .map(w => {
+          const workloadData = w.toJSON ? w.toJSON() : w;
+          return this._extractComplexity(workloadData);
+        })
+        .filter(c => c !== null && c !== undefined);
+      complexities.push(...batchComplexities);
+    }
 
     const averageComplexity = complexities.length > 0
       ? complexities.reduce((a, b) => a + b, 0) / complexities.length
