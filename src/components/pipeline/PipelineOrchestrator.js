@@ -14,6 +14,47 @@ import { toast } from 'react-toastify';
 import { getAgenticContainer } from '../../agentic/dependency_injection/AgenticContainer.js';
 import { getContainer } from '../../infrastructure/dependency_injection/Container.js';
 import { agentStatusManager } from '../../agentic/core/AgentStatusManager.js';
+
+// SAFETY: Global error handlers to catch crashes that prevent normal logging
+if (typeof window !== 'undefined') {
+  // Catch unhandled errors
+  window.addEventListener('error', (event) => {
+    console.error('[GLOBAL ERROR HANDLER] Unhandled error:', {
+      message: event.message,
+      filename: event.filename,
+      lineno: event.lineno,
+      colno: event.colno,
+      error: event.error,
+      stack: event.error?.stack
+    });
+    
+    // Check for stack overflow
+    if (event.error instanceof RangeError || 
+        (event.message && event.message.includes('Maximum call stack size exceeded'))) {
+      console.error('[GLOBAL ERROR HANDLER] STACK OVERFLOW DETECTED!');
+      console.error('[GLOBAL ERROR HANDLER] Location:', event.filename, 'Line:', event.lineno);
+    }
+  }, true);
+  
+  // Catch unhandled promise rejections
+  window.addEventListener('unhandledrejection', (event) => {
+    console.error('[GLOBAL ERROR HANDLER] Unhandled promise rejection:', {
+      reason: event.reason,
+      promise: event.promise,
+      error: event.reason instanceof Error ? {
+        name: event.reason.name,
+        message: event.reason.message,
+        stack: event.reason.stack
+      } : event.reason
+    });
+    
+    // Check for stack overflow
+    if (event.reason instanceof RangeError || 
+        (event.reason?.message && event.reason.message.includes('Maximum call stack size exceeded'))) {
+      console.error('[GLOBAL ERROR HANDLER] STACK OVERFLOW in promise rejection!');
+    }
+  });
+}
 import {
   saveAgentOutput,
   getAgentOutput,
@@ -1113,9 +1154,19 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       // SAFETY: Wrap in try-catch to catch stack overflow
       let serviceAggregation;
       try {
-        console.log(`[Cost Agent] Aggregating ${workloads.length} workloads by service...`);
+        console.log(`[Cost Agent] PRE-AGGREGATION: About to aggregate ${workloads.length} workloads by service...`);
+        console.log(`[Cost Agent] PRE-AGGREGATION: Workloads type: ${Array.isArray(workloads) ? 'array' : typeof workloads}`);
+        console.log(`[Cost Agent] PRE-AGGREGATION: Calling ReportDataAggregator.aggregateByService NOW...`);
+        
+        // Force flush console before operation
+        if (console.log.toString().includes('[native code]')) {
+          // Native console, try to force flush
+          setTimeout(() => {}, 0);
+        }
+        
         serviceAggregation = ReportDataAggregator.aggregateByService(workloads);
-        console.log(`[Cost Agent] Service aggregation complete: ${serviceAggregation.length} services`);
+        
+        console.log(`[Cost Agent] POST-AGGREGATION: Service aggregation complete: ${serviceAggregation.length} services`);
       } catch (aggError) {
         console.error('[Cost Agent] ERROR in aggregateByService:', aggError);
         console.error('[Cost Agent] Error name:', aggError?.name);
@@ -1155,12 +1206,19 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       // SAFETY: Wrap in try-catch to catch stack overflow
       let costEstimates;
       try {
-        console.log(`[Cost Agent] Estimating costs for ${serviceAggregation.length} services...`);
+        console.log(`[Cost Agent] PRE-ESTIMATION: About to estimate costs for ${serviceAggregation.length} services...`);
+        console.log(`[Cost Agent] PRE-ESTIMATION: Service aggregation type: ${Array.isArray(serviceAggregation) ? 'array' : typeof serviceAggregation}`);
+        console.log(`[Cost Agent] PRE-ESTIMATION: Calling GCPCostEstimator.estimateAllServiceCosts NOW...`);
+        
+        // Force flush console before operation
+        setTimeout(() => {}, 0);
+        
         costEstimates = await GCPCostEstimator.estimateAllServiceCosts(
           serviceAggregation, // Pass array directly
           'us-central1' // target region
         );
-        console.log(`[Cost Agent] Cost estimation complete: ${costEstimates.length} estimates`);
+        
+        console.log(`[Cost Agent] POST-ESTIMATION: Cost estimation complete: ${costEstimates.length} estimates`);
       } catch (estimateError) {
         console.error('[Cost Agent] ERROR in estimateAllServiceCosts:', estimateError);
         console.error('[Cost Agent] Error name:', estimateError?.name);

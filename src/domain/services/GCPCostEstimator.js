@@ -85,13 +85,21 @@ export class GCPCostEstimator {
    * @returns {Promise<Array>} Cost estimates for each service
    */
   static async estimateAllServiceCosts(serviceAggregation, targetRegion = 'us-central1') {
+    console.log(`[GCPCostEstimator.estimateAllServiceCosts] ENTERING: ${serviceAggregation.length} services`);
+    console.log(`[GCPCostEstimator.estimateAllServiceCosts] Service aggregation is array: ${Array.isArray(serviceAggregation)}`);
+    
     // SAFETY: Batch Promise.all to avoid stack overflow with large service lists
     // Even though serviceAggregation should be small (number of unique services),
     // we batch to be safe
     const estimates = [];
     const BATCH_SIZE = 100; // Process 100 services at a time (should be plenty)
     
+    console.log(`[GCPCostEstimator.estimateAllServiceCosts] Processing ${serviceAggregation.length} services in batches of ${BATCH_SIZE}...`);
+    
     for (let i = 0; i < serviceAggregation.length; i += BATCH_SIZE) {
+      if (i === 0) {
+        console.log(`[GCPCostEstimator.estimateAllServiceCosts] Processing first batch (0-${Math.min(BATCH_SIZE, serviceAggregation.length)})...`);
+      }
       const batch = serviceAggregation.slice(i, Math.min(i + BATCH_SIZE, serviceAggregation.length));
       const batchEstimates = await Promise.all(
         batch.map(async (serviceData) => {
@@ -154,6 +162,7 @@ export class GCPCostEstimator {
       }
     }
     
+    console.log(`[GCPCostEstimator.estimateAllServiceCosts] COMPLETED: Generated ${estimates.length} cost estimates`);
     return estimates;
   }
 

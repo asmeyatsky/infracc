@@ -106,6 +106,9 @@ export class ReportDataAggregator {
    * @returns {Array} Aggregated data by service, sorted by cost (descending)
    */
   static aggregateByService(workloads) {
+    console.log(`[ReportDataAggregator.aggregateByService] ENTERING: ${workloads.length} workloads`);
+    console.log(`[ReportDataAggregator.aggregateByService] Workloads is array: ${Array.isArray(workloads)}`);
+    
     // SAFETY: Memory guard - limit processing to prevent stack overflow
     const MAX_WORKLOADS = 1000000; // Hard limit of 1M workloads
     const safeWorkloads = workloads.length > MAX_WORKLOADS 
@@ -116,6 +119,7 @@ export class ReportDataAggregator {
       console.warn(`[ReportDataAggregator] Limiting service aggregation to ${MAX_WORKLOADS} workloads (from ${workloads.length}) to prevent memory issues`);
     }
 
+    console.log(`[ReportDataAggregator.aggregateByService] Starting batch processing with ${safeWorkloads.length} workloads...`);
     const serviceMap = new Map();
 
     // FIX: Process in batches to avoid stack overflow with very large datasets (599K+ workloads)
@@ -188,7 +192,9 @@ export class ReportDataAggregator {
     }
 
     // Sort by total cost (descending) - safe, result array should be small (number of unique services)
+    console.log(`[ReportDataAggregator.aggregateByService] Sorting ${result.length} services...`);
     result.sort((a, b) => b.totalCost - a.totalCost);
+    console.log(`[ReportDataAggregator.aggregateByService] COMPLETED: Returning ${result.length} services`);
 
     return result;
   }
