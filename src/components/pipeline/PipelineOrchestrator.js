@@ -16,29 +16,57 @@ import { getContainer } from '../../infrastructure/dependency_injection/Containe
 import { agentStatusManager } from '../../agentic/core/AgentStatusManager.js';
 
 // SAFETY: Global error handlers to catch crashes that prevent normal logging
+// LOGS ARE WRITTEN TO: Browser Console (F12 or Cmd+Option+I)
 if (typeof window !== 'undefined') {
+  // Store logs in localStorage as backup (survives crash)
+  const persistentLog = (level, ...args) => {
+    try {
+      const timestamp = new Date().toISOString();
+      const logEntry = `[${timestamp}] [${level}] ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')}`;
+      
+      // Get existing logs (keep last 100 entries)
+      const existingLogs = JSON.parse(localStorage.getItem('crashLogs') || '[]');
+      existingLogs.push(logEntry);
+      if (existingLogs.length > 100) {
+        existingLogs.shift(); // Keep only last 100
+      localStorage.setItem('crashLogs', JSON.stringify(existingLogs));
+    } catch (e) {
+      // If localStorage fails, at least try console
+      console.error('Failed to write persistent log:', e);
+    }
+  };
+  
   // Catch unhandled errors
   window.addEventListener('error', (event) => {
-    console.error('[GLOBAL ERROR HANDLER] Unhandled error:', {
+    const errorInfo = {
       message: event.message,
       filename: event.filename,
       lineno: event.lineno,
       colno: event.colno,
       error: event.error,
       stack: event.error?.stack
-    });
+    };
+    
+    console.error('[GLOBAL ERROR HANDLER] Unhandled error:', errorInfo);
+    persistentLog('ERROR', 'Unhandled error', JSON.stringify(errorInfo));
     
     // Check for stack overflow
     if (event.error instanceof RangeError || 
         (event.message && event.message.includes('Maximum call stack size exceeded'))) {
       console.error('[GLOBAL ERROR HANDLER] STACK OVERFLOW DETECTED!');
       console.error('[GLOBAL ERROR HANDLER] Location:', event.filename, 'Line:', event.lineno);
+      persistentLog('CRITICAL', 'STACK OVERFLOW', event.filename, event.lineno, event.message);
+      
+      // Also show alert so user knows to check console
+      setTimeout(() => {
+        alert('STACK OVERFLOW DETECTED! Check browser console (F12) for details. Logs also saved to localStorage key "crashLogs"');
+      }, 100);
     }
   }, true);
   
   // Catch unhandled promise rejections
   window.addEventListener('unhandledrejection', (event) => {
-    console.error('[GLOBAL ERROR HANDLER] Unhandled promise rejection:', {
+    const rejectionInfo = {
       reason: event.reason,
       promise: event.promise,
       error: event.reason instanceof Error ? {
@@ -46,14 +74,28 @@ if (typeof window !== 'undefined') {
         message: event.reason.message,
         stack: event.reason.stack
       } : event.reason
-    });
+    };
+    
+    console.error('[GLOBAL ERROR HANDLER] Unhandled promise rejection:', rejectionInfo);
+    persistentLog('ERROR', 'Unhandled promise rejection', JSON.stringify(rejectionInfo));
     
     // Check for stack overflow
     if (event.reason instanceof RangeError || 
         (event.reason?.message && event.reason.message.includes('Maximum call stack size exceeded'))) {
       console.error('[GLOBAL ERROR HANDLER] STACK OVERFLOW in promise rejection!');
+      persistentLog('CRITICAL', 'STACK OVERFLOW in promise', event.reason?.message);
+      
+      setTimeout(() => {
+        alert('STACK OVERFLOW in promise! Check browser console (F12) for details.');
+      }, 100);
     }
   });
+  
+  // Log startup
+  console.log('=== GLOBAL ERROR HANDLERS INSTALLED ===');
+  console.log('All logs written to: Browser Console (Press F12 or Cmd+Option+I to open)');
+  console.log('Crash logs also saved to: localStorage key "crashLogs"');
+  console.log('To view crash logs: localStorage.getItem("crashLogs") in console');
 }
 import {
   saveAgentOutput,
