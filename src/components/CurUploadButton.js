@@ -122,7 +122,28 @@ class FileUploadManager {
       // Create a File object from the blob to pass to _processCsvFile
       const csvFile = new File([blob], zipEntry.name, { type: 'text/csv' });
       const importedData = await this._processCsvFile(csvFile, awsBomFormat);
-      allData.push(...importedData);
+      
+      // FIX: Avoid stack overflow with large arrays (279K+ items)
+      // Spread operator (...) and push.apply() can exceed call stack/argument limits with very large arrays
+      // Use a simple loop for very large arrays - this is the safest approach
+      if (importedData.length > 10000) {
+        // For very large arrays, use a loop to push items one by one or in small batches
+        // This avoids any stack overflow or argument limit issues
+        const BATCH_SIZE = 1000;
+        for (let i = 0; i < importedData.length; i += BATCH_SIZE) {
+          const end = Math.min(i + BATCH_SIZE, importedData.length);
+          for (let j = i; j < end; j++) {
+            allData.push(importedData[j]);
+          }
+          // Yield to event loop periodically to prevent blocking UI
+          if (i % (BATCH_SIZE * 10) === 0) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+          }
+        }
+      } else {
+        // For smaller arrays, spread operator is safe and more readable
+        allData.push(...importedData);
+      }
     }
 
     return allData;
