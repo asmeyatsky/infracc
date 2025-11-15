@@ -568,7 +568,8 @@ export default function MigrationPipeline() {
             // Store in map with workloadId as key
             assessmentMap.set(workloadId, assessment);
           }
-        });
+        }
+      }
         
         console.log(`[PDF DEBUG] Assessment map: ${assessmentMap.size} assessments, ${assessmentsWithComplexity} with complexity, ${assessmentsWithoutComplexity} without`);
         
