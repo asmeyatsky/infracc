@@ -59,14 +59,48 @@ export class PlanMigrationWavesUseCase {
     // Validate input
     validateWorkloadIds(workloadIds);
 
-    console.log(`[PlanMigrationWavesUseCase] Attempting to load ${workloadIds.length} workloads by ID:`, workloadIds);
+    console.log(`[PlanMigrationWavesUseCase] Attempting to load ${workloadIds.length} workloads by ID`);
 
-    // Load all workloads
-    const workloads = await Promise.all(
-      workloadIds.map(id => this.workloadRepository.findById(id))
-    );
-
-    let validWorkloads = workloads.filter(w => w !== null && w !== undefined);
+    // FIX: Load workloads in batches to avoid stack overflow with very large datasets
+    // Promise.all() with 599K promises can exceed call stack
+    let validWorkloads = [];
+    const LOAD_BATCH_SIZE = 1000;
+    
+    if (workloadIds.length > LOAD_BATCH_SIZE) {
+      console.log(`[PlanMigrationWavesUseCase] Loading ${workloadIds.length} workloads in batches of ${LOAD_BATCH_SIZE}...`);
+      
+      for (let i = 0; i < workloadIds.length; i += LOAD_BATCH_SIZE) {
+        const batch = workloadIds.slice(i, i + LOAD_BATCH_SIZE);
+        const batchWorkloads = await Promise.all(
+          batch.map(id => this.workloadRepository.findById(id))
+        );
+        
+        // Filter and add valid workloads
+        const batchValid = batchWorkloads.filter(w => w !== null && w !== undefined);
+        for (const workload of batchValid) {
+          validWorkloads.push(workload);
+        }
+        
+        // Log progress for large datasets
+        if (workloadIds.length > 10000 && (i + LOAD_BATCH_SIZE) % 10000 === 0) {
+          const percent = ((i + LOAD_BATCH_SIZE) / workloadIds.length * 100).toFixed(1);
+          console.log(`[PlanMigrationWavesUseCase] Loaded: ${Math.min(i + LOAD_BATCH_SIZE, workloadIds.length)}/${workloadIds.length} (${percent}%)`);
+        }
+        
+        // Yield to event loop periodically
+        if (i % (LOAD_BATCH_SIZE * 10) === 0 && i > 0) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      }
+      
+      console.log(`[PlanMigrationWavesUseCase] Loaded ${validWorkloads.length} valid workloads from ${workloadIds.length} IDs`);
+    } else {
+      // For smaller datasets, load all at once
+      const workloads = await Promise.all(
+        workloadIds.map(id => this.workloadRepository.findById(id))
+      );
+      validWorkloads = workloads.filter(w => w !== null && w !== undefined);
+    }
 
     // If no workloads found by ID, try loading all workloads as fallback
     if (validWorkloads.length === 0) {
