@@ -275,31 +275,128 @@ export default function MigrationPipeline() {
   };
 
   const handlePipelineComplete = async (outputs) => {
-    setPipelineComplete(true);
-    setPipelineOutputs(outputs);
-    
-    // Save completion status to pipeline state
-    if (fileUUID) {
-      await savePipelineState(fileUUID, {
-        outputFormat,
-        pipelineComplete: true,
-        filesCount: files?.length || 0,
-        fileNames: files?.map(f => f.name) || []
-      });
+    if (typeof window !== 'undefined' && window.persistentLog) {
+      window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: ENTERING');
+      window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: outputs type:', typeof outputs);
+      window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: hasDiscovery:', !!outputs?.discovery);
+      window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: hasAssessment:', !!outputs?.assessment);
+      window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: hasStrategy:', !!outputs?.strategy);
+      window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: hasCost:', !!outputs?.cost);
+      window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: outputFormat:', outputFormat);
     }
-
-    // If PDF format was selected, generate PDF immediately
-    if (outputFormat === 'pdf') {
-      console.log('[PDF] PDF format selected, auto-generating PDF...');
-      try {
-        await generatePDFReport(outputs);
-        console.log('[PDF] Auto-generation completed');
-      } catch (err) {
-        console.error('[PDF] Error auto-generating PDF:', err);
-        toast.error(`Failed to generate PDF report: ${err.message}`, { autoClose: 10000 });
-        // Don't reset state on PDF error - keep pipeline complete so user can retry
-        // The pipeline completed successfully, PDF generation is separate
+    console.log('[MigrationPipeline] handlePipelineComplete: ENTERING');
+    console.log('[MigrationPipeline] handlePipelineComplete: outputs:', outputs);
+    
+    try {
+      setPipelineComplete(true);
+      if (typeof window !== 'undefined' && window.persistentLog) {
+        window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: setPipelineComplete(true) called');
       }
+      console.log('[MigrationPipeline] handlePipelineComplete: setPipelineComplete(true)');
+      
+      setPipelineOutputs(outputs);
+      if (typeof window !== 'undefined' && window.persistentLog) {
+        window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: setPipelineOutputs called');
+      }
+      console.log('[MigrationPipeline] handlePipelineComplete: setPipelineOutputs called');
+      
+      // Save completion status to pipeline state
+      if (fileUUID) {
+        if (typeof window !== 'undefined' && window.persistentLog) {
+          window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: About to save pipeline state...');
+        }
+        console.log('[MigrationPipeline] handlePipelineComplete: About to save pipeline state...');
+        try {
+          await savePipelineState(fileUUID, {
+            outputFormat,
+            pipelineComplete: true,
+            filesCount: files?.length || 0,
+            fileNames: files?.map(f => f.name) || []
+          });
+          if (typeof window !== 'undefined' && window.persistentLog) {
+            window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: Pipeline state saved');
+          }
+          console.log('[MigrationPipeline] handlePipelineComplete: Pipeline state saved');
+        } catch (saveErr) {
+          if (typeof window !== 'undefined' && window.persistentLog) {
+            window.persistentLog('ERROR', '[MigrationPipeline] handlePipelineComplete: Error saving state:', saveErr.message);
+          }
+          console.error('[MigrationPipeline] handlePipelineComplete: Error saving state:', saveErr);
+          // Don't throw - continue even if state save fails
+        }
+      }
+
+      // If PDF format was selected, generate PDF immediately
+      if (outputFormat === 'pdf') {
+        if (typeof window !== 'undefined' && window.persistentLog) {
+          window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: PDF format selected, about to generate PDF...');
+        }
+        console.log('[PDF] PDF format selected, auto-generating PDF...');
+        try {
+          if (typeof window !== 'undefined' && window.persistentLog) {
+            window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: Calling generatePDFReport...');
+          }
+          await generatePDFReport(outputs);
+          if (typeof window !== 'undefined' && window.persistentLog) {
+            window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: PDF generation completed successfully');
+          }
+          console.log('[PDF] Auto-generation completed');
+        } catch (err) {
+          if (typeof window !== 'undefined' && window.persistentLog) {
+            window.persistentLog('ERROR', '[MigrationPipeline] handlePipelineComplete: PDF generation error:', err.message);
+            window.persistentLog('ERROR', '[MigrationPipeline] handlePipelineComplete: PDF error stack:', err.stack);
+          }
+          console.error('[PDF] Error auto-generating PDF:', err);
+          console.error('[PDF] Error name:', err?.name);
+          console.error('[PDF] Error message:', err?.message);
+          console.error('[PDF] Error stack:', err?.stack);
+          
+          // Check for stack overflow
+          if (err instanceof RangeError || (err?.message && err.message.includes('Maximum call stack size exceeded'))) {
+            if (typeof window !== 'undefined' && window.persistentLog) {
+              window.persistentLog('CRITICAL', '[MigrationPipeline] handlePipelineComplete: STACK OVERFLOW in PDF generation!');
+            }
+            console.error('[PDF] STACK OVERFLOW in PDF generation!');
+          }
+          
+          toast.error(`Failed to generate PDF report: ${err.message}`, { autoClose: 10000 });
+          // Don't reset state on PDF error - keep pipeline complete so user can retry
+          // The pipeline completed successfully, PDF generation is separate
+        }
+      } else {
+        if (typeof window !== 'undefined' && window.persistentLog) {
+          window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: Screen format, skipping PDF generation');
+        }
+        console.log('[MigrationPipeline] handlePipelineComplete: Screen format, skipping PDF generation');
+      }
+      
+      if (typeof window !== 'undefined' && window.persistentLog) {
+        window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: COMPLETED SUCCESSFULLY');
+      }
+      console.log('[MigrationPipeline] handlePipelineComplete: COMPLETED SUCCESSFULLY');
+    } catch (error) {
+      if (typeof window !== 'undefined' && window.persistentLog) {
+        window.persistentLog('CRITICAL', '[MigrationPipeline] handlePipelineComplete: UNHANDLED ERROR:', error.message);
+        window.persistentLog('CRITICAL', '[MigrationPipeline] handlePipelineComplete: Error stack:', error.stack);
+      }
+      console.error('[MigrationPipeline] handlePipelineComplete: UNHANDLED ERROR:', error);
+      console.error('[MigrationPipeline] handlePipelineComplete: Error name:', error?.name);
+      console.error('[MigrationPipeline] handlePipelineComplete: Error message:', error?.message);
+      console.error('[MigrationPipeline] handlePipelineComplete: Error stack:', error?.stack);
+      
+      // Check for stack overflow
+      if (error instanceof RangeError || (error?.message && error.message.includes('Maximum call stack size exceeded'))) {
+        if (typeof window !== 'undefined' && window.persistentLog) {
+          window.persistentLog('CRITICAL', '[MigrationPipeline] handlePipelineComplete: STACK OVERFLOW!');
+        }
+        console.error('[MigrationPipeline] handlePipelineComplete: STACK OVERFLOW DETECTED!');
+        toast.error('Pipeline completion failed due to stack overflow. Check crash logs for details.', { autoClose: 15000 });
+      } else {
+        toast.error(`Pipeline completion failed: ${error.message}`, { autoClose: 10000 });
+      }
+      
+      // Re-throw to let error boundary catch it
+      throw error;
     }
   };
 
@@ -333,6 +430,15 @@ export default function MigrationPipeline() {
   };
 
   const generatePDFReport = async (outputs) => {
+    if (typeof window !== 'undefined' && window.persistentLog) {
+      window.persistentLog('INFO', '[PDF] generatePDFReport: ENTERING');
+      window.persistentLog('INFO', '[PDF] generatePDFReport: hasOutputs:', !!outputs);
+      window.persistentLog('INFO', '[PDF] generatePDFReport: hasFileUUID:', !!fileUUID);
+      window.persistentLog('INFO', '[PDF] generatePDFReport: hasDiscovery:', !!outputs?.discovery);
+      window.persistentLog('INFO', '[PDF] generatePDFReport: hasAssessment:', !!outputs?.assessment);
+      window.persistentLog('INFO', '[PDF] generatePDFReport: hasStrategy:', !!outputs?.strategy);
+      window.persistentLog('INFO', '[PDF] generatePDFReport: hasCost:', !!outputs?.cost);
+    }
     console.log('[PDF] generatePDFReport called:', {
       hasOutputs: !!outputs,
       hasFileUUID: !!fileUUID,
@@ -345,10 +451,16 @@ export default function MigrationPipeline() {
     
     if (!outputs || !fileUUID) {
       const errorMsg = `Missing outputs or file UUID for PDF generation. outputs: ${!!outputs}, fileUUID: ${!!fileUUID}`;
+      if (typeof window !== 'undefined' && window.persistentLog) {
+        window.persistentLog('ERROR', '[PDF] generatePDFReport: Missing inputs:', errorMsg);
+      }
       console.error('[PDF]', errorMsg);
       throw new Error(errorMsg);
     }
 
+    if (typeof window !== 'undefined' && window.persistentLog) {
+      window.persistentLog('INFO', '[PDF] generatePDFReport: Starting PDF generation process...');
+    }
     console.log('[PDF] Starting PDF generation process...');
     toast.info('Generating PDF report...', { autoClose: 2000 });
 

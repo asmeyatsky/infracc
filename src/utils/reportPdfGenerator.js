@@ -29,17 +29,42 @@ export const generateComprehensiveReportPDF = async (
   assessmentResults = null,
   options = {}
 ) => {
+  if (typeof window !== 'undefined' && window.persistentLog) {
+    window.persistentLog('INFO', '[PDF Generator] generateComprehensiveReportPDF: ENTERING');
+    window.persistentLog('INFO', '[PDF Generator] hasReportData:', !!reportData);
+    window.persistentLog('INFO', '[PDF Generator] hasCostEstimates:', !!costEstimates);
+    window.persistentLog('INFO', '[PDF Generator] costEstimates type:', typeof costEstimates);
+    window.persistentLog('INFO', '[PDF Generator] costEstimates length:', Array.isArray(costEstimates) ? costEstimates.length : 'N/A');
+  }
+  console.log('[PDF Generator] generateComprehensiveReportPDF: ENTERING');
+  
   // CRITICAL: Cost estimates are required for PDF generation
   if (!costEstimates) {
-    throw new Error('Cost estimates are required for PDF generation. The Cost Agent must complete before generating the PDF.');
+    const errorMsg = 'Cost estimates are required for PDF generation. The Cost Agent must complete before generating the PDF.';
+    if (typeof window !== 'undefined' && window.persistentLog) {
+      window.persistentLog('ERROR', '[PDF Generator]', errorMsg);
+    }
+    throw new Error(errorMsg);
   }
   
   if (!Array.isArray(costEstimates)) {
-    throw new Error(`Cost estimates must be an array, but got ${typeof costEstimates}.`);
+    const errorMsg = `Cost estimates must be an array, but got ${typeof costEstimates}.`;
+    if (typeof window !== 'undefined' && window.persistentLog) {
+      window.persistentLog('ERROR', '[PDF Generator]', errorMsg);
+    }
+    throw new Error(errorMsg);
   }
   
   if (costEstimates.length === 0) {
-    throw new Error('Cost estimates array is empty. The Cost Agent must generate cost estimates before generating the PDF.');
+    const errorMsg = 'Cost estimates array is empty. The Cost Agent must generate cost estimates before generating the PDF.';
+    if (typeof window !== 'undefined' && window.persistentLog) {
+      window.persistentLog('ERROR', '[PDF Generator]', errorMsg);
+    }
+    throw new Error(errorMsg);
+  }
+  
+  if (typeof window !== 'undefined' && window.persistentLog) {
+    window.persistentLog('INFO', '[PDF Generator] Cost estimates validated, proceeding with PDF generation...');
   }
   // Debug: Log the data being used for PDF generation
   console.log('PDF Generator - reportData:', {
