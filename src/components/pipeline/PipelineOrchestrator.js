@@ -1447,7 +1447,7 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
             const availableAgentsForStrategy = await getCachedAgentIds(fileUUID);
             console.error('[DEBUG] Assessment output not found in cache.');
             console.error('[DEBUG] fileUUID used:', fileUUID);
-            console.error('[DEBUG] Available agents:', availableAgents);
+            console.error('[DEBUG] Available agents:', availableAgentsForStrategy);
             console.error('[DEBUG] This usually means the Assessment Agent failed or did not complete.');
             
             // Try to get raw cache to see what's actually stored
@@ -1460,17 +1460,18 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
               console.error('[DEBUG] Raw cache version:', rawCache.version);
             }
             
-            throw new Error(`Assessment output not found. fileUUID: ${fileUUID}, available agents: ${availableAgents.join(', ')}`);
+            throw new Error(`Assessment output not found. fileUUID: ${fileUUID}, available agents: ${availableAgentsForStrategy.join(', ')}`);
           }
           
-          console.log(`[DEBUG] Strategy Agent: Found assessment output. fileUUID: ${fileUUID}, results count: ${assessmentOutput.results?.length}`);
-          if (!assessmentOutput.results || assessmentOutput.results.length === 0) {
-            console.warn('Assessment output found but has no results:', assessmentOutput);
+          console.log(`[DEBUG] Strategy Agent: Found assessment output. fileUUID: ${fileUUID}, results count: ${assessmentOutputForStrategy.results?.length}`);
+          if (!assessmentOutputForStrategy.results || assessmentOutputForStrategy.results.length === 0) {
+            console.warn('Assessment output found but has no results:', assessmentOutputForStrategy);
             throw new Error('Assessment output is empty. Please rerun the Assessment Agent.');
           }
           
+          const discoveryOutputForStrategy = await getAgentOutput(fileUUID, 'discovery');
           try {
-            output = await executeStrategyAgent(assessmentOutput);
+            output = await executeStrategyAgent(assessmentOutputForStrategy, discoveryOutputForStrategy);
           } catch (strategyError) {
             console.error('Strategy Agent execution failed:', strategyError);
             throw strategyError;
@@ -1499,6 +1500,9 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
           
           output = await executeCostAgent(strategyOutput, assessmentOutputForCost, discoveryOutputForCost);
           break;
+        }
+        default:
+          throw new Error(`Unknown agent ID: ${agent.id}`);
       }
 
       setAgentOutput(output);
