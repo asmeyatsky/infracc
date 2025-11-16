@@ -11,6 +11,7 @@ import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import Layout from './components/unified/Layout';
 import MigrationPipeline from './components/pipeline/MigrationPipeline';
+import ErrorBoundary from './components/ErrorBoundary';
 // Removed unused imports: AgentStatusDashboard, AgentActivityLog, getAgenticContainer
 import './styles/unified.css';
 
@@ -43,11 +44,12 @@ function AppUnified() {
   };
 
   return (
-    <TCOProvider>
-      <Layout header={header}>
-        {renderContent()}
-      </Layout>
-      <ToastContainer
+    <ErrorBoundary>
+      <TCOProvider>
+        <Layout header={header}>
+          {renderContent()}
+        </Layout>
+        <ToastContainer
         position="top-right"
         autoClose={3000}
         hideProgressBar={false}
@@ -59,7 +61,8 @@ function AppUnified() {
         pauseOnHover
         theme="light"
       />
-    </TCOProvider>
+      </TCOProvider>
+    </ErrorBoundary>
   );
 }
 
