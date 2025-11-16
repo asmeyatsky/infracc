@@ -1477,7 +1477,8 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
             throw strategyError;
           }
           break;
-        case 'cost':
+        }
+        case 'cost': {
           const strategyOutput = await getAgentOutput(fileUUID, 'strategy');
           const assessmentOutputForCost = await getAgentOutput(fileUUID, 'assessment');
           const discoveryOutputForCost = await getAgentOutput(fileUUID, 'discovery');
