@@ -57,29 +57,34 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
     let assessmentsWithComplexityCount = 0;
     
     if (assessmentResults?.results) {
-      assessmentResults.results.forEach(assessment => {
-        if (assessment && !assessment.error && assessment.workloadId) {
-          // Handle both Assessment entity and plain objects
-          const assessmentObj = assessment.toJSON ? assessment.toJSON() : assessment;
-          
-          // Extract workloadId - handle both getter and direct property
-          const workloadId = assessment.workloadId || assessmentObj.workloadId;
-          
-          if (workloadId) {
-            validAssessmentsCount++;
+      // SAFETY: Batch forEach to avoid stack overflow with large datasets
+      const ASSESSMENT_BATCH_SIZE = 10000;
+      for (let i = 0; i < assessmentResults.results.length; i += ASSESSMENT_BATCH_SIZE) {
+        const batch = assessmentResults.results.slice(i, Math.min(i + ASSESSMENT_BATCH_SIZE, assessmentResults.results.length));
+        for (const assessment of batch) {
+          if (assessment && !assessment.error && assessment.workloadId) {
+            // Handle both Assessment entity and plain objects
+            const assessmentObj = assessment.toJSON ? assessment.toJSON() : assessment;
             
-            // Check if assessment has complexityScore
-            const complexityScore = assessmentObj.complexityScore !== undefined ? assessmentObj.complexityScore : 
-                                   (assessment.complexityScore !== undefined ? assessment.complexityScore : null);
+            // Extract workloadId - handle both getter and direct property
+            const workloadId = assessment.workloadId || assessmentObj.workloadId;
             
-            if (complexityScore !== null && complexityScore !== undefined) {
-              assessmentsWithComplexityCount++;
+            if (workloadId) {
+              validAssessmentsCount++;
+              
+              // Check if assessment has complexityScore
+              const complexityScore = assessmentObj.complexityScore !== undefined ? assessmentObj.complexityScore : 
+                                     (assessment.complexityScore !== undefined ? assessment.complexityScore : null);
+              
+              if (complexityScore !== null && complexityScore !== undefined) {
+                assessmentsWithComplexityCount++;
+              }
+              
+              assessmentMap.set(workloadId, assessment);
             }
-            
-            assessmentMap.set(workloadId, assessment);
           }
         }
-      });
+      }
       
       // Debug logging
       if (validAssessmentsCount > 0) {
@@ -115,7 +120,12 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
     let mergedWithComplexityCount = 0;
     let fromWorkloadAssessmentCount = 0;
     
-    const merged = workloads.map(workload => {
+    // SAFETY: Batch map to avoid stack overflow with large datasets
+    const merged = [];
+    const WORKLOAD_BATCH_SIZE = 10000;
+    for (let i = 0; i < workloads.length; i += WORKLOAD_BATCH_SIZE) {
+      const batch = workloads.slice(i, Math.min(i + WORKLOAD_BATCH_SIZE, workloads.length));
+      for (const workload of batch) {
       const workloadData = workload.toJSON ? workload.toJSON() : workload;
       
       // First, try to get assessment from assessmentResults
@@ -222,8 +232,9 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
         };
       }
       
-      return workloadData;
-    });
+        merged.push(workloadData);
+      }
+    }
     
     console.log(`ReportSummaryView: Merged ${mergedCount.toLocaleString()}/${workloads.length.toLocaleString()} workloads with assessments`);
     console.log(`ReportSummaryView: ${mergedWithComplexityCount.toLocaleString()} merged workloads have complexityScore`);
@@ -717,16 +728,28 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
                 
                 // CRITICAL FIX: Scale service aggregation costs BEFORE generating estimates
                 if (uploadSummary && uploadSummary.totalMonthlyCost && serviceAggregation.length > 0) {
-                  const currentAggTotal = serviceAggregation.reduce((sum, s) => sum + (s.totalCost || 0), 0);
+                  // SAFETY: Batch reduce to avoid stack overflow
+                  let currentAggTotal = 0;
+                  const SCALE_BATCH_SIZE = 1000;
+                  for (let i = 0; i < serviceAggregation.length; i += SCALE_BATCH_SIZE) {
+                    const batch = serviceAggregation.slice(i, Math.min(i + SCALE_BATCH_SIZE, serviceAggregation.length));
+                    for (const s of batch) {
+                      currentAggTotal += (s.totalCost || 0);
+                    }
+                  }
+                  
                   const targetTotal = uploadSummary.totalMonthlyCost;
                   if (currentAggTotal > 0 && Math.abs(currentAggTotal - targetTotal) > 100) {
                     const aggScaleFactor = targetTotal / currentAggTotal;
                     console.log(`ReportSummaryView - Scaling service aggregation costs by factor ${aggScaleFactor.toFixed(4)}`);
-                    serviceAggregation.forEach(service => {
-                      if (service.totalCost) {
-                        service.totalCost = service.totalCost * aggScaleFactor;
+                    for (let i = 0; i < serviceAggregation.length; i += SCALE_BATCH_SIZE) {
+                      const batch = serviceAggregation.slice(i, Math.min(i + SCALE_BATCH_SIZE, serviceAggregation.length));
+                      for (const service of batch) {
+                        if (service.totalCost) {
+                          service.totalCost = service.totalCost * aggScaleFactor;
+                        }
                       }
-                    });
+                    }
                   }
                 }
                 
@@ -734,21 +757,33 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
                 
                 // CRITICAL FIX: Scale cost estimates to match correct total
                 if (uploadSummary && uploadSummary.totalMonthlyCost && estimates.length > 0) {
-                  const currentAwsTotal = estimates.reduce((sum, est) => sum + (est.costEstimate?.awsCost || 0), 0);
+                  // SAFETY: Batch reduce to avoid stack overflow
+                  let currentAwsTotal = 0;
+                  const ESTIMATE_BATCH_SIZE = 1000;
+                  for (let i = 0; i < estimates.length; i += ESTIMATE_BATCH_SIZE) {
+                    const batch = estimates.slice(i, Math.min(i + ESTIMATE_BATCH_SIZE, estimates.length));
+                    for (const est of batch) {
+                      currentAwsTotal += (est.costEstimate?.awsCost || 0);
+                    }
+                  }
+                  
                   const targetTotal = uploadSummary.totalMonthlyCost;
                   if (currentAwsTotal > 0 && Math.abs(currentAwsTotal - targetTotal) > 100) {
                     const scaleFactor = targetTotal / currentAwsTotal;
                     console.log(`ReportSummaryView - Scaling cost estimates by factor ${scaleFactor.toFixed(4)}`);
-                    estimates.forEach(est => {
-                      if (est.costEstimate) {
-                        est.costEstimate.awsCost = (est.costEstimate.awsCost || 0) * scaleFactor;
-                        est.costEstimate.gcpOnDemand = (est.costEstimate.gcpOnDemand || 0) * scaleFactor;
-                        est.costEstimate.gcp1YearCUD = (est.costEstimate.gcp1YearCUD || 0) * scaleFactor;
-                        est.costEstimate.gcp3YearCUD = (est.costEstimate.gcp3YearCUD || 0) * scaleFactor;
-                        est.costEstimate.savings1Year = est.costEstimate.awsCost - est.costEstimate.gcp1YearCUD;
-                        est.costEstimate.savings3Year = est.costEstimate.awsCost - est.costEstimate.gcp3YearCUD;
+                    for (let i = 0; i < estimates.length; i += ESTIMATE_BATCH_SIZE) {
+                      const batch = estimates.slice(i, Math.min(i + ESTIMATE_BATCH_SIZE, estimates.length));
+                      for (const est of batch) {
+                        if (est.costEstimate) {
+                          est.costEstimate.awsCost = (est.costEstimate.awsCost || 0) * scaleFactor;
+                          est.costEstimate.gcpOnDemand = (est.costEstimate.gcpOnDemand || 0) * scaleFactor;
+                          est.costEstimate.gcp1YearCUD = (est.costEstimate.gcp1YearCUD || 0) * scaleFactor;
+                          est.costEstimate.gcp3YearCUD = (est.costEstimate.gcp3YearCUD || 0) * scaleFactor;
+                          est.costEstimate.savings1Year = est.costEstimate.awsCost - est.costEstimate.gcp1YearCUD;
+                          est.costEstimate.savings3Year = est.costEstimate.awsCost - est.costEstimate.gcp3YearCUD;
+                        }
                       }
-                    });
+                    }
                   }
                 }
                 
@@ -762,7 +797,18 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
                   };
                   
                   // Scale ALL costs to match correct total (services, complexity, readiness, regions)
-                  const currentServiceTotal = finalReportData.services?.topServices?.reduce((sum, s) => sum + (s.totalCost || 0), 0) || 0;
+                  // SAFETY: Batch reduce to avoid stack overflow
+                  let currentServiceTotal = 0;
+                  if (finalReportData.services?.topServices) {
+                    const SERVICE_BATCH_SIZE = 1000;
+                    for (let i = 0; i < finalReportData.services.topServices.length; i += SERVICE_BATCH_SIZE) {
+                      const batch = finalReportData.services.topServices.slice(i, Math.min(i + SERVICE_BATCH_SIZE, finalReportData.services.topServices.length));
+                      for (const s of batch) {
+                        currentServiceTotal += (s.totalCost || 0);
+                      }
+                    }
+                  }
+                  
                   const currentComplexityTotal = (finalReportData.complexity?.low?.totalCost || 0) + 
                                                  (finalReportData.complexity?.medium?.totalCost || 0) + 
                                                  (finalReportData.complexity?.high?.totalCost || 0) + 
@@ -779,11 +825,15 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
                     
                     // Scale service costs
                     if (finalReportData.services?.topServices) {
-                      finalReportData.services.topServices.forEach(service => {
-                        if (service.totalCost) {
-                          service.totalCost = service.totalCost * scaleFactor;
+                      const SERVICE_BATCH_SIZE = 1000;
+                      for (let i = 0; i < finalReportData.services.topServices.length; i += SERVICE_BATCH_SIZE) {
+                        const batch = finalReportData.services.topServices.slice(i, Math.min(i + SERVICE_BATCH_SIZE, finalReportData.services.topServices.length));
+                        for (const service of batch) {
+                          if (service.totalCost) {
+                            service.totalCost = service.totalCost * scaleFactor;
+                          }
                         }
-                      });
+                      }
                     }
                     
                     // Scale complexity costs
@@ -806,11 +856,15 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
                     
                     // Scale region costs
                     if (finalReportData.regions && Array.isArray(finalReportData.regions)) {
-                      finalReportData.regions.forEach(region => {
-                        if (region.totalCost) {
-                          region.totalCost *= scaleFactor;
+                      const REGION_BATCH_SIZE = 1000;
+                      for (let i = 0; i < finalReportData.regions.length; i += REGION_BATCH_SIZE) {
+                        const batch = finalReportData.regions.slice(i, Math.min(i + REGION_BATCH_SIZE, finalReportData.regions.length));
+                        for (const region of batch) {
+                          if (region.totalCost) {
+                            region.totalCost *= scaleFactor;
+                          }
                         }
-                      });
+                      }
                     }
                   }
                   
