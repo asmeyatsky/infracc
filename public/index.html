@@ -31,7 +31,7 @@
     <noscript>You need to enable JavaScript to run this app.</noscript>
     
     <!-- Persistent Crash Logs Button - Always visible, even after crashes -->
-    <div id="crash-logs-button" style="position: fixed; top: 10px; right: 10px; z-index: 99999; font-family: Arial, sans-serif;">
+    <div id="crash-logs-button" style="position: fixed; top: 10px; right: 10px; z-index: 2147483647; font-family: Arial, sans-serif; pointer-events: auto;">
       <button 
         id="view-crash-logs-btn" 
         style="
@@ -52,7 +52,7 @@
     </div>
 
     <!-- Crash Logs Modal -->
-    <div id="crash-logs-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0,0,0,0.8); z-index: 999999; padding: 20px; overflow: auto;">
+    <div id="crash-logs-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0,0,0,0.8); z-index: 2147483646; padding: 20px; overflow: auto; pointer-events: auto;">
       <div style="background-color: white; border-radius: 8px; padding: 20px; max-width: 90%; margin: 0 auto; max-height: 90vh; overflow: auto;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
           <h3>Crash Logs (<span id="modal-logs-count">0</span> entries)</h3>
