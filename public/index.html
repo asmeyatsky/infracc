@@ -29,6 +29,139 @@
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
+    
+    <!-- Persistent Crash Logs Button - Always visible, even after crashes -->
+    <div id="crash-logs-button" style="position: fixed; top: 10px; right: 10px; z-index: 99999; font-family: Arial, sans-serif;">
+      <button 
+        id="view-crash-logs-btn" 
+        style="
+          background-color: #ffc107; 
+          color: #000; 
+          border: 1px solid #ffc107; 
+          padding: 8px 12px; 
+          border-radius: 4px; 
+          cursor: pointer;
+          font-size: 12px;
+          font-weight: bold;
+        "
+        onmouseover="this.style.backgroundColor='#ffb300'"
+        onmouseout="this.style.backgroundColor='#ffc107'"
+      >
+        📋 View Crash Logs (<span id="crash-logs-count">0</span>)
+      </button>
+    </div>
+
+    <!-- Crash Logs Modal -->
+    <div id="crash-logs-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0,0,0,0.8); z-index: 999999; padding: 20px; overflow: auto;">
+      <div style="background-color: white; border-radius: 8px; padding: 20px; max-width: 90%; margin: 0 auto; max-height: 90vh; overflow: auto;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+          <h3>Crash Logs (<span id="modal-logs-count">0</span> entries)</h3>
+          <button id="close-crash-logs" style="padding: 8px 16px; background-color: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer;">Close</button>
+        </div>
+        <div id="crash-logs-content" style="
+          background-color: #f5f5f5; 
+          padding: 15px; 
+          border-radius: 4px; 
+          font-family: monospace; 
+          font-size: 12px; 
+          max-height: 70vh; 
+          overflow: auto; 
+          white-space: pre-wrap; 
+          word-break: break-word;
+        "></div>
+        <div style="margin-top: 15px; display: flex; gap: 10px;">
+          <button id="copy-crash-logs" style="padding: 8px 16px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">📋 Copy All Logs</button>
+          <button id="clear-crash-logs" style="padding: 8px 16px; background-color: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">🗑️ Clear All Logs</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // Crash Logs Viewer - Persistent, works even if React crashes
+      (function() {
+        function updateLogCount() {
+          try {
+            const logs = JSON.parse(localStorage.getItem('crashLogs') || '[]');
+            document.getElementById('crash-logs-count').textContent = logs.length;
+            document.getElementById('modal-logs-count').textContent = logs.length;
+            return logs;
+          } catch (e) {
+            console.error('Error reading crash logs:', e);
+            return [];
+          }
+        }
+
+        function showCrashLogs() {
+          const logs = updateLogCount();
+          const modal = document.getElementById('crash-logs-modal');
+          const content = document.getElementById('crash-logs-content');
+          
+          if (logs.length === 0) {
+            content.textContent = 'No crash logs found.';
+          } else {
+            content.textContent = logs.slice().reverse().join('\n\n');
+          }
+          
+          modal.style.display = 'block';
+        }
+
+        function hideCrashLogs() {
+          document.getElementById('crash-logs-modal').style.display = 'none';
+        }
+
+        function copyLogs() {
+          try {
+            const logs = JSON.parse(localStorage.getItem('crashLogs') || '[]');
+            const logsText = logs.join('\n');
+            navigator.clipboard.writeText(logsText).then(() => {
+              alert('Logs copied to clipboard!');
+            }).catch(() => {
+              // Fallback for older browsers
+              const textarea = document.createElement('textarea');
+              textarea.value = logsText;
+              document.body.appendChild(textarea);
+              textarea.select();
+              document.execCommand('copy');
+              document.body.removeChild(textarea);
+              alert('Logs copied to clipboard!');
+            });
+          } catch (e) {
+            alert('Failed to copy logs: ' + e.message);
+          }
+        }
+
+        function clearLogs() {
+          if (confirm('Are you sure you want to clear all crash logs?')) {
+            try {
+              localStorage.removeItem('crashLogs');
+              updateLogCount();
+              document.getElementById('crash-logs-content').textContent = 'No crash logs found.';
+              alert('Crash logs cleared!');
+            } catch (e) {
+              alert('Failed to clear logs: ' + e.message);
+            }
+          }
+        }
+
+        // Set up event listeners
+        document.getElementById('view-crash-logs-btn').addEventListener('click', showCrashLogs);
+        document.getElementById('close-crash-logs').addEventListener('click', hideCrashLogs);
+        document.getElementById('copy-crash-logs').addEventListener('click', copyLogs);
+        document.getElementById('clear-crash-logs').addEventListener('click', clearLogs);
+
+        // Close modal when clicking outside
+        document.getElementById('crash-logs-modal').addEventListener('click', function(e) {
+          if (e.target === this) {
+            hideCrashLogs();
+          }
+        });
+
+        // Update count on page load and periodically
+        updateLogCount();
+        setInterval(updateLogCount, 2000); // Update every 2 seconds
+      })();
+    </script>
+
     <div id="root"></div>
     <!--
       This HTML file is a template.
