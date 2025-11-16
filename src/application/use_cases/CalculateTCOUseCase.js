@@ -85,13 +85,22 @@ export class CalculateTCOUseCase {
   async execute(input) {
     // SAFETY: Wrap entire execute in try-catch to catch and log stack overflow
     try {
+      if (typeof window !== 'undefined' && window.persistentLog) {
+        window.persistentLog('INFO', '[CalculateTCOUseCase] Starting execute...');
+      }
       console.log('[CalculateTCOUseCase] Starting execute...');
       
       if (!(input instanceof TCOInput)) {
+        if (typeof window !== 'undefined' && window.persistentLog) {
+          window.persistentLog('ERROR', '[CalculateTCOUseCase] TCOInput instance required');
+        }
         throw new Error('TCOInput instance required');
       }
 
       // Validate input data
+      if (typeof window !== 'undefined' && window.persistentLog) {
+        window.persistentLog('INFO', '[CalculateTCOUseCase] About to validate input...');
+      }
       validateTCOInput({
         timeframe: input.timeframe,
         region: input.region,
@@ -101,6 +110,9 @@ export class CalculateTCOUseCase {
         gcp: input.gcp,
         migration: input.migration
       });
+      if (typeof window !== 'undefined' && window.persistentLog) {
+        window.persistentLog('INFO', '[CalculateTCOUseCase] Input validation completed');
+      }
 
     // Calculate on-premise TCO
     const onPremiseTCO = this._calculateOnPremiseTCO(input.onPremise, input.timeframe);

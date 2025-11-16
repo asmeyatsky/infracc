@@ -41,6 +41,11 @@ export class CostAnalysisAgent extends BaseAgent {
    * @returns {Promise<Object>} Enhanced cost analysis with AI insights
    */
   async execute(input) {
+    if (typeof window !== 'undefined' && window.persistentLog) {
+      window.persistentLog('INFO', '[CostAnalysisAgent] ENTERING execute()');
+      window.persistentLog('INFO', '[CostAnalysisAgent] Input type:', typeof input);
+      window.persistentLog('INFO', '[CostAnalysisAgent] Input keys:', input ? Object.keys(input).join(',') : 'null');
+    }
     console.log('[CostAnalysisAgent] ENTERING execute()');
     console.log('[CostAnalysisAgent] Input type:', typeof input);
     console.log('[CostAnalysisAgent] Input keys:', input ? Object.keys(input) : 'null');
@@ -58,6 +63,9 @@ export class CostAnalysisAgent extends BaseAgent {
         console.warn('[CostAnalysisAgent] WARNING: assessments array is very large:', input.assessments.length);
       }
       
+      if (typeof window !== 'undefined' && window.persistentLog) {
+        window.persistentLog('INFO', '[CostAnalysisAgent] About to create TCOInput...');
+      }
       console.log('[CostAnalysisAgent] About to create TCOInput...');
       // Convert plain object to TCOInput instance if needed
       const tcoInput = input instanceof TCOInput 
@@ -71,16 +79,28 @@ export class CostAnalysisAgent extends BaseAgent {
             timeframe: input.timeframe || 36,
             region: input.region || 'us-east-1'
           });
+      if (typeof window !== 'undefined' && window.persistentLog) {
+        window.persistentLog('INFO', '[CostAnalysisAgent] TCOInput created successfully');
+      }
       console.log('[CostAnalysisAgent] TCOInput created successfully');
 
       // Step 1: Calculate TCO (use case)
       // SAFETY: Wrap in try-catch to catch stack overflow
       let tcoResult;
       try {
+        if (typeof window !== 'undefined' && window.persistentLog) {
+          window.persistentLog('INFO', '[CostAnalysisAgent] STEP 1: About to execute calculateTCOUseCase.execute...');
+        }
         tcoResult = await this.executeStep('Calculating TCO', async () => {
           this.think('Computing total cost of ownership across all cloud providers');
+          if (typeof window !== 'undefined' && window.persistentLog) {
+            window.persistentLog('INFO', '[CostAnalysisAgent] Executing calculateTCOUseCase.execute...');
+          }
           console.log('[CostAnalysisAgent] Executing calculateTCOUseCase.execute...');
           const result = await this.calculateTCOUseCase.execute(tcoInput);
+          if (typeof window !== 'undefined' && window.persistentLog) {
+            window.persistentLog('INFO', '[CostAnalysisAgent] calculateTCOUseCase.execute completed');
+          }
           console.log('[CostAnalysisAgent] calculateTCOUseCase.execute completed');
           return result;
         }, 40);
@@ -98,6 +118,11 @@ export class CostAnalysisAgent extends BaseAgent {
       }
 
       // Step 2: Generate AI insights
+      if (typeof window !== 'undefined' && window.persistentLog) {
+        window.persistentLog('INFO', '[CostAnalysisAgent] STEP 2: About to generate cost insights...');
+        window.persistentLog('INFO', '[CostAnalysisAgent] STEP 2: tcoResult type:', typeof tcoResult);
+        window.persistentLog('INFO', '[CostAnalysisAgent] STEP 2: tcoResult.roi type:', typeof tcoResult?.roi);
+      }
       console.log('[CostAnalysisAgent] STEP 2: About to generate cost insights...');
       console.log('[CostAnalysisAgent] STEP 2: tcoResult type:', typeof tcoResult);
       console.log('[CostAnalysisAgent] STEP 2: tcoResult.roi type:', typeof tcoResult?.roi);
@@ -105,24 +130,45 @@ export class CostAnalysisAgent extends BaseAgent {
       
       const insights = await this.executeStep('Generating cost insights', async () => {
         this.think('Analyzing cost patterns and identifying best options');
+        if (typeof window !== 'undefined' && window.persistentLog) {
+          window.persistentLog('INFO', '[CostAnalysisAgent] STEP 2: Inside executeStep for insights...');
+        }
         console.log('[CostAnalysisAgent] STEP 2: Inside executeStep for insights...');
         await new Promise(resolve => requestAnimationFrame(resolve));
+        if (typeof window !== 'undefined' && window.persistentLog) {
+          window.persistentLog('INFO', '[CostAnalysisAgent] STEP 2: About to call _generateCostInsights...');
+        }
         console.log('[CostAnalysisAgent] STEP 2: About to call _generateCostInsights...');
         const result = await this._generateCostInsights(tcoResult);
+        if (typeof window !== 'undefined' && window.persistentLog) {
+          window.persistentLog('INFO', '[CostAnalysisAgent] STEP 2: _generateCostInsights completed');
+        }
         console.log('[CostAnalysisAgent] STEP 2: _generateCostInsights completed');
         return result;
       }, 70);
 
       // Step 3: Generate optimization recommendations
+      if (typeof window !== 'undefined' && window.persistentLog) {
+        window.persistentLog('INFO', '[CostAnalysisAgent] STEP 3: About to generate optimizations...');
+      }
       console.log('[CostAnalysisAgent] STEP 3: About to generate optimizations...');
       await new Promise(resolve => setTimeout(resolve, 0)); // Force console flush
       
       const optimizations = await this.executeStep('Identifying optimizations', async () => {
         this.think('Finding cost optimization opportunities');
+        if (typeof window !== 'undefined' && window.persistentLog) {
+          window.persistentLog('INFO', '[CostAnalysisAgent] STEP 3: Inside executeStep for optimizations...');
+        }
         console.log('[CostAnalysisAgent] STEP 3: Inside executeStep for optimizations...');
         await new Promise(resolve => requestAnimationFrame(resolve));
+        if (typeof window !== 'undefined' && window.persistentLog) {
+          window.persistentLog('INFO', '[CostAnalysisAgent] STEP 3: About to call _generateOptimizations...');
+        }
         console.log('[CostAnalysisAgent] STEP 3: About to call _generateOptimizations...');
         const result = this._generateOptimizations(tcoResult);
+        if (typeof window !== 'undefined' && window.persistentLog) {
+          window.persistentLog('INFO', '[CostAnalysisAgent] STEP 3: _generateOptimizations completed');
+        }
         console.log('[CostAnalysisAgent] STEP 3: _generateOptimizations completed');
         return result;
       }, 90);
@@ -153,6 +199,10 @@ export class CostAnalysisAgent extends BaseAgent {
    * @private
    */
   async _generateCostInsights(tcoResult) {
+    if (typeof window !== 'undefined' && window.persistentLog) {
+      window.persistentLog('INFO', '[CostAnalysisAgent] _generateCostInsights: ENTERING');
+      window.persistentLog('INFO', '[CostAnalysisAgent] _generateCostInsights: tcoResult type:', typeof tcoResult);
+    }
     console.log('[CostAnalysisAgent] _generateCostInsights: ENTERING');
     console.log('[CostAnalysisAgent] _generateCostInsights: tcoResult type:', typeof tcoResult);
     
@@ -164,15 +214,24 @@ export class CostAnalysisAgent extends BaseAgent {
     };
 
     // Determine best option
+    if (typeof window !== 'undefined' && window.persistentLog) {
+      window.persistentLog('INFO', '[CostAnalysisAgent] _generateCostInsights: About to access tcoResult.roi...');
+    }
     console.log('[CostAnalysisAgent] _generateCostInsights: About to access tcoResult.roi...');
     const rois = {
       aws: tcoResult.roi.aws,
       azure: tcoResult.roi.azure,
       gcp: tcoResult.roi.gcp
     };
+    if (typeof window !== 'undefined' && window.persistentLog) {
+      window.persistentLog('INFO', '[CostAnalysisAgent] _generateCostInsights: rois object created');
+    }
     console.log('[CostAnalysisAgent] _generateCostInsights: rois object created');
 
     // SAFETY: Replace Object.entries().reduce() with explicit loop to avoid stack overflow
+    if (typeof window !== 'undefined' && window.persistentLog) {
+      window.persistentLog('INFO', '[CostAnalysisAgent] _generateCostInsights: About to find best provider...');
+    }
     console.log('[CostAnalysisAgent] _generateCostInsights: About to find best provider...');
     let bestProvider = 'gcp';
     let bestROI = rois.gcp;
@@ -183,6 +242,9 @@ export class CostAnalysisAgent extends BaseAgent {
     if (rois.azure > bestROI) {
       bestProvider = 'azure';
       bestROI = rois.azure;
+    }
+    if (typeof window !== 'undefined' && window.persistentLog) {
+      window.persistentLog('INFO', '[CostAnalysisAgent] _generateCostInsights: bestProvider determined:', bestProvider);
     }
     console.log('[CostAnalysisAgent] _generateCostInsights: bestProvider determined:', bestProvider);
 
@@ -228,6 +290,12 @@ export class CostAnalysisAgent extends BaseAgent {
    * @private
    */
   _generateOptimizations(tcoResult) {
+    if (typeof window !== 'undefined' && window.persistentLog) {
+      window.persistentLog('INFO', '[CostAnalysisAgent] _generateOptimizations: ENTERING');
+      window.persistentLog('INFO', '[CostAnalysisAgent] _generateOptimizations: tcoResult type:', typeof tcoResult);
+      window.persistentLog('INFO', '[CostAnalysisAgent] _generateOptimizations: tcoResult.totalGcp type:', typeof tcoResult?.totalGcp);
+      window.persistentLog('INFO', '[CostAnalysisAgent] _generateOptimizations: tcoResult.totalGcp.amount:', tcoResult?.totalGcp?.amount);
+    }
     console.log('[CostAnalysisAgent] _generateOptimizations: ENTERING');
     console.log('[CostAnalysisAgent] _generateOptimizations: tcoResult type:', typeof tcoResult);
     console.log('[CostAnalysisAgent] _generateOptimizations: tcoResult.totalGcp type:', typeof tcoResult?.totalGcp);

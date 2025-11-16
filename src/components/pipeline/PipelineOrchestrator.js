@@ -29,26 +29,49 @@ import { ReportDataAggregator } from '../../domain/services/ReportDataAggregator
 import './PipelineOrchestrator.css';
 
 // SAFETY: Global error handlers to catch crashes that prevent normal logging
-// LOGS ARE WRITTEN TO: Browser Console (F12 or Cmd+Option+I)
+// LOGS ARE WRITTEN TO: Browser Console (F12 or Cmd+Option+I) AND localStorage
 if (typeof window !== 'undefined') {
   // Store logs in localStorage as backup (survives crash)
-  const persistentLog = (level, ...args) => {
+  // Make this available globally so all code can use it
+  window.persistentLog = (level, ...args) => {
     try {
       const timestamp = new Date().toISOString();
-      const logEntry = `[${timestamp}] [${level}] ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')}`;
+      const logEntry = `[${timestamp}] [${level}] ${args.map(a => {
+        if (typeof a === 'object') {
+          try {
+            return JSON.stringify(a);
+          } catch (e) {
+            return String(a);
+          }
+        }
+        return String(a);
+      }).join(' ')}`;
       
-      // Get existing logs (keep last 100 entries)
+      // Get existing logs (keep last 500 entries for more history)
       const existingLogs = JSON.parse(localStorage.getItem('crashLogs') || '[]');
       existingLogs.push(logEntry);
-      if (existingLogs.length > 100) {
-        existingLogs.shift(); // Keep only last 100
+      if (existingLogs.length > 500) {
+        existingLogs.shift(); // Keep only last 500
       }
       localStorage.setItem('crashLogs', JSON.stringify(existingLogs));
+      
+      // Also log to console
+      if (level === 'ERROR' || level === 'CRITICAL') {
+        console.error(logEntry);
+      } else {
+        console.log(logEntry);
+      }
     } catch (e) {
       // If localStorage fails, at least try console
-      console.error('Failed to write persistent log:', e);
+      try {
+        console.error('Failed to write persistent log:', e);
+      } catch (e2) {
+        // Even console might fail, ignore
+      }
     }
   };
+  
+  const persistentLog = window.persistentLog;
   
   // Catch unhandled errors
   window.addEventListener('error', (event) => {
@@ -1154,6 +1177,8 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       // SAFETY: Wrap in try-catch to catch and log any stack overflow errors
       let costResult;
       try {
+        window.persistentLog('INFO', '[Cost Agent] STEP 1: About to check discoveryOutput...');
+        window.persistentLog('INFO', '[Cost Agent] STEP 1: discoveryOutput exists:', !!discoveryOutput);
         console.log('[Cost Agent] STEP 1: About to check discoveryOutput...');
         console.log('[Cost Agent] STEP 1: discoveryOutput exists:', !!discoveryOutput);
         
@@ -1177,6 +1202,11 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
           resultsLength = 'ERROR accessing length: ' + e.message;
         }
         
+        window.persistentLog('INFO', '[Cost Agent] STEP 2: discoveryOutput.workloads type:', Array.isArray(discoveryOutput?.workloads) ? 'array' : typeof discoveryOutput?.workloads);
+        window.persistentLog('INFO', '[Cost Agent] STEP 2: discoveryOutput.workloads length:', workloadsLength);
+        window.persistentLog('INFO', '[Cost Agent] STEP 2: assessmentOutput.results type:', Array.isArray(assessmentOutput?.results) ? 'array' : typeof assessmentOutput?.results);
+        window.persistentLog('INFO', '[Cost Agent] STEP 2: assessmentOutput.results length:', resultsLength);
+        window.persistentLog('INFO', '[Cost Agent] STEP 2: strategyOutput type:', typeof strategyOutput);
         console.log('[Cost Agent] STEP 2: discoveryOutput.workloads type:', Array.isArray(discoveryOutput?.workloads) ? 'array' : typeof discoveryOutput?.workloads);
         console.log('[Cost Agent] STEP 2: discoveryOutput.workloads length:', workloadsLength);
         console.log('[Cost Agent] STEP 2: assessmentOutput.results type:', Array.isArray(assessmentOutput?.results) ? 'array' : typeof assessmentOutput?.results);
@@ -1185,6 +1215,7 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         
         // SAFETY: Don't pass huge arrays - CostAnalysisAgent doesn't actually use them
         // It only needs onPremise, aws, azure, gcp, migration, timeframe, region
+        window.persistentLog('INFO', '[Cost Agent] STEP 3: Creating input object WITHOUT workloads/assessments arrays...');
         console.log('[Cost Agent] STEP 3: Creating input object WITHOUT workloads/assessments arrays...');
         const costAgentInput = {
           // Don't pass huge arrays - CostAnalysisAgent doesn't use them
@@ -1199,12 +1230,15 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
           timeframe: 36,
           region: 'us-east-1'
         };
+        window.persistentLog('INFO', '[Cost Agent] STEP 4: Input object created, about to call execute NOW...');
         console.log('[Cost Agent] STEP 4: Input object created, about to call execute NOW...');
         
         // Force console flush
         await new Promise(resolve => setTimeout(resolve, 0));
         
+        window.persistentLog('INFO', '[Cost Agent] STEP 4.5: About to call costAnalysisAgent.execute()...');
         costResult = await agenticContainer.current.costAnalysisAgent.execute(costAgentInput);
+        window.persistentLog('INFO', '[Cost Agent] STEP 5: Cost analysis agent completed successfully');
         console.log('[Cost Agent] STEP 5: Cost analysis agent completed successfully');
       } catch (costAgentError) {
         console.error('[Cost Agent] ERROR in costAnalysisAgent.execute:', costAgentError);
