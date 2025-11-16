@@ -968,8 +968,98 @@ export default function MigrationPipeline() {
   }
 
   // Step 3: Pipeline Execution (always show orchestrator, even after completion)
+  const crashLogsCount = JSON.parse(localStorage.getItem('crashLogs') || '[]').length;
+  
   return (
     <div className="migration-pipeline">
+      {/* Crash Logs Viewer Button - Always visible */}
+      <div style={{ position: 'fixed', top: '10px', right: '10px', zIndex: 9999 }}>
+        <button 
+          onClick={handleViewCrashLogs}
+          className="btn btn-sm btn-warning"
+          style={{ marginRight: '5px' }}
+        >
+          📋 View Crash Logs ({crashLogsCount})
+        </button>
+      </div>
+
+      {/* Crash Logs Modal */}
+      {showCrashLogs && (
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.8)',
+            zIndex: 10000,
+            padding: '20px',
+            overflow: 'auto'
+          }}
+        >
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '8px',
+            padding: '20px',
+            maxWidth: '90%',
+            margin: '0 auto',
+            maxHeight: '90vh',
+            overflow: 'auto'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+              <h3>Crash Logs ({crashLogs.length} entries)</h3>
+              <button 
+                onClick={() => setShowCrashLogs(false)}
+                className="btn btn-secondary"
+              >
+                Close
+              </button>
+            </div>
+            <div style={{
+              backgroundColor: '#f5f5f5',
+              padding: '15px',
+              borderRadius: '4px',
+              fontFamily: 'monospace',
+              fontSize: '12px',
+              maxHeight: '70vh',
+              overflow: 'auto',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word'
+            }}>
+              {crashLogs.length === 0 ? (
+                <p>No crash logs found.</p>
+              ) : (
+                crashLogs.slice().reverse().map((log, index) => (
+                  <div key={index} style={{ marginBottom: '5px', padding: '3px' }}>
+                    {log}
+                  </div>
+                ))
+              )}
+            </div>
+            <div style={{ marginTop: '15px', display: 'flex', gap: '10px' }}>
+              <button 
+                onClick={() => {
+                  const logsText = crashLogs.join('\n');
+                  navigator.clipboard.writeText(logsText).then(() => {
+                    toast.success('Logs copied to clipboard');
+                  });
+                }}
+                className="btn btn-primary btn-sm"
+              >
+                📋 Copy All Logs
+              </button>
+              <button 
+                onClick={handleClearCrashLogs}
+                className="btn btn-danger btn-sm"
+              >
+                🗑️ Clear All Logs
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {pipelineComplete && (
         <div className="alert alert-success mb-3">
           <h4>✅ Pipeline Complete!</h4>
