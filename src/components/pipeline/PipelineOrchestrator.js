@@ -176,6 +176,7 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
   const [overallProgress, setOverallProgress] = useState(0);
   const [agentStatus, setAgentStatus] = useState('pending'); // pending, running, completed, failed, cancelled
   const [estimatedTimeRemaining, setEstimatedTimeRemaining] = useState(null);
+  const [agentOutput, setAgentOutput] = useState(null);
   const [needsRerun, setNeedsRerun] = useState([]);
   const [isRestoringState, setIsRestoringState] = useState(true); // Track if we're still restoring state
   const [completedAgents, setCompletedAgents] = useState([]); // Track which agents have completed
@@ -1553,6 +1554,7 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       }
     } catch (error) {
       // SAFETY: Check for stack overflow and provide recovery guidance
+      let errorToReport = error;
       if (error instanceof RangeError && (error.message.includes('Maximum call stack size exceeded') || error.message.includes('stack'))) {
         console.error(`[PIPELINE] Stack overflow detected in ${agent.name}. This indicates a memory issue with large datasets.`);
         console.error(`[PIPELINE] The operation needs to be batched. Error:`, error);
@@ -1564,10 +1566,8 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         );
         stackOverflowError.originalError = error;
         // Use a new variable instead of reassigning error parameter
-        const finalError = stackOverflowError;
+        errorToReport = stackOverflowError;
       }
-      
-      const errorToReport = finalError || error;
       console.error(`✗ ${agent.name} failed:`, errorToReport.message);
       console.error('Full error:', errorToReport);
       console.error('Stack trace:', errorToReport.stack);
