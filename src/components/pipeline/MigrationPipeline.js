@@ -27,6 +27,8 @@ export default function MigrationPipeline() {
   const [fileUUID, setFileUUID] = useState(null);
   const [error, setError] = useState(null);
   const [isRestoring, setIsRestoring] = useState(true);
+  const [showCrashLogs, setShowCrashLogs] = useState(false);
+  const [crashLogs, setCrashLogs] = useState([]);
 
   // Restore pipeline state on mount
   useEffect(() => {
