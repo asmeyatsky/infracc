@@ -1154,34 +1154,58 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       // SAFETY: Wrap in try-catch to catch and log any stack overflow errors
       let costResult;
       try {
-        console.log('[Cost Agent] PRE-EXECUTION: About to call costAnalysisAgent.execute...');
-        console.log('[Cost Agent] PRE-EXECUTION: discoveryOutput.workloads type:', Array.isArray(discoveryOutput.workloads) ? 'array' : typeof discoveryOutput.workloads);
-        console.log('[Cost Agent] PRE-EXECUTION: discoveryOutput.workloads length:', discoveryOutput.workloads?.length || 'N/A');
-        console.log('[Cost Agent] PRE-EXECUTION: assessmentOutput.results type:', Array.isArray(assessmentOutput.results) ? 'array' : typeof assessmentOutput.results);
-        console.log('[Cost Agent] PRE-EXECUTION: assessmentOutput.results length:', assessmentOutput.results?.length || 'N/A');
-        console.log('[Cost Agent] PRE-EXECUTION: strategyOutput type:', typeof strategyOutput);
+        console.log('[Cost Agent] STEP 1: About to check discoveryOutput...');
+        console.log('[Cost Agent] STEP 1: discoveryOutput exists:', !!discoveryOutput);
         
-        // SAFETY: Check if inputs are too large before passing
-        if (discoveryOutput.workloads && discoveryOutput.workloads.length > 1000000) {
-          console.warn('[Cost Agent] WARNING: discoveryOutput.workloads is very large:', discoveryOutput.workloads.length);
-        }
-        if (assessmentOutput.results && assessmentOutput.results.length > 1000000) {
-          console.warn('[Cost Agent] WARNING: assessmentOutput.results is very large:', assessmentOutput.results.length);
+        // SAFETY: Safely check array lengths without accessing .length directly on huge arrays
+        let workloadsLength = 'N/A';
+        let resultsLength = 'N/A';
+        try {
+          if (discoveryOutput?.workloads) {
+            // Use try-catch around length access in case it crashes
+            workloadsLength = Array.isArray(discoveryOutput.workloads) ? discoveryOutput.workloads.length : typeof discoveryOutput.workloads;
+          }
+        } catch (e) {
+          workloadsLength = 'ERROR accessing length: ' + e.message;
         }
         
-        console.log('[Cost Agent] PRE-EXECUTION: Creating input object...');
+        try {
+          if (assessmentOutput?.results) {
+            resultsLength = Array.isArray(assessmentOutput.results) ? assessmentOutput.results.length : typeof assessmentOutput.results;
+          }
+        } catch (e) {
+          resultsLength = 'ERROR accessing length: ' + e.message;
+        }
+        
+        console.log('[Cost Agent] STEP 2: discoveryOutput.workloads type:', Array.isArray(discoveryOutput?.workloads) ? 'array' : typeof discoveryOutput?.workloads);
+        console.log('[Cost Agent] STEP 2: discoveryOutput.workloads length:', workloadsLength);
+        console.log('[Cost Agent] STEP 2: assessmentOutput.results type:', Array.isArray(assessmentOutput?.results) ? 'array' : typeof assessmentOutput?.results);
+        console.log('[Cost Agent] STEP 2: assessmentOutput.results length:', resultsLength);
+        console.log('[Cost Agent] STEP 2: strategyOutput type:', typeof strategyOutput);
+        
+        // SAFETY: Don't pass huge arrays - CostAnalysisAgent doesn't actually use them
+        // It only needs onPremise, aws, azure, gcp, migration, timeframe, region
+        console.log('[Cost Agent] STEP 3: Creating input object WITHOUT workloads/assessments arrays...');
         const costAgentInput = {
-          workloads: discoveryOutput.workloads,
-          assessments: assessmentOutput.results,
-          strategy: strategyOutput
+          // Don't pass huge arrays - CostAnalysisAgent doesn't use them
+          // workloads: discoveryOutput.workloads,  // REMOVED - not used by CostAnalysisAgent
+          // assessments: assessmentOutput.results,  // REMOVED - not used by CostAnalysisAgent
+          // strategy: strategyOutput,  // REMOVED - not used by CostAnalysisAgent
+          onPremise: {},
+          aws: {},
+          azure: {},
+          gcp: {},
+          migration: {},
+          timeframe: 36,
+          region: 'us-east-1'
         };
-        console.log('[Cost Agent] PRE-EXECUTION: Input object created, about to call execute NOW...');
+        console.log('[Cost Agent] STEP 4: Input object created, about to call execute NOW...');
         
         // Force console flush
         await new Promise(resolve => setTimeout(resolve, 0));
         
         costResult = await agenticContainer.current.costAnalysisAgent.execute(costAgentInput);
-        console.log('[Cost Agent] POST-EXECUTION: Cost analysis agent completed successfully');
+        console.log('[Cost Agent] STEP 5: Cost analysis agent completed successfully');
       } catch (costAgentError) {
         console.error('[Cost Agent] ERROR in costAnalysisAgent.execute:', costAgentError);
         console.error('[Cost Agent] Error name:', costAgentError?.name);
