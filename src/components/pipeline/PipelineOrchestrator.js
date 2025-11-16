@@ -1154,13 +1154,34 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       // SAFETY: Wrap in try-catch to catch and log any stack overflow errors
       let costResult;
       try {
-        console.log('[Cost Agent] Starting cost analysis agent execution...');
-        costResult = await agenticContainer.current.costAnalysisAgent.execute({
+        console.log('[Cost Agent] PRE-EXECUTION: About to call costAnalysisAgent.execute...');
+        console.log('[Cost Agent] PRE-EXECUTION: discoveryOutput.workloads type:', Array.isArray(discoveryOutput.workloads) ? 'array' : typeof discoveryOutput.workloads);
+        console.log('[Cost Agent] PRE-EXECUTION: discoveryOutput.workloads length:', discoveryOutput.workloads?.length || 'N/A');
+        console.log('[Cost Agent] PRE-EXECUTION: assessmentOutput.results type:', Array.isArray(assessmentOutput.results) ? 'array' : typeof assessmentOutput.results);
+        console.log('[Cost Agent] PRE-EXECUTION: assessmentOutput.results length:', assessmentOutput.results?.length || 'N/A');
+        console.log('[Cost Agent] PRE-EXECUTION: strategyOutput type:', typeof strategyOutput);
+        
+        // SAFETY: Check if inputs are too large before passing
+        if (discoveryOutput.workloads && discoveryOutput.workloads.length > 1000000) {
+          console.warn('[Cost Agent] WARNING: discoveryOutput.workloads is very large:', discoveryOutput.workloads.length);
+        }
+        if (assessmentOutput.results && assessmentOutput.results.length > 1000000) {
+          console.warn('[Cost Agent] WARNING: assessmentOutput.results is very large:', assessmentOutput.results.length);
+        }
+        
+        console.log('[Cost Agent] PRE-EXECUTION: Creating input object...');
+        const costAgentInput = {
           workloads: discoveryOutput.workloads,
           assessments: assessmentOutput.results,
           strategy: strategyOutput
-        });
-        console.log('[Cost Agent] Cost analysis agent completed successfully');
+        };
+        console.log('[Cost Agent] PRE-EXECUTION: Input object created, about to call execute NOW...');
+        
+        // Force console flush
+        await new Promise(resolve => setTimeout(resolve, 0));
+        
+        costResult = await agenticContainer.current.costAnalysisAgent.execute(costAgentInput);
+        console.log('[Cost Agent] POST-EXECUTION: Cost analysis agent completed successfully');
       } catch (costAgentError) {
         console.error('[Cost Agent] ERROR in costAnalysisAgent.execute:', costAgentError);
         console.error('[Cost Agent] Error name:', costAgentError?.name);

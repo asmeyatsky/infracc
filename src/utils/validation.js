@@ -32,11 +32,18 @@ export function validateWorkloadIds(workloadIds) {
   if (workloadIds.length === 0) {
     throw new Error('At least one workload ID is required');
   }
-  workloadIds.forEach((id, index) => {
-    if (!id || typeof id !== 'string') {
-      throw new Error(`Invalid workload ID at index ${index}: must be a non-empty string`);
+  // SAFETY: Batch forEach to avoid stack overflow with large arrays
+  const VALIDATE_IDS_BATCH_SIZE = 10000;
+  for (let i = 0; i < workloadIds.length; i += VALIDATE_IDS_BATCH_SIZE) {
+    const batch = workloadIds.slice(i, Math.min(i + VALIDATE_IDS_BATCH_SIZE, workloadIds.length));
+    for (let j = 0; j < batch.length; j++) {
+      const id = batch[j];
+      const index = i + j;
+      if (!id || typeof id !== 'string') {
+        throw new Error(`Invalid workload ID at index ${index}: must be a non-empty string`);
+      }
     }
-  });
+  }
 }
 
 /**
@@ -151,16 +158,23 @@ export function validateTCOInput(input) {
   }
 
   // Validate cost objects
+  // SAFETY: Batch Object.values and forEach to avoid stack overflow with large objects
   const costObjects = ['onPremise', 'aws', 'azure', 'gcp', 'migration'];
-  costObjects.forEach(objName => {
+  for (const objName of costObjects) {
     if (input[objName] && typeof input[objName] === 'object') {
-      Object.values(input[objName]).forEach(cost => {
-        if (cost !== undefined && cost !== null) {
-          validateCost(cost, `${objName} cost`);
+      // SAFETY: Batch Object.values iteration
+      const values = Object.values(input[objName]);
+      const VALIDATE_BATCH_SIZE = 1000;
+      for (let i = 0; i < values.length; i += VALIDATE_BATCH_SIZE) {
+        const batch = values.slice(i, Math.min(i + VALIDATE_BATCH_SIZE, values.length));
+        for (const cost of batch) {
+          if (cost !== undefined && cost !== null) {
+            validateCost(cost, `${objName} cost`);
+          }
         }
-      });
+      }
     }
-  });
+  }
 }
 
 export default {

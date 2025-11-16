@@ -41,7 +41,24 @@ export class CostAnalysisAgent extends BaseAgent {
    * @returns {Promise<Object>} Enhanced cost analysis with AI insights
    */
   async execute(input) {
+    console.log('[CostAnalysisAgent] ENTERING execute()');
+    console.log('[CostAnalysisAgent] Input type:', typeof input);
+    console.log('[CostAnalysisAgent] Input keys:', input ? Object.keys(input) : 'null');
+    console.log('[CostAnalysisAgent] Input.workloads type:', Array.isArray(input?.workloads) ? 'array' : typeof input?.workloads);
+    console.log('[CostAnalysisAgent] Input.workloads length:', input?.workloads?.length || 'N/A');
+    console.log('[CostAnalysisAgent] Input.assessments type:', Array.isArray(input?.assessments) ? 'array' : typeof input?.assessments);
+    console.log('[CostAnalysisAgent] Input.assessments length:', input?.assessments?.length || 'N/A');
+    
     try {
+      // SAFETY: Check input sizes before processing
+      if (input?.workloads && input.workloads.length > 1000000) {
+        console.warn('[CostAnalysisAgent] WARNING: workloads array is very large:', input.workloads.length);
+      }
+      if (input?.assessments && input.assessments.length > 1000000) {
+        console.warn('[CostAnalysisAgent] WARNING: assessments array is very large:', input.assessments.length);
+      }
+      
+      console.log('[CostAnalysisAgent] About to create TCOInput...');
       // Convert plain object to TCOInput instance if needed
       const tcoInput = input instanceof TCOInput 
         ? input 
@@ -54,6 +71,7 @@ export class CostAnalysisAgent extends BaseAgent {
             timeframe: input.timeframe || 36,
             region: input.region || 'us-east-1'
           });
+      console.log('[CostAnalysisAgent] TCOInput created successfully');
 
       // Step 1: Calculate TCO (use case)
       // SAFETY: Wrap in try-catch to catch stack overflow
