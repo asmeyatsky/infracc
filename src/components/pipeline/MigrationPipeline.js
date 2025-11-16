@@ -309,6 +309,29 @@ export default function MigrationPipeline() {
     toast.error(`${agentId} failed: ${err.message}`);
   };
 
+  const handleViewCrashLogs = () => {
+    try {
+      const logs = JSON.parse(localStorage.getItem('crashLogs') || '[]');
+      setCrashLogs(logs);
+      setShowCrashLogs(true);
+    } catch (err) {
+      console.error('Error reading crash logs:', err);
+      toast.error('Failed to read crash logs');
+    }
+  };
+
+  const handleClearCrashLogs = () => {
+    try {
+      localStorage.removeItem('crashLogs');
+      setCrashLogs([]);
+      setShowCrashLogs(false);
+      toast.success('Crash logs cleared');
+    } catch (err) {
+      console.error('Error clearing crash logs:', err);
+      toast.error('Failed to clear crash logs');
+    }
+  };
+
   const generatePDFReport = async (outputs) => {
     console.log('[PDF] generatePDFReport called:', {
       hasOutputs: !!outputs,
