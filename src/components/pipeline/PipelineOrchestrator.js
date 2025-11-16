@@ -176,7 +176,6 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
   const [overallProgress, setOverallProgress] = useState(0);
   const [agentStatus, setAgentStatus] = useState('pending'); // pending, running, completed, failed, cancelled
   const [estimatedTimeRemaining, setEstimatedTimeRemaining] = useState(null);
-  const [agentOutput, setAgentOutput] = useState(null);
   const [needsRerun, setNeedsRerun] = useState([]);
   const [isRestoringState, setIsRestoringState] = useState(true); // Track if we're still restoring state
   const [completedAgents, setCompletedAgents] = useState([]); // Track which agents have completed
@@ -552,7 +551,7 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       console.error('✗ Discovery Agent failed:', error.message);
       throw error;
     }
-  }, [fileUUID]);
+  }, [fileUUID, files]);
 
   // Execute Assessment Agent
   const executeAssessmentAgent = useCallback(async (discoveryOutput) => {
@@ -592,7 +591,6 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       // This ensures we only assess workloads that can actually be found
       const { workloadIds: discoveryWorkloadIds } = discoveryOutput;
       const workloadIds = availableWorkloadIds.length > 0 ? availableWorkloadIds : discoveryWorkloadIds;
-      const totalWorkloads = workloadIds.length;
       
       console.log(`[DEBUG] Assessment Agent: Using ${workloadIds.length.toLocaleString()} workload IDs from repository (${allWorkloads.length.toLocaleString()} workloads available)`);
       if (availableWorkloadIds.length < discoveryWorkloadIds.length) {
@@ -1403,7 +1401,7 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         case 'discovery':
           output = await executeDiscoveryAgent();
           break;
-        case 'assessment':
+        case 'assessment': {
           const discoveryOutput = await getAgentOutput(fileUUID, 'discovery');
           if (!discoveryOutput) {
             const availableAgents = await getCachedAgentIds(fileUUID);
@@ -1437,15 +1435,16 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
             throw assessmentError;
           }
           break;
-        case 'strategy':
+        }
+        case 'strategy': {
           // Wait a moment to ensure Assessment Agent has finished saving
           await new Promise(resolve => requestAnimationFrame(resolve));
           
           console.log(`[DEBUG] Strategy Agent: Looking for assessment output. fileUUID: ${fileUUID}`);
-          const assessmentOutput = await getAgentOutput(fileUUID, 'assessment');
+          const assessmentOutputForStrategy = await getAgentOutput(fileUUID, 'assessment');
           
-          if (!assessmentOutput) {
-            const availableAgents = await getCachedAgentIds(fileUUID);
+          if (!assessmentOutputForStrategy) {
+            const availableAgentsForStrategy = await getCachedAgentIds(fileUUID);
             console.error('[DEBUG] Assessment output not found in cache.');
             console.error('[DEBUG] fileUUID used:', fileUUID);
             console.error('[DEBUG] Available agents:', availableAgents);
@@ -1559,15 +1558,17 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
           `The operation needs to be batched. Please check the console for details.`
         );
         stackOverflowError.originalError = error;
-        error = stackOverflowError;
+        // Use a new variable instead of reassigning error parameter
+        const finalError = stackOverflowError;
       }
       
-      console.error(`✗ ${agent.name} failed:`, error.message);
-      console.error('Full error:', error);
-      console.error('Stack trace:', error.stack);
+      const errorToReport = finalError || error;
+      console.error(`✗ ${agent.name} failed:`, errorToReport.message);
+      console.error('Full error:', errorToReport);
+      console.error('Stack trace:', errorToReport.stack);
       setAgentStatus('failed');
       setAgentProgress(0);
-      onError?.(error, agent.id);
+      onError?.(errorToReport, agent.id);
       
       // Save failed state so user can resume
       await savePipelineState(fileUUID, {
@@ -1724,7 +1725,6 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
             setCurrentAgentIndex(prev => Math.min(prev + 1, AGENTS.length - 1));
             setAgentProgress(0);
             setAgentStatus('pending');
-            setAgentOutput(null);
           }, 500);
         } else {
           // Last agent completed via cache - ensure progress is 100% and trigger completion
@@ -1750,7 +1750,7 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
     };
 
     checkAndStart();
-  }, [fileUUID, currentAgentIndex, agentStatus, executeCurrentAgent]);
+  }, [fileUUID, currentAgentIndex, agentStatus, executeCurrentAgent, onComplete]);
 
   // Handle cancel
   const handleCancel = useCallback(() => {
@@ -1827,7 +1827,6 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
   }
 
   const currentAgent = AGENTS[currentAgentIndex];
-  const isLastAgent = currentAgentIndex === AGENTS.length - 1;
 
   // Safety check: if currentAgent is undefined, try to recover from saved state first
   if (!currentAgent) {

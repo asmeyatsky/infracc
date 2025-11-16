@@ -9,8 +9,6 @@
  */
 
 import { Money } from '../../domain/value_objects/Money.js';
-import { PricingPort } from '../../domain/ports/PricingPort.js';
-import { WorkloadRepositoryPort } from '../../domain/ports/WorkloadRepositoryPort.js';
 import { validateTCOInput } from '../../utils/validation.js';
 
 /**
