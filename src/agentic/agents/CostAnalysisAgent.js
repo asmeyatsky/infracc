@@ -98,17 +98,33 @@ export class CostAnalysisAgent extends BaseAgent {
       }
 
       // Step 2: Generate AI insights
+      console.log('[CostAnalysisAgent] STEP 2: About to generate cost insights...');
+      console.log('[CostAnalysisAgent] STEP 2: tcoResult type:', typeof tcoResult);
+      console.log('[CostAnalysisAgent] STEP 2: tcoResult.roi type:', typeof tcoResult?.roi);
+      await new Promise(resolve => setTimeout(resolve, 0)); // Force console flush
+      
       const insights = await this.executeStep('Generating cost insights', async () => {
         this.think('Analyzing cost patterns and identifying best options');
+        console.log('[CostAnalysisAgent] STEP 2: Inside executeStep for insights...');
         await new Promise(resolve => requestAnimationFrame(resolve));
-        return await this._generateCostInsights(tcoResult);
+        console.log('[CostAnalysisAgent] STEP 2: About to call _generateCostInsights...');
+        const result = await this._generateCostInsights(tcoResult);
+        console.log('[CostAnalysisAgent] STEP 2: _generateCostInsights completed');
+        return result;
       }, 70);
 
       // Step 3: Generate optimization recommendations
+      console.log('[CostAnalysisAgent] STEP 3: About to generate optimizations...');
+      await new Promise(resolve => setTimeout(resolve, 0)); // Force console flush
+      
       const optimizations = await this.executeStep('Identifying optimizations', async () => {
         this.think('Finding cost optimization opportunities');
+        console.log('[CostAnalysisAgent] STEP 3: Inside executeStep for optimizations...');
         await new Promise(resolve => requestAnimationFrame(resolve));
-        return this._generateOptimizations(tcoResult);
+        console.log('[CostAnalysisAgent] STEP 3: About to call _generateOptimizations...');
+        const result = this._generateOptimizations(tcoResult);
+        console.log('[CostAnalysisAgent] STEP 3: _generateOptimizations completed');
+        return result;
       }, 90);
 
       // Step 4: Finalize
@@ -137,6 +153,9 @@ export class CostAnalysisAgent extends BaseAgent {
    * @private
    */
   async _generateCostInsights(tcoResult) {
+    console.log('[CostAnalysisAgent] _generateCostInsights: ENTERING');
+    console.log('[CostAnalysisAgent] _generateCostInsights: tcoResult type:', typeof tcoResult);
+    
     const insights = {
       bestOption: null,
       savingsOpportunities: [],
@@ -145,15 +164,27 @@ export class CostAnalysisAgent extends BaseAgent {
     };
 
     // Determine best option
+    console.log('[CostAnalysisAgent] _generateCostInsights: About to access tcoResult.roi...');
     const rois = {
       aws: tcoResult.roi.aws,
       azure: tcoResult.roi.azure,
       gcp: tcoResult.roi.gcp
     };
+    console.log('[CostAnalysisAgent] _generateCostInsights: rois object created');
 
-    const bestProvider = Object.entries(rois).reduce((a, b) => 
-      rois[a[0]] > rois[b[0]] ? a : b
-    )[0];
+    // SAFETY: Replace Object.entries().reduce() with explicit loop to avoid stack overflow
+    console.log('[CostAnalysisAgent] _generateCostInsights: About to find best provider...');
+    let bestProvider = 'gcp';
+    let bestROI = rois.gcp;
+    if (rois.aws > bestROI) {
+      bestProvider = 'aws';
+      bestROI = rois.aws;
+    }
+    if (rois.azure > bestROI) {
+      bestProvider = 'azure';
+      bestROI = rois.azure;
+    }
+    console.log('[CostAnalysisAgent] _generateCostInsights: bestProvider determined:', bestProvider);
 
     insights.bestOption = {
       provider: bestProvider,
@@ -197,6 +228,11 @@ export class CostAnalysisAgent extends BaseAgent {
    * @private
    */
   _generateOptimizations(tcoResult) {
+    console.log('[CostAnalysisAgent] _generateOptimizations: ENTERING');
+    console.log('[CostAnalysisAgent] _generateOptimizations: tcoResult type:', typeof tcoResult);
+    console.log('[CostAnalysisAgent] _generateOptimizations: tcoResult.totalGcp type:', typeof tcoResult?.totalGcp);
+    console.log('[CostAnalysisAgent] _generateOptimizations: tcoResult.totalGcp.amount:', tcoResult?.totalGcp?.amount);
+    
     const optimizations = [];
 
     // Committed use discounts
