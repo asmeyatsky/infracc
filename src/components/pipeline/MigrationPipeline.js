@@ -955,16 +955,49 @@ export default function MigrationPipeline() {
       });
       
       // Generate report data with merged workloads
-      const reportData = await import('../../domain/services/ReportDataAggregator.js').then(m => 
-        m.ReportDataAggregator.generateReportSummary(workloads)
-      );
+      if (typeof window !== 'undefined' && window.persistentLog) {
+        window.persistentLog('INFO', '[PDF] generatePDFReport: About to call ReportDataAggregator.generateReportSummary...');
+        window.persistentLog('INFO', '[PDF] generatePDFReport: Workloads count for report:', workloads.length);
+      }
+      console.log('[PDF] About to generate report summary from', workloads.length, 'workloads...');
       
-      // CRITICAL DEBUG: Verify report data has costs
-      console.log('[PDF] Report data after generation:', {
-        totalMonthlyCost: reportData?.summary?.totalMonthlyCost,
-        totalMonthlyCostType: typeof reportData?.summary?.totalMonthlyCost,
-        hasSummary: !!reportData?.summary
-      });
+      let reportData;
+      try {
+        reportData = await import('../../domain/services/ReportDataAggregator.js').then(m => 
+          m.ReportDataAggregator.generateReportSummary(workloads)
+        );
+        
+        if (typeof window !== 'undefined' && window.persistentLog) {
+          window.persistentLog('INFO', '[PDF] generatePDFReport: Report summary generated successfully');
+          window.persistentLog('INFO', '[PDF] generatePDFReport: totalWorkloads:', reportData?.summary?.totalWorkloads);
+          window.persistentLog('INFO', '[PDF] generatePDFReport: totalMonthlyCost:', reportData?.summary?.totalMonthlyCost);
+        }
+        
+        // CRITICAL DEBUG: Verify report data has costs
+        console.log('[PDF] Report data after generation:', {
+          totalMonthlyCost: reportData?.summary?.totalMonthlyCost,
+          totalMonthlyCostType: typeof reportData?.summary?.totalMonthlyCost,
+          hasSummary: !!reportData?.summary
+        });
+      } catch (reportError) {
+        if (typeof window !== 'undefined' && window.persistentLog) {
+          window.persistentLog('CRITICAL', '[PDF] generatePDFReport: ERROR in generateReportSummary:', reportError.message);
+          window.persistentLog('CRITICAL', '[PDF] generatePDFReport: Report error stack:', reportError.stack);
+        }
+        console.error('[PDF] ERROR generating report summary:', reportError);
+        console.error('[PDF] Report error name:', reportError?.name);
+        console.error('[PDF] Report error message:', reportError?.message);
+        console.error('[PDF] Report error stack:', reportError?.stack);
+        
+        // Check for stack overflow
+        if (reportError instanceof RangeError || (reportError?.message && reportError.message.includes('Maximum call stack size exceeded'))) {
+          if (typeof window !== 'undefined' && window.persistentLog) {
+            window.persistentLog('CRITICAL', '[PDF] generatePDFReport: STACK OVERFLOW in report summary generation!');
+          }
+          console.error('[PDF] STACK OVERFLOW in report summary generation!');
+        }
+        throw reportError;
+      }
       
       // Debug: Log complexity and readiness counts
       console.log('[PDF] Report data complexity:', {
