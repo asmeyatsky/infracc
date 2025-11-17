@@ -31,6 +31,25 @@ export default function MigrationPipeline() {
   const [isRestoring, setIsRestoring] = useState(true);
   const [showCrashLogs, setShowCrashLogs] = useState(false);
   const [crashLogs, setCrashLogs] = useState([]);
+  const isMountedRef = useRef(true); // Track if component is mounted
+  
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+  
+  // Safe state setter that checks if component is mounted
+  const safeSetState = useCallback((setter, value) => {
+    if (isMountedRef.current) {
+      try {
+        setter(value);
+      } catch (e) {
+        console.warn('[MigrationPipeline] Error setting state after unmount check:', e);
+      }
+    }
+  }, []);
 
   // Restore pipeline state on mount
   useEffect(() => {
@@ -425,18 +444,46 @@ export default function MigrationPipeline() {
         return; // Exit early for PDF format
       }
       
-      // For screen format, update state normally
-      setPipelineComplete(true);
-      if (typeof window !== 'undefined' && window.persistentLog) {
-        window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: setPipelineComplete(true) called');
+      // For screen format, update state normally (with safety checks)
+      if (isMountedRef.current) {
+        try {
+          setPipelineComplete(true);
+          if (typeof window !== 'undefined' && window.persistentLog) {
+            window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: setPipelineComplete(true) called');
+          }
+          console.log('[MigrationPipeline] handlePipelineComplete: setPipelineComplete(true)');
+          
+          // CRITICAL: Only set outputs if component is still mounted
+          // For very large datasets, this could cause memory issues
+          const workloadCount = outputs?.discovery?.workloads?.length || 0;
+          if (workloadCount > 100000) {
+            console.warn(`[MigrationPipeline] Large dataset (${workloadCount} workloads) - limiting outputs for safety`);
+            // Create a limited version of outputs for state
+            const limitedOutputs = {
+              ...outputs,
+              discovery: {
+                ...outputs.discovery,
+                workloads: outputs.discovery.workloads.slice(0, 100000) // Limit to 100K
+              }
+            };
+            setPipelineOutputs(limitedOutputs);
+          } else {
+            setPipelineOutputs(outputs);
+          }
+          
+          if (typeof window !== 'undefined' && window.persistentLog) {
+            window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: setPipelineOutputs called');
+          }
+          console.log('[MigrationPipeline] handlePipelineComplete: setPipelineOutputs called');
+        } catch (stateError) {
+          console.error('[MigrationPipeline] Error setting state:', stateError);
+          if (typeof window !== 'undefined' && window.persistentLog) {
+            window.persistentLog('ERROR', '[MigrationPipeline] Error setting state:', stateError.message);
+          }
+        }
+      } else {
+        console.warn('[MigrationPipeline] Component unmounted, skipping state update');
       }
-      console.log('[MigrationPipeline] handlePipelineComplete: setPipelineComplete(true)');
-      
-      setPipelineOutputs(outputs);
-      if (typeof window !== 'undefined' && window.persistentLog) {
-        window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: setPipelineOutputs called');
-      }
-      console.log('[MigrationPipeline] handlePipelineComplete: setPipelineOutputs called');
       
       // Save completion status to pipeline state
       if (fileUUID) {

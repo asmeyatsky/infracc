@@ -3,13 +3,18 @@ import ReactDOM from 'react-dom/client';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './index.css';
 import './styles/unified.css';
+// CRITICAL: Import global error handlers FIRST before anything else
+import './utils/globalErrorHandlers.js';
 import AppUnified from './AppUnified';
+import ErrorBoundary from './components/ErrorBoundary.js';
 import reportWebVitals from './reportWebVitals';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
-    <AppUnified />
+    <ErrorBoundary>
+      <AppUnified />
+    </ErrorBoundary>
   </React.StrictMode>
 );
 
