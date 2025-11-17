@@ -1010,22 +1010,20 @@ export const generateComprehensiveReportPDF = async (
       
       for (let i = 0; i < planItems.length; i += PLAN_BATCH_SIZE) {
         const batch = planItems.slice(i, Math.min(i + PLAN_BATCH_SIZE, planItems.length));
-        const batchPlans = batch.map(item => ({
-          workloadId: item.workloadId,
-          workload: { id: item.workloadId, name: item.workloadName },
-          sourceService: item.sourceService,
-          service: item.sourceService,
-          targetGcpService: item.serviceMapping?.gcpService || 'N/A',
-          gcpService: item.serviceMapping?.gcpService || 'N/A',
-          gcpApi: item.serviceMapping?.gcpApi || 'N/A',
-          strategy: item.serviceMapping?.migrationStrategy || 'N/A',
-          effort: item.serviceMapping?.effort?.level || 'N/A',
-          wave: item.migrationWave || 'N/A'
-        }));
-        
-        // Add batch results
-        for (const plan of batchPlans) {
-          plans.push(plan);
+        // SAFETY: Use explicit loop instead of map to avoid any potential stack issues
+        for (const item of batch) {
+          plans.push({
+            workloadId: item.workloadId,
+            workload: { id: item.workloadId, name: item.workloadName },
+            sourceService: item.sourceService,
+            service: item.sourceService,
+            targetGcpService: item.serviceMapping?.gcpService || 'N/A',
+            gcpService: item.serviceMapping?.gcpService || 'N/A',
+            gcpApi: item.serviceMapping?.gcpApi || 'N/A',
+            strategy: item.serviceMapping?.migrationStrategy || 'N/A',
+            effort: item.serviceMapping?.effort?.level || 'N/A',
+            wave: item.migrationWave || 'N/A'
+          });
         }
       }
       
