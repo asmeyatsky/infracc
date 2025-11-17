@@ -288,6 +288,116 @@ export default function MigrationPipeline() {
     console.log('[MigrationPipeline] handlePipelineComplete: outputs:', outputs);
     
     try {
+      // CRITICAL: For PDF format, defer state updates until AFTER PDF generation
+      // This prevents React from trying to re-render with massive state objects
+      if (outputFormat === 'pdf') {
+        if (typeof window !== 'undefined' && window.persistentLog) {
+          window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: PDF format - deferring state updates');
+        }
+        console.log('[MigrationPipeline] handlePipelineComplete: PDF format - deferring state updates until after PDF generation');
+        
+        // Generate PDF FIRST before updating state
+        // This prevents React re-render with massive objects
+        try {
+          if (typeof window !== 'undefined' && window.persistentLog) {
+            window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: PDF format selected, about to generate PDF...');
+          }
+          console.log('[PDF] PDF format selected, auto-generating PDF...');
+          
+          if (typeof window !== 'undefined' && window.persistentLog) {
+            window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: Calling generatePDFReport...');
+          }
+          await generatePDFReport(outputs);
+          
+          if (typeof window !== 'undefined' && window.persistentLog) {
+            window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: PDF generation completed successfully');
+          }
+          console.log('[PDF] Auto-generation completed');
+          
+          // NOW update state after PDF is generated and downloaded
+          // Use setTimeout to defer React state update to next tick, preventing synchronous crash
+          setTimeout(() => {
+            try {
+              if (typeof window !== 'undefined' && window.persistentLog) {
+                window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: PDF complete - now updating state');
+              }
+              setPipelineComplete(true);
+              // CRITICAL: Don't store full outputs in state for PDF format - just store metadata
+              // This prevents React from trying to process 599K workloads in state
+              setPipelineOutputs({
+                discovery: outputs.discovery ? {
+                  summary: outputs.discovery.summary,
+                  workloadCount: outputs.discovery.workloads?.length || 0
+                } : null,
+                assessment: outputs.assessment ? {
+                  resultCount: outputs.assessment.results?.length || 0
+                } : null,
+                strategy: outputs.strategy ? {
+                  wavePlan: outputs.strategy.wavePlan ? {
+                    wave1Count: outputs.strategy.wavePlan.wave1?.length || 0,
+                    wave2Count: outputs.strategy.wavePlan.wave2?.length || 0,
+                    wave3Count: outputs.strategy.wavePlan.wave3?.length || 0
+                  } : null
+                } : null,
+                cost: outputs.cost ? {
+                  costEstimatesCount: outputs.cost.costEstimates?.length || 0
+                } : null
+              });
+              if (typeof window !== 'undefined' && window.persistentLog) {
+                window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: State updated with metadata only');
+              }
+            } catch (stateErr) {
+              if (typeof window !== 'undefined' && window.persistentLog) {
+                window.persistentLog('ERROR', '[MigrationPipeline] handlePipelineComplete: Error updating state:', stateErr.message);
+                window.persistentLog('ERROR', '[MigrationPipeline] handlePipelineComplete: State error stack:', stateErr.stack);
+              }
+              console.error('[MigrationPipeline] Error updating state after PDF:', stateErr);
+            }
+          }, 100);
+          
+        } catch (err) {
+          if (typeof window !== 'undefined' && window.persistentLog) {
+            window.persistentLog('ERROR', '[MigrationPipeline] handlePipelineComplete: PDF generation error:', err.message);
+            window.persistentLog('ERROR', '[MigrationPipeline] handlePipelineComplete: PDF error stack:', err.stack);
+          }
+          console.error('[PDF] Error auto-generating PDF:', err);
+          throw err;
+        }
+        
+        // Save completion status to pipeline state
+        if (fileUUID) {
+          if (typeof window !== 'undefined' && window.persistentLog) {
+            window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: About to save pipeline state...');
+          }
+          console.log('[MigrationPipeline] handlePipelineComplete: About to save pipeline state...');
+          try {
+            await savePipelineState(fileUUID, {
+              outputFormat,
+              pipelineComplete: true,
+              filesCount: files?.length || 0,
+              fileNames: files?.map(f => f.name) || []
+            });
+            if (typeof window !== 'undefined' && window.persistentLog) {
+              window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: Pipeline state saved');
+            }
+            console.log('[MigrationPipeline] handlePipelineComplete: Pipeline state saved');
+          } catch (saveErr) {
+            if (typeof window !== 'undefined' && window.persistentLog) {
+              window.persistentLog('ERROR', '[MigrationPipeline] handlePipelineComplete: Error saving state:', saveErr.message);
+            }
+            console.error('[MigrationPipeline] handlePipelineComplete: Error saving state:', saveErr);
+            // Don't throw - continue even if state save fails
+          }
+        }
+        
+        if (typeof window !== 'undefined' && window.persistentLog) {
+          window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: COMPLETED SUCCESSFULLY (PDF)');
+        }
+        console.log('[MigrationPipeline] handlePipelineComplete: COMPLETED SUCCESSFULLY (PDF)');
+        return; // Exit early for PDF format
+      }
+      
+      // For screen format, update state normally
       setPipelineComplete(true);
       if (typeof window !== 'undefined' && window.persistentLog) {
         window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: setPipelineComplete(true) called');
