@@ -9,7 +9,7 @@
  * - Results display
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'react-toastify';
 import CurUploadButton from '../CurUploadButton.js';
 import PipelineOrchestrator from './PipelineOrchestrator.js';
