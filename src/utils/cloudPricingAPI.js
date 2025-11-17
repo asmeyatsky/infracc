@@ -193,10 +193,11 @@ class CloudPricingAPI {
   }
 
   // Enhanced TCO calculation with all factors
-  static calculateEnhancedTCO(inputs) {
+  static calculateEnhancedTCO(inputs = {}) {
     const {
-      onPremise,
-      cloudSelection,
+      onPremise = {},
+      cloudSelection = {},
+      migration = {},
       timeframe = 36,
       reservedInstanceTerm = 'none', // 'none', '1year', '3year'
       savingsPlanTerm = 'none',     // 'none', '1year', '3year'
@@ -215,18 +216,25 @@ class CloudPricingAPI {
     );
     const onPremiseTCO = onPremiseMonthly * timeframe;
 
+    // Set default for cloud providers if not present
+    const safeCloudSelection = {
+      aws: cloudSelection.aws || {},
+      azure: cloudSelection.azure || {},
+      gcp: cloudSelection.gcp || {},
+    };
+
     // Calculate cloud costs with enhanced factors
     let cloudMonthly = 0;
     let cloudCostBreakdown = {};
 
-    if (cloudSelection.aws) {
+    if (safeCloudSelection.aws) {
       // AWS enhanced calculation
       const awsPricing = mockPricingData.aws;
       
       // Compute costs with RI/Savings Plan discounts
       let computeCost = 0;
-      if (cloudSelection.aws.ec2Instances) {
-        const baseCompute = cloudSelection.aws.ec2Instances;
+      if (safeCloudSelection.aws.ec2Instances) {
+        const baseCompute = safeCloudSelection.aws.ec2Instances;
         let computeRate = awsPricing.ec2['m5.large']?.onDemand || 0.0960; // default rate
         
         // Apply discount based on selection
@@ -248,21 +256,21 @@ class CloudPricingAPI {
       
       // Storage costs
       let storageCost = 0;
-      if (cloudSelection.aws.s3) {
+      if (safeCloudSelection.aws.s3) {
         const storageRate = awsPricing.s3.standard;
-        storageCost = cloudSelection.aws.s3 * storageRate;
+        storageCost = safeCloudSelection.aws.s3 * storageRate;
       }
       
       // Data transfer costs
       let dataTransferCost = 0;
-      if (includeDataTransfer && cloudSelection.aws.dataTransferGB) {
+      if (includeDataTransfer && safeCloudSelection.aws.dataTransferGB) {
         const transferRate = awsPricing.dataTransfer.internet;
-        dataTransferCost = Math.max(0, cloudSelection.aws.dataTransferGB - 1024) * transferRate; // first 1TB free
+        dataTransferCost = Math.max(0, safeCloudSelection.aws.dataTransferGB - 1024) * transferRate; // first 1TB free
       }
       
       // VPC and networking costs
       let networkingCost = 0;
-      if (cloudSelection.aws.vpc) {
+      if (safeCloudSelection.aws.vpc) {
         networkingCost = awsPricing.vpc.hours * 730; // 730 hours per month
       }
       
@@ -285,13 +293,13 @@ class CloudPricingAPI {
       };
     }
 
-    if (cloudSelection.azure) {
+    if (safeCloudSelection.azure) {
       // Azure enhanced calculation
       const azurePricing = mockPricingData.azure;
       
       let computeCost = 0;
-      if (cloudSelection.azure.virtualMachines) {
-        const baseCompute = cloudSelection.azure.virtualMachines;
+      if (safeCloudSelection.azure.virtualMachines) {
+        const baseCompute = safeCloudSelection.azure.virtualMachines;
         let computeRate = azurePricing.virtualMachines['D2s_v3']?.payAsYouGo || 0.0912;
         
         if (reservedInstanceTerm === '1year' || reservedInstanceTerm === '3year') {
@@ -302,28 +310,28 @@ class CloudPricingAPI {
       }
       
       let storageCost = 0;
-      if (cloudSelection.azure.blobStorage) {
+      if (safeCloudSelection.azure.blobStorage) {
         const storageRate = azurePricing.storage.standardSSD;
-        storageCost = cloudSelection.azure.blobStorage * storageRate;
+        storageCost = safeCloudSelection.azure.blobStorage * storageRate;
       }
       
       let dataTransferCost = 0;
-      if (includeDataTransfer && cloudSelection.azure.dataTransferGB) {
+      if (includeDataTransfer && safeCloudSelection.azure.dataTransferGB) {
         const transferRate = azurePricing.dataTransfer.internet;
-        dataTransferCost = Math.max(0, cloudSelection.azure.dataTransferGB - 1024) * transferRate;
+        dataTransferCost = Math.max(0, safeCloudSelection.azure.dataTransferGB - 1024) * transferRate;
       }
       
       const rawCloudCost = (computeCost + storageCost + dataTransferCost) * performanceMultiplier;
       cloudMonthly += rawCloudCost * complianceFactor;
     }
 
-    if (cloudSelection.gcp) {
+    if (safeCloudSelection.gcp) {
       // GCP enhanced calculation
       const gcpPricing = mockPricingData.gcp;
       
       let computeCost = 0;
-      if (cloudSelection.gcp.computeEngine) {
-        const baseCompute = cloudSelection.gcp.computeEngine;
+      if (safeCloudSelection.gcp.computeEngine) {
+        const baseCompute = safeCloudSelection.gcp.computeEngine;
         let computeRate = gcpPricing.computeEngine['n1-standard-1']?.onDemand || 0.0475;
         
         if (reservedInstanceTerm === '1year' || reservedInstanceTerm === '3year') {
@@ -334,15 +342,15 @@ class CloudPricingAPI {
       }
       
       let storageCost = 0;
-      if (cloudSelection.gcp.cloudStorage) {
+      if (safeCloudSelection.gcp.cloudStorage) {
         const storageRate = gcpPricing.cloudStorage.regional;
-        storageCost = cloudSelection.gcp.cloudStorage * storageRate;
+        storageCost = safeCloudSelection.gcp.cloudStorage * storageRate;
       }
       
       let dataTransferCost = 0;
-      if (includeDataTransfer && cloudSelection.gcp.dataTransferGB) {
+      if (includeDataTransfer && safeCloudSelection.gcp.dataTransferGB) {
         const transferRate = gcpPricing.dataTransfer.internet;
-        dataTransferCost = Math.max(0, cloudSelection.gcp.dataTransferGB - 1024) * transferRate;
+        dataTransferCost = Math.max(0, safeCloudSelection.gcp.dataTransferGB - 1024) * transferRate;
       }
       
       const rawCloudCost = (computeCost + storageCost + dataTransferCost) * performanceMultiplier;
@@ -350,7 +358,7 @@ class CloudPricingAPI {
     }
 
     // Migration costs
-    const migrationCost = inputs.migration ? Object.values(inputs.migration).reduce((sum, cost) => sum + (typeof cost === 'number' ? cost : 0), 0) : 0;
+    const migrationCost = Object.values(migration).reduce((sum, cost) => sum + (typeof cost === 'number' ? cost : 0), 0);
 
     // Calculate total TCO
     const cloudTCO = cloudMonthly * timeframe;

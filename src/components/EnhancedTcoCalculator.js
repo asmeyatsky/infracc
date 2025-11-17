@@ -17,7 +17,7 @@ import {
 } from './EnhancedVisualizations';
 import '../styles/enhanced-tco-calculator.css';
 
-const EnhancedTcoCalculator = ({ onCalculate }) => {
+const EnhancedTcoCalculator = ({ onCalculate, workloads = [] }) => {
   // State for all inputs
   const [currentInputs, setCurrentInputs] = useState({
     onPremise: {
@@ -89,6 +89,35 @@ const EnhancedTcoCalculator = ({ onCalculate }) => {
   const [analytics, setAnalytics] = useState(null);
   const [activeTab, setActiveTab] = useState('calculator');
   const [loading, setLoading] = useState(false);
+
+  // Process workloads when they are passed in
+  useEffect(() => {
+    if (workloads && workloads.length > 0) {
+      const onPremiseCosts = {
+        hardware: 0,
+        software: 0,
+        maintenance: 0,
+        labor: 0,
+        power: 0,
+        cooling: 0,
+        datacenter: 0,
+      };
+
+      workloads.forEach(w => {
+        // A simple mapping, this could be more sophisticated
+        onPremiseCosts.hardware += (w.monthlyCost || 0) * 0.4; // Example distribution
+        onPremiseCosts.software += (w.monthlyCost || 0) * 0.2;
+        onPremiseCosts.labor += (w.monthlyCost || 0) * 0.3;
+        onPremiseCosts.power += (w.monthlyCost || 0) * 0.1;
+      });
+
+      setCurrentInputs(prev => ({
+        ...prev,
+        onPremise: onPremiseCosts
+      }));
+    }
+  }, [workloads]);
+
 
   // Calculate TCO when inputs change
   useEffect(() => {

@@ -16,47 +16,116 @@ const AdvancedReportGenerator = ({ analysisData, companyName = 'Your Company' })
   const [reportType, setReportType] = useState('executive');
   const [isGenerating, setIsGenerating] = useState(false);
 
+  // Validate and default the data to prevent crashes
+  const validateAndDefaultData = (data) => {
+    const defaults = {
+      totalCloudTCO: 0,
+      savings: 0,
+      roi: 0,
+      timeframe: 36,
+      confidenceLevel: 'Medium',
+      recommendations: [],
+      onPremiseTCO: 0,
+      cloudMonthly: 0,
+      cloudTCO: 0,
+      migrationCost: 0,
+      cloudCostBreakdown: {},
+      riskAdjustedTCO: 0,
+      riskFactors: {},
+      riskMultiplier: 1.0,
+      sensitivity: { onPremise: null, cloud: null, migration: null },
+      forecast: [],
+      breakEvenPoint: null,
+      footprint: {},
+      percentReduction: 0,
+    };
+
+    const validated = { ...data };
+
+    for (const key in defaults) {
+      if (typeof validated[key] === 'undefined' || validated[key] === null || Number.isNaN(validated[key])) {
+        validated[key] = defaults[key];
+      }
+    }
+
+    if (!validated.analytics) {
+      validated.analytics = {
+        summary: {
+          confidenceLevel: defaults.confidenceLevel,
+          recommendations: defaults.recommendations,
+          breakEvenPoint: defaults.breakEvenPoint,
+        },
+        riskAdjusted: {
+          riskAdjustedTCO: defaults.riskAdjustedTCO,
+          riskFactors: defaults.riskFactors,
+          riskMultiplier: defaults.riskMultiplier,
+        },
+        sensitivity: defaults.sensitivity,
+        forecast: defaults.forecast,
+        footprint: defaults.footprint,
+      };
+    }
+
+    if (!validated.tcoResults) {
+      validated.tcoResults = {
+        totalCloudTCO: defaults.totalCloudTCO,
+        savings: defaults.savings,
+        roi: defaults.roi,
+        timeframe: defaults.timeframe,
+        onPremiseTCO: defaults.onPremiseTCO,
+        cloudMonthly: defaults.cloudMonthly,
+        cloudTCO: defaults.cloudTCO,
+        migrationCost: defaults.migrationCost,
+        cloudCostBreakdown: defaults.cloudCostBreakdown,
+      };
+    }
+
+    return validated;
+  };
+
+
   // Generate comprehensive report data
   const generateReportData = () => {
     if (!analysisData) return null;
 
-    const { tcoResults, analytics } = analysisData;
+    const validatedData = validateAndDefaultData(analysisData);
+    const { tcoResults, analytics } = validatedData;
     
     return {
       executiveSummary: {
-        totalInvestment: tcoResults?.totalCloudTCO || 0,
-        totalSavings: tcoResults?.savings || 0,
-        roi: tcoResults?.roi || 0,
-        timeframe: tcoResults?.timeframe || 36,
-        confidenceLevel: analytics?.summary?.confidenceLevel || 'Medium',
-        keyRecommendations: analytics?.summary?.recommendations?.slice(0, 3) || []
+        totalInvestment: tcoResults.totalCloudTCO,
+        totalSavings: tcoResults.savings,
+        roi: tcoResults.roi,
+        timeframe: tcoResults.timeframe,
+        confidenceLevel: analytics.summary.confidenceLevel,
+        keyRecommendations: analytics.summary.recommendations.slice(0, 3)
       },
       costAnalysis: {
-        onPremiseTCO: tcoResults?.onPremiseTCO || 0,
-        cloudMonthly: tcoResults?.cloudMonthly || 0,
-        cloudTCO: tcoResults?.cloudTCO || 0,
-        migrationCost: tcoResults?.migrationCost || 0,
-        totalCloudTCO: tcoResults?.totalCloudTCO || 0,
-        savings: tcoResults?.savings || 0,
-        costBreakdown: tcoResults?.cloudCostBreakdown || {}
+        onPremiseTCO: tcoResults.onPremiseTCO,
+        cloudMonthly: tcoResults.cloudMonthly,
+        cloudTCO: tcoResults.cloudTCO,
+        migrationCost: tcoResults.migrationCost,
+        totalCloudTCO: tcoResults.totalCloudTCO,
+        savings: tcoResults.savings,
+        costBreakdown: tcoResults.cloudCostBreakdown
       },
       riskAnalysis: {
-        riskAdjustedTCO: analytics?.riskAdjusted?.riskAdjustedTCO || 0,
-        riskFactors: analytics?.riskAdjusted?.riskFactors || {},
-        riskMultiplier: analytics?.riskAdjusted?.riskMultiplier || 1.0
+        riskAdjustedTCO: analytics.riskAdjusted.riskAdjustedTCO,
+        riskFactors: analytics.riskAdjusted.riskFactors,
+        riskMultiplier: analytics.riskAdjusted.riskMultiplier
       },
       sensitivityAnalysis: {
-        onPremise: analytics?.sensitivity?.onPremise || null,
-        cloud: analytics?.sensitivity?.cloud || null,
-        migration: analytics?.sensitivity?.migration || null
+        onPremise: analytics.sensitivity.onPremise,
+        cloud: analytics.sensitivity.cloud,
+        migration: analytics.sensitivity.migration
       },
       forecasting: {
-        forecastData: analytics?.forecast || [],
-        breakEvenPoint: analytics?.summary?.breakEvenPoint || null
+        forecastData: analytics.forecast,
+        breakEvenPoint: analytics.summary.breakEvenPoint
       },
       environmentalImpact: {
-        footprint: analytics?.footprint || {},
-        reductionPercent: analytics?.footprint?.percentReduction || 0
+        footprint: analytics.footprint,
+        reductionPercent: analytics.footprint.percentReduction || 0
       }
     };
   };

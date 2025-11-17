@@ -459,7 +459,7 @@ function App() {
 
           {activeTab === 'tco' && (
             <div className="tco-calculator">
-              <EnhancedTcoCalculator onCalculate={handleTcoCalculate} />
+              <EnhancedTcoCalculator onCalculate={handleTcoCalculate} workloads={discoveredWorkloads} />
             </div>
           )}
 
