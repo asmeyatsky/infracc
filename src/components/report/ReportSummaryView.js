@@ -361,6 +361,173 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
     }
   }, [reportDataMemo]);
 
+  // Handle PDF generation
+  const handleGeneratePDF = async () => {
+    try {
+      const reportData = ReportDataAggregator.generateReportSummary(workloads);
+      const serviceAggregation = ReportDataAggregator.aggregateByService(workloads);
+      
+      // CRITICAL FIX: Scale service aggregation costs BEFORE generating estimates
+      if (uploadSummary && uploadSummary.totalMonthlyCost && serviceAggregation.length > 0) {
+        // SAFETY: Batch reduce to avoid stack overflow
+        let currentAggTotal = 0;
+        const SCALE_BATCH_SIZE = 1000;
+        for (let i = 0; i < serviceAggregation.length; i += SCALE_BATCH_SIZE) {
+          const batch = serviceAggregation.slice(i, Math.min(i + SCALE_BATCH_SIZE, serviceAggregation.length));
+          for (const s of batch) {
+            currentAggTotal += (s.totalCost || 0);
+          }
+        }
+        
+        const targetTotal = uploadSummary.totalMonthlyCost;
+        if (currentAggTotal > 0 && Math.abs(currentAggTotal - targetTotal) > 100) {
+          const aggScaleFactor = targetTotal / currentAggTotal;
+          console.log(`ReportSummaryView - Scaling service aggregation costs by factor ${aggScaleFactor.toFixed(4)}`);
+          for (let i = 0; i < serviceAggregation.length; i += SCALE_BATCH_SIZE) {
+            const batch = serviceAggregation.slice(i, Math.min(i + SCALE_BATCH_SIZE, serviceAggregation.length));
+            for (const service of batch) {
+              if (service.totalCost) {
+                service.totalCost = service.totalCost * aggScaleFactor;
+              }
+            }
+          }
+        }
+      }
+      
+      const estimates = await GCPCostEstimator.estimateAllServiceCosts(serviceAggregation, targetRegion);
+      
+      // CRITICAL FIX: Scale cost estimates to match correct total
+      if (uploadSummary && uploadSummary.totalMonthlyCost && estimates.length > 0) {
+        // SAFETY: Batch reduce to avoid stack overflow
+        let currentAwsTotal = 0;
+        const ESTIMATE_BATCH_SIZE = 1000;
+        for (let i = 0; i < estimates.length; i += ESTIMATE_BATCH_SIZE) {
+          const batch = estimates.slice(i, Math.min(i + ESTIMATE_BATCH_SIZE, estimates.length));
+          for (const est of batch) {
+            currentAwsTotal += (est.costEstimate?.awsCost || 0);
+          }
+        }
+        
+        const targetTotal = uploadSummary.totalMonthlyCost;
+        if (currentAwsTotal > 0 && Math.abs(currentAwsTotal - targetTotal) > 100) {
+          const scaleFactor = targetTotal / currentAwsTotal;
+          console.log(`ReportSummaryView - Scaling cost estimates by factor ${scaleFactor.toFixed(4)}`);
+          for (let i = 0; i < estimates.length; i += ESTIMATE_BATCH_SIZE) {
+            const batch = estimates.slice(i, Math.min(i + ESTIMATE_BATCH_SIZE, estimates.length));
+            for (const est of batch) {
+              if (est.costEstimate) {
+                est.costEstimate.awsCost = (est.costEstimate.awsCost || 0) * scaleFactor;
+                est.costEstimate.gcpOnDemand = (est.costEstimate.gcpOnDemand || 0) * scaleFactor;
+                est.costEstimate.gcp1YearCUD = (est.costEstimate.gcp1YearCUD || 0) * scaleFactor;
+                est.costEstimate.gcp3YearCUD = (est.costEstimate.gcp3YearCUD || 0) * scaleFactor;
+                est.costEstimate.savings1Year = est.costEstimate.awsCost - est.costEstimate.gcp1YearCUD;
+                est.costEstimate.savings3Year = est.costEstimate.awsCost - est.costEstimate.gcp3YearCUD;
+              }
+            }
+          }
+        }
+      }
+      
+      // CRITICAL FIX: Override totalMonthlyCost and scale service costs in reportData
+      const finalReportData = { ...reportData };
+      if (uploadSummary && uploadSummary.totalMonthlyCost) {
+        const targetTotal = uploadSummary.totalMonthlyCost;
+        finalReportData.summary = {
+          ...finalReportData.summary,
+          totalMonthlyCost: targetTotal
+        };
+        
+        // Scale ALL costs to match correct total (services, complexity, readiness, regions)
+        // SAFETY: Batch reduce to avoid stack overflow
+        let currentServiceTotal = 0;
+        if (finalReportData.services?.topServices) {
+          const SERVICE_BATCH_SIZE = 1000;
+          for (let i = 0; i < finalReportData.services.topServices.length; i += SERVICE_BATCH_SIZE) {
+            const batch = finalReportData.services.topServices.slice(i, Math.min(i + SERVICE_BATCH_SIZE, finalReportData.services.topServices.length));
+            for (const s of batch) {
+              currentServiceTotal += (s.totalCost || 0);
+            }
+          }
+        }
+        
+        const currentComplexityTotal = (finalReportData.complexity?.low?.totalCost || 0) + 
+                                       (finalReportData.complexity?.medium?.totalCost || 0) + 
+                                       (finalReportData.complexity?.high?.totalCost || 0) + 
+                                       (finalReportData.complexity?.unassigned?.totalCost || 0);
+        const currentReadinessTotal = (finalReportData.readiness?.ready?.totalCost || 0) + 
+                                     (finalReportData.readiness?.conditional?.totalCost || 0) + 
+                                     (finalReportData.readiness?.notReady?.totalCost || 0) + 
+                                     (finalReportData.readiness?.unassigned?.totalCost || 0);
+        const currentTotal = Math.max(currentServiceTotal, currentComplexityTotal, currentReadinessTotal);
+        
+        if (currentTotal > 0 && Math.abs(currentTotal - targetTotal) > 100) {
+          const scaleFactor = targetTotal / currentTotal;
+          console.log(`ReportSummaryView - Scaling all costs by factor ${scaleFactor.toFixed(4)}`);
+          
+          // Scale service costs
+          if (finalReportData.services?.topServices) {
+            const SERVICE_BATCH_SIZE = 1000;
+            for (let i = 0; i < finalReportData.services.topServices.length; i += SERVICE_BATCH_SIZE) {
+              const batch = finalReportData.services.topServices.slice(i, Math.min(i + SERVICE_BATCH_SIZE, finalReportData.services.topServices.length));
+              for (const service of batch) {
+                if (service.totalCost) {
+                  service.totalCost = service.totalCost * scaleFactor;
+                }
+              }
+            }
+          }
+          
+          // Scale complexity costs
+          if (finalReportData.complexity) {
+            ['low', 'medium', 'high', 'unassigned'].forEach(level => {
+              if (finalReportData.complexity[level]?.totalCost) {
+                finalReportData.complexity[level].totalCost *= scaleFactor;
+              }
+            });
+          }
+          
+          // Scale readiness costs
+          if (finalReportData.readiness) {
+            ['ready', 'conditional', 'notReady', 'unassigned'].forEach(level => {
+              if (finalReportData.readiness[level]?.totalCost) {
+                finalReportData.readiness[level].totalCost *= scaleFactor;
+              }
+            });
+          }
+          
+          // Scale region costs
+          if (finalReportData.regions && Array.isArray(finalReportData.regions)) {
+            const REGION_BATCH_SIZE = 1000;
+            for (let i = 0; i < finalReportData.regions.length; i += REGION_BATCH_SIZE) {
+              const batch = finalReportData.regions.slice(i, Math.min(i + REGION_BATCH_SIZE, finalReportData.regions.length));
+              for (const region of batch) {
+                if (region.totalCost) {
+                  region.totalCost *= scaleFactor;
+                }
+              }
+            }
+          }
+        }
+        
+        console.log(`ReportSummaryView - Overriding totalMonthlyCost to $${targetTotal.toFixed(2)} for PDF`);
+      }
+      
+      await generateComprehensiveReportPDF(
+        finalReportData,
+        estimates,
+        strategyResults,
+        assessmentResults,
+        {
+          projectName: 'AWS to GCP Migration Assessment',
+          targetRegion
+        }
+      );
+    } catch (error) {
+      console.error('PDF generation failed:', error);
+      alert(`PDF generation failed: ${error.message}`);
+    }
+  };
+
   if (!reportData) {
     return (
       <div className="alert alert-info">
@@ -811,171 +978,7 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
         <div className="col-12 text-center">
           <button 
             className="btn btn-primary btn-lg"
-            onClick={async () => {
-              try {
-                const reportData = ReportDataAggregator.generateReportSummary(workloads);
-                const serviceAggregation = ReportDataAggregator.aggregateByService(workloads);
-                
-                // CRITICAL FIX: Scale service aggregation costs BEFORE generating estimates
-                if (uploadSummary && uploadSummary.totalMonthlyCost && serviceAggregation.length > 0) {
-                  // SAFETY: Batch reduce to avoid stack overflow
-                  let currentAggTotal = 0;
-                  const SCALE_BATCH_SIZE = 1000;
-                  for (let i = 0; i < serviceAggregation.length; i += SCALE_BATCH_SIZE) {
-                    const batch = serviceAggregation.slice(i, Math.min(i + SCALE_BATCH_SIZE, serviceAggregation.length));
-                    for (const s of batch) {
-                      currentAggTotal += (s.totalCost || 0);
-                    }
-                  }
-                  
-                  const targetTotal = uploadSummary.totalMonthlyCost;
-                  if (currentAggTotal > 0 && Math.abs(currentAggTotal - targetTotal) > 100) {
-                    const aggScaleFactor = targetTotal / currentAggTotal;
-                    console.log(`ReportSummaryView - Scaling service aggregation costs by factor ${aggScaleFactor.toFixed(4)}`);
-                    for (let i = 0; i < serviceAggregation.length; i += SCALE_BATCH_SIZE) {
-                      const batch = serviceAggregation.slice(i, Math.min(i + SCALE_BATCH_SIZE, serviceAggregation.length));
-                      for (const service of batch) {
-                        if (service.totalCost) {
-                          service.totalCost = service.totalCost * aggScaleFactor;
-                        }
-                      }
-                    }
-                  }
-                }
-                
-                const estimates = await GCPCostEstimator.estimateAllServiceCosts(serviceAggregation, targetRegion);
-                
-                // CRITICAL FIX: Scale cost estimates to match correct total
-                if (uploadSummary && uploadSummary.totalMonthlyCost && estimates.length > 0) {
-                  // SAFETY: Batch reduce to avoid stack overflow
-                  let currentAwsTotal = 0;
-                  const ESTIMATE_BATCH_SIZE = 1000;
-                  for (let i = 0; i < estimates.length; i += ESTIMATE_BATCH_SIZE) {
-                    const batch = estimates.slice(i, Math.min(i + ESTIMATE_BATCH_SIZE, estimates.length));
-                    for (const est of batch) {
-                      currentAwsTotal += (est.costEstimate?.awsCost || 0);
-                    }
-                  }
-                  
-                  const targetTotal = uploadSummary.totalMonthlyCost;
-                  if (currentAwsTotal > 0 && Math.abs(currentAwsTotal - targetTotal) > 100) {
-                    const scaleFactor = targetTotal / currentAwsTotal;
-                    console.log(`ReportSummaryView - Scaling cost estimates by factor ${scaleFactor.toFixed(4)}`);
-                    for (let i = 0; i < estimates.length; i += ESTIMATE_BATCH_SIZE) {
-                      const batch = estimates.slice(i, Math.min(i + ESTIMATE_BATCH_SIZE, estimates.length));
-                      for (const est of batch) {
-                        if (est.costEstimate) {
-                          est.costEstimate.awsCost = (est.costEstimate.awsCost || 0) * scaleFactor;
-                          est.costEstimate.gcpOnDemand = (est.costEstimate.gcpOnDemand || 0) * scaleFactor;
-                          est.costEstimate.gcp1YearCUD = (est.costEstimate.gcp1YearCUD || 0) * scaleFactor;
-                          est.costEstimate.gcp3YearCUD = (est.costEstimate.gcp3YearCUD || 0) * scaleFactor;
-                          est.costEstimate.savings1Year = est.costEstimate.awsCost - est.costEstimate.gcp1YearCUD;
-                          est.costEstimate.savings3Year = est.costEstimate.awsCost - est.costEstimate.gcp3YearCUD;
-                        }
-                      }
-                    }
-                  }
-                }
-                
-                // CRITICAL FIX: Override totalMonthlyCost and scale service costs in reportData
-                const finalReportData = { ...reportData };
-                if (uploadSummary && uploadSummary.totalMonthlyCost) {
-                  const targetTotal = uploadSummary.totalMonthlyCost;
-                  finalReportData.summary = {
-                    ...finalReportData.summary,
-                    totalMonthlyCost: targetTotal
-                  };
-                  
-                  // Scale ALL costs to match correct total (services, complexity, readiness, regions)
-                  // SAFETY: Batch reduce to avoid stack overflow
-                  let currentServiceTotal = 0;
-                  if (finalReportData.services?.topServices) {
-                    const SERVICE_BATCH_SIZE = 1000;
-                    for (let i = 0; i < finalReportData.services.topServices.length; i += SERVICE_BATCH_SIZE) {
-                      const batch = finalReportData.services.topServices.slice(i, Math.min(i + SERVICE_BATCH_SIZE, finalReportData.services.topServices.length));
-                      for (const s of batch) {
-                        currentServiceTotal += (s.totalCost || 0);
-                      }
-                    }
-                  }
-                  
-                  const currentComplexityTotal = (finalReportData.complexity?.low?.totalCost || 0) + 
-                                                 (finalReportData.complexity?.medium?.totalCost || 0) + 
-                                                 (finalReportData.complexity?.high?.totalCost || 0) + 
-                                                 (finalReportData.complexity?.unassigned?.totalCost || 0);
-                  const currentReadinessTotal = (finalReportData.readiness?.ready?.totalCost || 0) + 
-                                               (finalReportData.readiness?.conditional?.totalCost || 0) + 
-                                               (finalReportData.readiness?.notReady?.totalCost || 0) + 
-                                               (finalReportData.readiness?.unassigned?.totalCost || 0);
-                  const currentTotal = Math.max(currentServiceTotal, currentComplexityTotal, currentReadinessTotal);
-                  
-                  if (currentTotal > 0 && Math.abs(currentTotal - targetTotal) > 100) {
-                    const scaleFactor = targetTotal / currentTotal;
-                    console.log(`ReportSummaryView - Scaling all costs by factor ${scaleFactor.toFixed(4)}`);
-                    
-                    // Scale service costs
-                    if (finalReportData.services?.topServices) {
-                      const SERVICE_BATCH_SIZE = 1000;
-                      for (let i = 0; i < finalReportData.services.topServices.length; i += SERVICE_BATCH_SIZE) {
-                        const batch = finalReportData.services.topServices.slice(i, Math.min(i + SERVICE_BATCH_SIZE, finalReportData.services.topServices.length));
-                        for (const service of batch) {
-                          if (service.totalCost) {
-                            service.totalCost = service.totalCost * scaleFactor;
-                          }
-                        }
-                      }
-                    }
-                    
-                    // Scale complexity costs
-                    if (finalReportData.complexity) {
-                      ['low', 'medium', 'high', 'unassigned'].forEach(level => {
-                        if (finalReportData.complexity[level]?.totalCost) {
-                          finalReportData.complexity[level].totalCost *= scaleFactor;
-                        }
-                      });
-                    }
-                    
-                    // Scale readiness costs
-                    if (finalReportData.readiness) {
-                      ['ready', 'conditional', 'notReady', 'unassigned'].forEach(level => {
-                        if (finalReportData.readiness[level]?.totalCost) {
-                          finalReportData.readiness[level].totalCost *= scaleFactor;
-                        }
-                      });
-                    }
-                    
-                    // Scale region costs
-                    if (finalReportData.regions && Array.isArray(finalReportData.regions)) {
-                      const REGION_BATCH_SIZE = 1000;
-                      for (let i = 0; i < finalReportData.regions.length; i += REGION_BATCH_SIZE) {
-                        const batch = finalReportData.regions.slice(i, Math.min(i + REGION_BATCH_SIZE, finalReportData.regions.length));
-                        for (const region of batch) {
-                          if (region.totalCost) {
-                            region.totalCost *= scaleFactor;
-                          }
-                        }
-                      }
-                    }
-                  }
-                  
-                  console.log(`ReportSummaryView - Overriding totalMonthlyCost to $${targetTotal.toFixed(2)} for PDF`);
-                }
-                
-                await generateComprehensiveReportPDF(
-                  finalReportData,
-                  estimates,
-                  strategyResults,
-                  assessmentResults,
-                  {
-                    projectName: 'AWS to GCP Migration Assessment',
-                    targetRegion
-                  }
-                );
-              } catch (error) {
-                console.error('PDF generation failed:', error);
-                alert(`PDF generation failed: ${error.message}`);
-              }
-            }}
+            onClick={handleGeneratePDF}
           >
             <i className="bi bi-download me-2"></i>
             Download Comprehensive PDF Report
