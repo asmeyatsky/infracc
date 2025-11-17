@@ -150,119 +150,154 @@ class FileUploadManager {
   }
 
   async _deduplicateAndSave(workloads, dedupeMap, savedDedupeKeys, onProgress) {
+    console.log(`[FileUploadManager] Deduplicating and saving ${workloads.length} workloads...`);
+    
+    // PERFORMANCE: Load ALL existing workloads into memory at once (one call instead of 279K+ calls)
+    onProgress({ status: 'Loading existing workloads...' });
+    const existingWorkloads = await this.workloadRepository.findAll();
+    const existingWorkloadMap = new Map();
+    for (const workload of existingWorkloads) {
+      const dedupeKey = `${workload.id || ''}_${(workload.service || '').trim()}_${(workload.region || '').trim()}`.toLowerCase();
+      if (dedupeKey && dedupeKey !== '__') {
+        existingWorkloadMap.set(dedupeKey, workload);
+      }
+    }
+    console.log(`[FileUploadManager] Loaded ${existingWorkloadMap.size} existing workloads into memory`);
+    
+    // Process all workloads in memory first (no async calls in loop)
+    const workloadsToSave = [];
     let newWorkloadsCount = 0;
     let updatedWorkloadsCount = 0;
-    const batchSize = 100;
+    const BATCH_SIZE = 5000; // Increased from 100 to 5000 for better performance
+    
+    onProgress({ status: 'Processing workloads...' });
+    
+    for (let i = 0; i < workloads.length; i++) {
+      if (i % 50000 === 0 && i > 0) {
+        onProgress({ status: `Processing ${i.toLocaleString()}/${workloads.length.toLocaleString()} workloads...` });
+        // Yield to event loop periodically
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      
+      const data = workloads[i];
+      const resourceId = String(data.id || '').trim();
+      const service = String(data.service || '').trim();
+      const region = String(data.region || '').trim();
+      const dedupeKey = `${resourceId}_${service}_${region}`.toLowerCase();
 
-    console.log(`[FileUploadManager] Deduplicating and saving ${workloads.length} workloads...`);
+      if (!dedupeKey || dedupeKey === '__') {
+        continue;
+      }
 
-    for (let i = 0; i < workloads.length; i += batchSize) {
-      const batch = workloads.slice(i, i + batchSize);
-      onProgress({ status: `Deduplicating and saving batch ${Math.floor(i / batchSize) + 1}...` });
-
-      for (const data of batch) {
-        const resourceId = String(data.id || '').trim();
-        const service = String(data.service || '').trim();
-        const region = String(data.region || '').trim();
-        const dedupeKey = `${resourceId}_${service}_${region}`.toLowerCase();
-
-        if (!dedupeKey || dedupeKey === '__') {
-          console.warn(`[FileUploadManager] Skipping invalid workload data:`, { resourceId, service, region });
-          continue;
-        }
-
-        // CRITICAL: Extract monthlyCost properly - handle both number and Money object
-        let monthlyCostValue = 0;
-        if (data.monthlyCost !== undefined && data.monthlyCost !== null) {
-          if (typeof data.monthlyCost === 'object' && 'amount' in data.monthlyCost) {
-            monthlyCostValue = parseFloat(data.monthlyCost.amount) || 0;
-          } else if (typeof data.monthlyCost === 'object' && '_amount' in data.monthlyCost) {
-            monthlyCostValue = parseFloat(data.monthlyCost._amount) || 0;
-          } else {
-            monthlyCostValue = parseFloat(data.monthlyCost) || 0;
-          }
-        }
-
-        const existingWorkload = await this.workloadRepository.findById(dedupeKey);
-
-        if (existingWorkload) {
-          // CRITICAL: Extract current cost properly - handle Money object
-          let currentCost = 0;
-          if (existingWorkload.monthlyCost) {
-            if (typeof existingWorkload.monthlyCost === 'object' && 'amount' in existingWorkload.monthlyCost) {
-              currentCost = existingWorkload.monthlyCost.amount;
-            } else if (typeof existingWorkload.monthlyCost === 'object' && 'value' in existingWorkload.monthlyCost) {
-              currentCost = existingWorkload.monthlyCost.value;
-            } else if (typeof existingWorkload.monthlyCost === 'number') {
-              currentCost = existingWorkload.monthlyCost;
-            }
-          }
-          
-          const newCost = currentCost + monthlyCostValue;
-
-          if (Math.abs(newCost - currentCost) > 0.01) {
-            const existingData = existingWorkload.toJSON ? existingWorkload.toJSON() : existingWorkload;
-            const updatedWorkload = new Workload({ ...existingData, monthlyCost: newCost });
-            await this.workloadRepository.save(updatedWorkload);
-            updatedWorkloadsCount++;
-            
-            // Log first few updates
-            if (updatedWorkloadsCount <= 3) {
-              console.log(`[UPLOAD] Updated workload ${dedupeKey}:`, {
-                currentCost,
-                newCostValue: monthlyCostValue,
-                totalCost: newCost
-              });
-            }
-          }
+      // Extract monthlyCost properly - handle both number and Money object
+      let monthlyCostValue = 0;
+      if (data.monthlyCost !== undefined && data.monthlyCost !== null) {
+        if (typeof data.monthlyCost === 'object' && 'amount' in data.monthlyCost) {
+          monthlyCostValue = parseFloat(data.monthlyCost.amount) || 0;
+        } else if (typeof data.monthlyCost === 'object' && '_amount' in data.monthlyCost) {
+          monthlyCostValue = parseFloat(data.monthlyCost._amount) || 0;
         } else {
-          try {
-            // Ensure all required fields are present
-            // monthlyCostValue is already extracted above
-            const workloadData = {
-              id: dedupeKey,
-              name: data.name || resourceId.split('/').pop() || dedupeKey,
-              service: data.service || 'EC2',
-              type: data.type || 'vm',
-              sourceProvider: 'aws',
-              cpu: data.cpu || 0,
-              memory: data.memory || 0,
-              storage: data.storage || 0,
-              monthlyCost: monthlyCostValue, // Use extracted value
-              region: data.region || 'us-east-1',
-              os: data.os || 'linux',
-              monthlyTraffic: data.monthlyTraffic || 0,
-              dependencies: data.dependencies || []
-            };
-            
-            // Log first few to verify costs are being set
-            if (newWorkloadsCount <= 5) {
-              console.log(`[UPLOAD] Workload ${newWorkloadsCount}:`, {
-                id: dedupeKey,
-                dataMonthlyCost: data.monthlyCost,
-                dataMonthlyCostType: typeof data.monthlyCost,
-                extractedValue: monthlyCostValue,
-                extractedType: typeof monthlyCostValue,
-                workloadData: { ...workloadData, monthlyCost: monthlyCostValue }
-              });
-            }
-            
-            const workload = new Workload(workloadData);
-            await this.workloadRepository.save(workload);
-            newWorkloadsCount++;
-            
-            // Log first few to verify they're being created
-            if (newWorkloadsCount <= 3) {
-              console.log(`[UPLOAD] Created workload: ${workload.id} (${workload.name})`);
-            }
-          } catch (error) {
-            console.error(`[UPLOAD] Failed to create workload ${dedupeKey}:`, error);
-            console.error(`[UPLOAD] Data:`, data);
-          }
+          monthlyCostValue = parseFloat(data.monthlyCost) || 0;
         }
       }
-      await new Promise(resolve => setTimeout(resolve, 0)); // Yield to event loop
+
+      const existingWorkload = existingWorkloadMap.get(dedupeKey);
+
+      if (existingWorkload) {
+        // Extract current cost properly - handle Money object
+        let currentCost = 0;
+        if (existingWorkload.monthlyCost) {
+          if (typeof existingWorkload.monthlyCost === 'object' && 'amount' in existingWorkload.monthlyCost) {
+            currentCost = existingWorkload.monthlyCost.amount;
+          } else if (typeof existingWorkload.monthlyCost === 'object' && 'value' in existingWorkload.monthlyCost) {
+            currentCost = existingWorkload.monthlyCost.value;
+          } else if (typeof existingWorkload.monthlyCost === 'number') {
+            currentCost = existingWorkload.monthlyCost;
+          }
+        }
+        
+        const newCost = currentCost + monthlyCostValue;
+
+        if (Math.abs(newCost - currentCost) > 0.01) {
+          const existingData = existingWorkload.toJSON ? existingWorkload.toJSON() : existingWorkload;
+          const updatedWorkload = new Workload({ ...existingData, monthlyCost: newCost });
+          workloadsToSave.push(updatedWorkload);
+          existingWorkloadMap.set(dedupeKey, updatedWorkload); // Update map for subsequent files
+          updatedWorkloadsCount++;
+          
+          // Log first few updates
+          if (updatedWorkloadsCount <= 3) {
+            console.log(`[UPLOAD] Updated workload ${dedupeKey}:`, {
+              currentCost,
+              newCostValue: monthlyCostValue,
+              totalCost: newCost
+            });
+          }
+        }
+      } else {
+        try {
+          const workloadData = {
+            id: dedupeKey,
+            name: data.name || resourceId.split('/').pop() || dedupeKey,
+            service: data.service || 'EC2',
+            type: data.type || 'vm',
+            sourceProvider: 'aws',
+            cpu: data.cpu || 0,
+            memory: data.memory || 0,
+            storage: data.storage || 0,
+            monthlyCost: monthlyCostValue,
+            region: data.region || 'us-east-1',
+            os: data.os || 'linux',
+            monthlyTraffic: data.monthlyTraffic || 0,
+            dependencies: data.dependencies || []
+          };
+          
+          // Log first few to verify costs are being set
+          if (newWorkloadsCount <= 5) {
+            console.log(`[UPLOAD] Workload ${newWorkloadsCount}:`, {
+              id: dedupeKey,
+              dataMonthlyCost: data.monthlyCost,
+              dataMonthlyCostType: typeof data.monthlyCost,
+              extractedValue: monthlyCostValue,
+              extractedType: typeof monthlyCostValue,
+              workloadData: { ...workloadData, monthlyCost: monthlyCostValue }
+            });
+          }
+          
+          const workload = new Workload(workloadData);
+          workloadsToSave.push(workload);
+          existingWorkloadMap.set(dedupeKey, workload); // Add to map for subsequent files
+          newWorkloadsCount++;
+          
+          // Log first few to verify they're being created
+          if (newWorkloadsCount <= 3) {
+            console.log(`[UPLOAD] Created workload: ${workload.id} (${workload.name})`);
+          }
+        } catch (error) {
+          console.error(`[UPLOAD] Failed to create workload ${dedupeKey}:`, error);
+        }
+      }
     }
+    
+    // PERFORMANCE: Batch save all workloads at once instead of individual saves
+    console.log(`[FileUploadManager] Saving ${workloadsToSave.length} workloads in batches...`);
+    onProgress({ status: `Saving ${workloadsToSave.length.toLocaleString()} workloads...` });
+    
+    for (let i = 0; i < workloadsToSave.length; i += BATCH_SIZE) {
+      const batch = workloadsToSave.slice(i, i + BATCH_SIZE);
+      onProgress({ status: `Saving batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(workloadsToSave.length / BATCH_SIZE)}...` });
+      
+      // Save batch in parallel (IndexedDB handles concurrent writes well)
+      await Promise.all(batch.map(workload => this.workloadRepository.save(workload)));
+      
+      // Yield to event loop every batch
+      if (i + BATCH_SIZE < workloadsToSave.length) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+    }
+    
+    // Force final persistence
+    await this.workloadRepository._forcePersist?.();
 
     return { newWorkloads: newWorkloadsCount, updatedWorkloads: updatedWorkloadsCount };
   }

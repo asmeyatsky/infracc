@@ -203,43 +203,56 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
         return; // Nothing to persist
       }
 
-      // PERFORMANCE: Increased chunk size for faster persistence (IndexedDB handles it well)
+      // PERFORMANCE: Use parallel writes for much faster persistence
       if (cacheSize > 1000) {
-        const chunkSize = 1000; // Increased from 500 to 1000 for better performance
+        const BATCH_WRITE_SIZE = 5000; // Write 5000 items in parallel at once
         let persistedCount = 0;
-        let index = 0;
         const startTime = Date.now();
         
-        // Process cache values in chunks
-        for (const workload of this._cache.values()) {
-          try {
-            const workloadData = workload.toJSON();
-            await this._storage.setItem(workload.id, workloadData);
-            persistedCount++;
-            
-            // Log progress every 50K items for large datasets
-            if (cacheSize > 50000 && persistedCount % 50000 === 0) {
-              const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-              const percent = ((persistedCount / cacheSize) * 100).toFixed(1);
-              console.log(`[PERSIST] Progress: ${persistedCount.toLocaleString()}/${cacheSize.toLocaleString()} (${percent}%) - ${elapsed}s elapsed`);
+        // Create snapshot of cache values to prevent iterator issues if cache grows during persistence
+        const workloadsToPersist = Array.from(this._cache.values());
+        const actualCacheSize = workloadsToPersist.length;
+        
+        // Process in parallel batches for much better performance
+        for (let i = 0; i < workloadsToPersist.length; i += BATCH_WRITE_SIZE) {
+          const batch = workloadsToPersist.slice(i, i + BATCH_WRITE_SIZE);
+          
+          // Write entire batch in parallel (IndexedDB handles concurrent writes efficiently)
+          const writePromises = batch.map(workload => {
+            try {
+              const workloadData = workload.toJSON();
+              return this._storage.setItem(workload.id, workloadData);
+            } catch (error) {
+              console.warn(`Failed to persist workload ${workload.id}:`, error);
+              return Promise.resolve(); // Continue even if one fails
             }
-            
-            // Yield to event loop every chunk to prevent blocking
-            if (index % chunkSize === 0 && index > 0) {
-              await new Promise(resolve => setTimeout(resolve, 0));
-            }
-            index++;
-          } catch (error) {
-            console.warn(`Failed to persist workload ${workload.id}:`, error);
+          });
+          
+          await Promise.all(writePromises);
+          persistedCount += batch.length;
+          
+          // Log progress every 50K items for large datasets
+          if (actualCacheSize > 50000 && persistedCount % 50000 === 0) {
+            const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+            const percent = ((persistedCount / actualCacheSize) * 100).toFixed(1);
+            console.log(`[PERSIST] Progress: ${persistedCount.toLocaleString()}/${actualCacheSize.toLocaleString()} (${percent}%) - ${elapsed}s elapsed`);
+          }
+          
+          // Yield to event loop every batch to keep UI responsive
+          if (i + BATCH_WRITE_SIZE < workloadsToPersist.length) {
+            await new Promise(resolve => setTimeout(resolve, 0));
           }
         }
         
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-        console.log(`WorkloadRepository._persistToStorage() - Persisted ${persistedCount.toLocaleString()} workloads to IndexedDB (cache size: ${cacheSize.toLocaleString()}) in ${elapsed}s`);
+        const finalCacheSize = this._cache.size; // Current cache size (may have grown)
+        console.log(`WorkloadRepository._persistToStorage() - Persisted ${persistedCount.toLocaleString()} workloads to IndexedDB (snapshot size: ${actualCacheSize.toLocaleString()}, current cache: ${finalCacheSize.toLocaleString()}) in ${elapsed}s`);
       } else {
         // For smaller caches, persist all at once
         const persistPromises = [];
-        for (const workload of this._cache.values()) {
+        // Create snapshot for consistency
+        const workloadsToPersist = Array.from(this._cache.values());
+        for (const workload of workloadsToPersist) {
           const workloadData = workload.toJSON();
           persistPromises.push(this._storage.setItem(workload.id, workloadData));
         }
