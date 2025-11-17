@@ -344,24 +344,61 @@ export default function MigrationPipeline() {
           }
           console.log('[MigrationPipeline] PDF generation complete - stored in ref, avoiding React state update');
           
-          // CRITICAL: Use minimal state update ONLY to trigger UI re-render for success message
-          // This is the ONLY state update for PDF format - just a boolean flag
-          // We use a separate state variable to avoid any chance of processing large objects
-          setPipelineComplete(true);
+          // CRITICAL: Do NOT call setPipelineComplete - it triggers React re-render which crashes
+          // Instead, use DOM manipulation to show success message without React state
+          pdfGeneratedRef.current = true;
           
-          // Show success message - toast might serialize something, so use minimal message
-          try {
-            toast.success('PDF report generated and downloaded!', { 
-              autoClose: 5000,
-              position: 'top-center'
-            });
-          } catch (toastErr) {
-            // If toast fails, just log - don't crash
-            console.log('[MigrationPipeline] PDF generated successfully (toast failed)');
-          }
+          // Use setTimeout to defer DOM manipulation to next tick, avoiding synchronous crash
+          setTimeout(() => {
+            try {
+              // Direct DOM manipulation to show success message - bypasses React entirely
+              const successDiv = document.createElement('div');
+              successDiv.className = 'alert alert-success text-center mt-3 mb-3';
+              successDiv.style.cssText = 'margin: 1rem 0; padding: 1rem;';
+              successDiv.innerHTML = `
+                <h4>✅ PDF Report Generated Successfully!</h4>
+                <p class="mb-0">Your migration assessment PDF has been downloaded.</p>
+                <p class="text-muted mt-2 mb-0">
+                  <small>Report contains all workloads analyzed across all migration phases.</small>
+                </p>
+              `;
+              
+              // Find the pipeline container and append success message
+              const pipelineContainer = document.querySelector('.migration-pipeline');
+              if (pipelineContainer) {
+                // Remove any existing success message
+                const existing = pipelineContainer.querySelector('.pdf-success-message');
+                if (existing) existing.remove();
+                
+                successDiv.classList.add('pdf-success-message');
+                // Insert after PipelineOrchestrator or at the end
+                const orchestrator = pipelineContainer.querySelector('.pipeline-orchestrator') || 
+                                   pipelineContainer.querySelector('[class*="orchestrator"]');
+                if (orchestrator && orchestrator.nextSibling) {
+                  pipelineContainer.insertBefore(successDiv, orchestrator.nextSibling);
+                } else {
+                  pipelineContainer.appendChild(successDiv);
+                }
+              }
+              
+              // Show toast - minimal message only
+              try {
+                toast.success('PDF downloaded!', { 
+                  autoClose: 3000,
+                  position: 'top-center'
+                });
+              } catch (toastErr) {
+                // Ignore toast errors
+              }
+            } catch (domErr) {
+              // If DOM manipulation fails, just log - don't crash
+              console.log('[MigrationPipeline] PDF generated successfully (DOM update failed)');
+            }
+          }, 100);
           
-          // CRITICAL: Do NOT call setPipelineOutputs - this would store 599K workloads in state
-          // The PDF is already downloaded, so we don't need outputs in state
+          // CRITICAL: Do NOT call setPipelineComplete or setPipelineOutputs
+          // This completely avoids React re-renders that cause browser crashes
+          // The PDF is already downloaded, so we don't need React state at all
           
         } catch (err) {
           // Reset guard flag on error
@@ -1303,7 +1340,8 @@ export default function MigrationPipeline() {
       <CrashLogsButton />
       <CrashLogsModal />
       
-      {pipelineComplete && (
+      {/* Only show pipeline complete message for screen format - PDF uses DOM manipulation */}
+      {pipelineComplete && outputFormat !== 'pdf' && (
         <div className="alert alert-success mb-3">
           <h4>✅ Pipeline Complete!</h4>
           <p>All agents have finished. Results are displayed below. You can rerun individual agents if needed.</p>
@@ -1357,19 +1395,8 @@ export default function MigrationPipeline() {
         </div>
       )}
       
-      {/* Show PDF success message if PDF format was selected and PDF was generated */}
-      {/* Use both ref AND pipelineComplete to ensure message shows after state update */}
-      {outputFormat === 'pdf' && (pdfGeneratedRef.current || pipelineComplete) && (
-        <div className="mt-3 mb-3">
-          <div className="alert alert-success text-center">
-            <h4>✅ PDF Report Generated Successfully!</h4>
-            <p className="mb-0">Your migration assessment PDF has been downloaded.</p>
-            <p className="text-muted mt-2 mb-0">
-              <small>Report contains all workloads analyzed across all migration phases.</small>
-            </p>
-          </div>
-        </div>
-      )}
+      {/* PDF success message is now handled via direct DOM manipulation to avoid React re-renders */}
+      {/* No React conditional rendering here - prevents crashes */}
     </div>
   );
 
