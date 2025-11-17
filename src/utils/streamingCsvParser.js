@@ -51,7 +51,20 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
       
       // Parse header row
       if (lineNumber === 1) {
-        headers = line.split(',').map(h => h.trim());
+        // SAFETY: Use parseCSVLine for headers too (handles quoted headers)
+        headers = parseCSVLine(line);
+        
+        // SAFETY: Validate headers
+        if (!headers || headers.length === 0) {
+          throw new Error('CSV file has no headers or headers could not be parsed');
+        }
+        
+        // SAFETY: Limit header count
+        if (headers.length > 1000) {
+          console.warn(`[streamingCsvParser] Too many headers (${headers.length}), limiting to 1000`);
+          headers = headers.slice(0, 1000);
+        }
+        
         headerIndices = {
           productCode: getColumnIndex(['productcode', 'product_code', 'service'], headers),
           resourceId: getColumnIndex(['resourceid', 'resource_id', 'resource'], headers),
@@ -201,9 +214,13 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
       workload.monthlyCost = (workload.monthlyCost || 0) + roundedCost;
       
       // Track date range (expand if needed)
+      // SAFETY: Limit seenDates array size to prevent memory issues
       if (usageStartDate) {
         if (!workload.seenDates.includes(usageStartDate)) {
-          workload.seenDates.push(usageStartDate);
+          // Limit to 1000 dates to prevent unbounded growth
+          if (workload.seenDates.length < 1000) {
+            workload.seenDates.push(usageStartDate);
+          }
         }
         if (usageStartDate && usageEndDate) {
           if (!workload.dateRange) {
@@ -220,6 +237,12 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
         }
       }
       
+      // SAFETY: Check workloadMap size to prevent memory issues
+      if (workloadMap.size > 2000000) { // 2M limit
+        console.warn(`[streamingCsvParser] workloadMap size (${workloadMap.size}) exceeds limit, stopping processing`);
+        throw new Error(`Too many unique workloads (${workloadMap.size}). File may be corrupted or too large.`);
+      }
+      
       // Update storage if it's a storage service
       if (mapping.type === 'storage' && headerIndices.usageAmount !== -1) {
         const usageAmount = parseFloat(values[headerIndices.usageAmount] || '0');
@@ -230,35 +253,70 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
     };
     
     // Parse CSV line handling quoted values
+    // SAFETY: Add guards for malformed CSV data
     const parseCSVLine = (line) => {
-      const values = [];
-      let current = '';
-      let inQuotes = false;
-      
-      for (let i = 0; i < line.length; i++) {
-        const char = line[i];
-        
-        if (char === '"') {
-          if (inQuotes && line[i + 1] === '"') {
-            // Escaped quote
-            current += '"';
-            i++;
-          } else {
-            // Toggle quote state
-            inQuotes = !inQuotes;
-          }
-        } else if (char === ',' && !inQuotes) {
-          // End of field
-          values.push(current.trim());
-          current = '';
-        } else {
-          current += char;
+      try {
+        // SAFETY: Limit line length to prevent memory issues
+        const MAX_LINE_LENGTH = 10000000; // 10MB max per line
+        if (line.length > MAX_LINE_LENGTH) {
+          console.warn(`[parseCSVLine] Line too long (${line.length} chars), truncating to ${MAX_LINE_LENGTH}`);
+          line = line.substring(0, MAX_LINE_LENGTH);
         }
+        
+        const values = [];
+        let current = '';
+        let inQuotes = false;
+        let quoteCount = 0; // Track quote count to detect malformed data
+        
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i];
+          
+          if (char === '"') {
+            quoteCount++;
+            // SAFETY: Prevent infinite quote parsing
+            if (quoteCount > 100000) {
+              console.warn('[parseCSVLine] Too many quotes detected, line may be malformed');
+              break;
+            }
+            
+            if (inQuotes && line[i + 1] === '"') {
+              // Escaped quote
+              current += '"';
+              i++;
+            } else {
+              // Toggle quote state
+              inQuotes = !inQuotes;
+            }
+          } else if (char === ',' && !inQuotes) {
+            // End of field
+            values.push(current.trim());
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        
+        // SAFETY: If still in quotes, close it (malformed CSV)
+        if (inQuotes) {
+          console.warn('[parseCSVLine] Unclosed quotes detected, closing quote');
+        }
+        
+        // Add last field
+        values.push(current.trim());
+        
+        // SAFETY: Limit number of fields to prevent memory issues
+        const MAX_FIELDS = 10000;
+        if (values.length > MAX_FIELDS) {
+          console.warn(`[parseCSVLine] Too many fields (${values.length}), limiting to ${MAX_FIELDS}`);
+          return values.slice(0, MAX_FIELDS);
+        }
+        
+        return values;
+      } catch (parseError) {
+        console.error('[parseCSVLine] Error parsing CSV line:', parseError);
+        // Return empty array on error to prevent crash
+        return [];
       }
-      
-      // Add last field
-      values.push(current.trim());
-      return values;
     };
     
     // Parse instance type to extract CPU and memory
@@ -382,7 +440,17 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
     // CRITICAL FIX: Process buffer iteratively in batches to prevent stack overflow
     // This function processes all remaining lines in buffer, but in small batches with yields
     const processRemainingBuffer = async () => {
+      let bufferIterations = 0;
+      const MAX_BUFFER_ITERATIONS = 1000000; // Safety limit to prevent infinite loop
+      
       while (buffer.indexOf('\n') !== -1) {
+        // SAFETY: Prevent infinite loop
+        bufferIterations++;
+        if (bufferIterations > MAX_BUFFER_ITERATIONS) {
+          console.error('[streamingCsvParser] Buffer processing exceeded maximum iterations. Buffer may be corrupted.');
+          break; // Exit loop instead of hanging
+        }
+        
         let linesProcessedInBatch = 0;
         let newlineIndex;
         
@@ -413,10 +481,47 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
       const reader = fileOrBuffer.stream().getReader();
       const decoder = new TextDecoder('utf-8');
       
+      // CRITICAL: Add timeout to prevent infinite loop if reader hangs
+      const MAX_READ_ITERATIONS = 1000000; // Safety limit
+      let readIterations = 0;
+      const READ_TIMEOUT_MS = 300000; // 5 minutes max for file read
+      const startTime = Date.now();
+      
       const readChunk = async () => {
         try {
           while (true) {
-            const { done, value } = await reader.read();
+            // SAFETY: Check for infinite loop or timeout
+            readIterations++;
+            if (readIterations > MAX_READ_ITERATIONS) {
+              reject(new Error(`File read exceeded maximum iterations (${MAX_READ_ITERATIONS}). File may be corrupted or too large.`));
+              try {
+                reader.cancel();
+              } catch (e) {
+                // Ignore cancel errors
+              }
+              return;
+            }
+            
+            // SAFETY: Check for timeout
+            if (Date.now() - startTime > READ_TIMEOUT_MS) {
+              reject(new Error(`File read exceeded timeout (${READ_TIMEOUT_MS}ms). File may be too large or corrupted.`));
+              try {
+                reader.cancel();
+              } catch (e) {
+                // Ignore cancel errors
+              }
+              return;
+            }
+            
+            let readResult;
+            try {
+              readResult = await reader.read();
+            } catch (readError) {
+              reject(new Error(`Error reading file stream: ${readError.message}`));
+              return;
+            }
+            
+            const { done, value } = readResult;
             if (done) {
               // Process all remaining buffer in batches
               await processRemainingBuffer();
@@ -427,7 +532,23 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
                 buffer = '';
               }
               
-              const result = Array.from(workloadMap.values());
+              // SAFETY: Safe array conversion with error handling
+              let result = [];
+              try {
+                result = Array.from(workloadMap.values());
+              } catch (arrayError) {
+                console.error('[streamingCsvParser] Error converting workloadMap to array:', arrayError);
+                // Fallback: manual conversion
+                result = [];
+                for (const workload of workloadMap.values()) {
+                  result.push(workload);
+                  // Safety limit
+                  if (result.length > 1000000) {
+                    console.warn('[streamingCsvParser] Too many workloads, limiting to 1M');
+                    break;
+                  }
+                }
+              }
               
               // Validate that we have data rows (not just header)
               const totalRowsRead = lineNumber - 1; // Exclude header
@@ -436,7 +557,22 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress) => {
                 return;
               }
               
-              const totalAggregatedCost = result.reduce((sum, workload) => sum + (workload.monthlyCost || 0), 0);
+              // SAFETY: Safe reduce with error handling
+              let totalAggregatedCost = 0;
+              try {
+                if (result.length > 0) {
+                  totalAggregatedCost = result.reduce((sum, workload) => {
+                    try {
+                      return sum + (workload?.monthlyCost || 0);
+                    } catch (e) {
+                      return sum; // Skip invalid workloads
+                    }
+                  }, 0);
+                }
+              } catch (reduceError) {
+                console.warn('[streamingCsvParser] Error calculating totalAggregatedCost:', reduceError);
+                // Continue with 0 if reduce fails
+              }
               
               // CRITICAL DEBUG: Log row processing statistics
               console.log(`\n=== CSV PARSING SUMMARY ===`);

@@ -175,6 +175,45 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
   const [agentProgress, setAgentProgress] = useState(0);
   const [overallProgress, setOverallProgress] = useState(0);
   const [agentStatus, setAgentStatus] = useState('pending'); // pending, running, completed, failed, cancelled
+  const isMountedRef = useRef(true); // Track if component is mounted
+  
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+  
+  // Safe state setters that check mount status
+  const safeSetAgentProgress = useCallback((progress) => {
+    if (isMountedRef.current) {
+      try {
+        setAgentProgress(progress);
+      } catch (e) {
+        console.warn('[PipelineOrchestrator] Error setting agentProgress:', e);
+      }
+    }
+  }, []);
+  
+  const safeSetOverallProgress = useCallback((progress) => {
+    if (isMountedRef.current) {
+      try {
+        setOverallProgress(progress);
+      } catch (e) {
+        console.warn('[PipelineOrchestrator] Error setting overallProgress:', e);
+      }
+    }
+  }, []);
+  
+  const safeSetAgentStatus = useCallback((status) => {
+    if (isMountedRef.current) {
+      try {
+        setAgentStatus(status);
+      } catch (e) {
+        console.warn('[PipelineOrchestrator] Error setting agentStatus:', e);
+      }
+    }
+  }, []);
   const [estimatedTimeRemaining, setEstimatedTimeRemaining] = useState(null);
   const [agentOutput, setAgentOutput] = useState(null);
   const [needsRerun, setNeedsRerun] = useState([]);
@@ -391,9 +430,9 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       return cached;
     }
 
-    setAgentStatus('running');
+    safeSetAgentStatus('running');
     startTimeRef.current = Date.now();
-    setAgentProgress(0);
+    safeSetAgentProgress(0);
 
     try {
       // CRITICAL FIX: Check if files were actually uploaded (not just restored placeholders)
@@ -439,7 +478,7 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
           console.log(`[DEBUG] Discovery Agent: Found ${workloads.length} workloads after ${attempts} attempts`);
           break;
         }
-        setAgentProgress(Math.min(attempts * 0.5, 90)); // Show progress while waiting
+        safeSetAgentProgress(Math.min(attempts * 0.5, 90)); // Show progress while waiting
         await new Promise(resolve => setTimeout(resolve, 100));
         attempts++;
       }
@@ -528,14 +567,25 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         }
       }
       
-      setAgentProgress(100);
+      safeSetAgentProgress(100);
 
+      // SAFETY: Limit workloads in output to prevent memory issues
+      // For very large datasets, we'll limit the workloads array but keep the count accurate
+      const MAX_OUTPUT_WORKLOADS = 100000; // Limit to 100K in output
+      const outputWorkloads = workloads.length > MAX_OUTPUT_WORKLOADS 
+        ? workloads.slice(0, MAX_OUTPUT_WORKLOADS)
+        : workloads;
+      
+      if (workloads.length > MAX_OUTPUT_WORKLOADS) {
+        console.warn(`[PipelineOrchestrator] Limiting output workloads from ${workloads.length} to ${MAX_OUTPUT_WORKLOADS} to prevent memory issues`);
+      }
+      
       const output = {
-        workloads,
-        workloadIds,
-        workloadCount: workloads.length,
+        workloads: outputWorkloads, // Limited array
+        workloadIds, // Full list of IDs
+        workloadCount: workloads.length, // Actual count
         summary: {
-          uniqueWorkloads: workloads.length,
+          uniqueWorkloads: workloads.length, // Actual count
           totalRegions: regions.size
         },
         timestamp: new Date().toISOString()
@@ -567,9 +617,9 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       return cached;
     }
 
-    setAgentStatus('running');
+    safeSetAgentStatus('running');
     startTimeRef.current = Date.now();
-    setAgentProgress(0);
+    safeSetAgentProgress(0);
 
     try {
       // CRITICAL FIX: Only assess workloads that are actually in the repository
@@ -603,8 +653,8 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         const agentStatus = agentStatusManager.getAgentStatus('AssessmentAgent');
         if (agentStatus && agentStatus.progress !== undefined) {
           const progress = agentStatus.progress;
-          setAgentProgress(progress);
-          setOverallProgress(Math.round((1 / AGENTS.length) * 100 + (progress / AGENTS.length)));
+          safeSetAgentProgress(progress);
+          safeSetOverallProgress(Math.round((1 / AGENTS.length) * 100 + (progress / AGENTS.length)));
         }
       });
 
@@ -812,8 +862,8 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         });
       }
 
-      setAgentProgress(100);
-      setOverallProgress(Math.round((2 / AGENTS.length) * 100));
+      safeSetAgentProgress(100);
+      safeSetOverallProgress(Math.round((2 / AGENTS.length) * 100));
 
       const output = {
         results: serializedSuccessful,
@@ -927,15 +977,15 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       return cached;
     }
 
-    setAgentStatus('running');
+    safeSetAgentStatus('running');
     startTimeRef.current = Date.now();
-    setAgentProgress(0);
+    safeSetAgentProgress(0);
 
     try {
       // Simulate progress for strategy agent
       const progressInterval = setInterval(() => {
-        setAgentProgress(prev => Math.min(prev + 2, 100));
-        setOverallProgress(Math.round((3 / AGENTS.length) * 100));
+        safeSetAgentProgress(prev => Math.min(prev + 2, 100));
+        safeSetOverallProgress(Math.round((3 / AGENTS.length) * 100));
       }, 200);
 
       // Extract workloadIds from assessment results
@@ -1065,8 +1115,8 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       }
 
       clearInterval(progressInterval);
-      setAgentProgress(100);
-      setOverallProgress(Math.round((4 / AGENTS.length) * 100));
+      safeSetAgentProgress(100);
+      safeSetOverallProgress(Math.round((4 / AGENTS.length) * 100));
 
       const output = {
         ...strategyResult,
@@ -1128,8 +1178,14 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         }
         
         // Regenerate costEstimates
+        // SAFETY: Limit workloads for aggregation
+        const MAX_AGGREGATION_WORKLOADS = 500000;
+        const workloadsForAggregation = workloads.length > MAX_AGGREGATION_WORKLOADS
+          ? workloads.slice(0, MAX_AGGREGATION_WORKLOADS)
+          : workloads;
+        
         // aggregateByService returns an array directly, not an object with topServices
-        const serviceAggregation = ReportDataAggregator.aggregateByService(workloads);
+        const serviceAggregation = ReportDataAggregator.aggregateByService(workloadsForAggregation);
         
         if (!serviceAggregation || serviceAggregation.length === 0) {
           console.warn('No services found after aggregation');
@@ -1159,9 +1215,9 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       return cached;
     }
 
-    setAgentStatus('running');
+    safeSetAgentStatus('running');
     startTimeRef.current = Date.now();
-    setAgentProgress(0);
+    safeSetAgentProgress(0);
 
     try {
       const progressInterval = setInterval(() => {
@@ -1270,13 +1326,23 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         workloads = discoveryOutput.workloads || [];
       }
       
+      // SAFETY: Limit workloads for aggregation to prevent memory issues
+      const MAX_AGGREGATION_WORKLOADS = 500000; // 500K max for aggregation
+      const workloadsForAggregation = workloads.length > MAX_AGGREGATION_WORKLOADS
+        ? workloads.slice(0, MAX_AGGREGATION_WORKLOADS)
+        : workloads;
+      
+      if (workloads.length > MAX_AGGREGATION_WORKLOADS) {
+        console.warn(`[Cost Agent] Limiting aggregation from ${workloads.length} to ${MAX_AGGREGATION_WORKLOADS} workloads to prevent memory issues`);
+      }
+      
       // Aggregate services from workloads
       // aggregateByService returns an array directly, not an object with topServices
       // SAFETY: Wrap in try-catch to catch stack overflow
       let serviceAggregation;
       try {
-        console.log(`[Cost Agent] PRE-AGGREGATION: About to aggregate ${workloads.length} workloads by service...`);
-        console.log(`[Cost Agent] PRE-AGGREGATION: Workloads type: ${Array.isArray(workloads) ? 'array' : typeof workloads}`);
+        console.log(`[Cost Agent] PRE-AGGREGATION: About to aggregate ${workloadsForAggregation.length} workloads by service...`);
+        console.log(`[Cost Agent] PRE-AGGREGATION: Workloads type: ${Array.isArray(workloadsForAggregation) ? 'array' : typeof workloadsForAggregation}`);
         console.log(`[Cost Agent] PRE-AGGREGATION: Calling ReportDataAggregator.aggregateByService NOW...`);
         
         // Force flush console before operation
@@ -1285,7 +1351,7 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
           setTimeout(() => {}, 0);
         }
         
-        serviceAggregation = ReportDataAggregator.aggregateByService(workloads);
+        serviceAggregation = ReportDataAggregator.aggregateByService(workloadsForAggregation);
         
         console.log(`[Cost Agent] POST-AGGREGATION: Service aggregation complete: ${serviceAggregation.length} services`);
       } catch (aggError) {
@@ -1362,7 +1428,7 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       }
 
       clearInterval(progressInterval);
-      setAgentProgress(100);
+      safeSetAgentProgress(100);
       setOverallProgress(100);
 
       // Combine both outputs: costResult (TCO, insights) + costEstimates (for PDF)
@@ -1393,8 +1459,8 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
     if (!agent) return;
 
     try {
-      setAgentStatus('running');
-      setAgentProgress(0);
+      safeSetAgentStatus('running');
+      safeSetAgentProgress(0);
 
       let output = null;
 
@@ -1509,7 +1575,7 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
 
       setAgentOutput(output);
       setAgentStatus('completed');
-      setAgentProgress(100);
+      safeSetAgentProgress(100);
       
       // Update completed agents list
       setCompletedAgents(prev => {
@@ -1528,7 +1594,7 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         // Allow UI to update before moving to next agent
         await new Promise(resolve => requestAnimationFrame(resolve));
         setCurrentAgentIndex(nextAgentIndex);
-        setAgentProgress(0);
+        safeSetAgentProgress(0);
         setAgentStatus('pending');
         setAgentOutput(null);
       } else {
@@ -1572,7 +1638,7 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       console.error('Full error:', errorToReport);
       console.error('Stack trace:', errorToReport.stack);
       setAgentStatus('failed');
-      setAgentProgress(0);
+      safeSetAgentProgress(0);
       onError?.(errorToReport, agent.id);
       
       // Save failed state so user can resume
@@ -1625,7 +1691,7 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
             console.error(`[PIPELINE] Resetting to missing agent: ${prevAgent.name}`);
             setCurrentAgentIndex(i);
             setAgentStatus('pending');
-            setAgentProgress(0);
+            safeSetAgentProgress(0);
             return;
           }
         }
@@ -1693,7 +1759,7 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         const cached = await getAgentOutput(fileUUID, agent.id);
         setAgentOutput(cached);
         setAgentStatus('completed');
-        setAgentProgress(100);
+        safeSetAgentProgress(100);
         
         // Update completed agents list
         setCompletedAgents(prev => {
@@ -1728,7 +1794,7 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         if (currentAgentIndex < AGENTS.length - 1) {
           setTimeout(() => {
             setCurrentAgentIndex(prev => Math.min(prev + 1, AGENTS.length - 1));
-            setAgentProgress(0);
+            safeSetAgentProgress(0);
             setAgentStatus('pending');
           }, 500);
         } else {
@@ -1786,7 +1852,7 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
     // Navigate to this agent and reset its state
     setCurrentAgentIndex(agentIndex);
     setAgentStatus('pending');
-    setAgentProgress(0);
+    safeSetAgentProgress(0);
     setAgentOutput(null);
     setNeedsRerun(prev => prev.filter(id => id !== agentId));
     cancelRequestedRef.current = false;
@@ -1857,7 +1923,7 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       if (currentAgentIndex !== 0) {
         setCurrentAgentIndex(0);
         setOverallProgress(0);
-        setAgentProgress(0);
+        safeSetAgentProgress(0);
         setAgentStatus('pending');
       }
     };

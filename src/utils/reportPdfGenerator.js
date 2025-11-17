@@ -580,9 +580,28 @@ export const generateComprehensiveReportPDF = async (
   yPos += SPACING.LG;
 
   // All regions - sorted by cost
-  // FIX: Avoid stack overflow with large arrays - use Array.from() instead of spread operator
-  const sortedRegions = Array.from(regions)
-    .sort((a, b) => (b?.totalCost || 0) - (a?.totalCost || 0));
+  // SAFETY: Safe array conversion and sort with error handling
+  let sortedRegions = [];
+  try {
+    sortedRegions = Array.from(regions);
+    // SAFETY: Limit regions before sorting
+    if (sortedRegions.length > 1000) {
+      console.warn(`[reportPdfGenerator] Too many regions (${sortedRegions.length}), limiting to 1000`);
+      sortedRegions = sortedRegions.slice(0, 1000);
+    }
+    sortedRegions.sort((a, b) => {
+      try {
+        const costA = typeof a?.totalCost === 'number' ? a.totalCost : parseFloat(a?.totalCost) || 0;
+        const costB = typeof b?.totalCost === 'number' ? b.totalCost : parseFloat(b?.totalCost) || 0;
+        return costB - costA;
+      } catch (e) {
+        return 0; // Keep order if sort fails
+      }
+    });
+  } catch (sortError) {
+    console.error('[reportPdfGenerator] Error sorting regions:', sortError);
+    sortedRegions = Array.isArray(regions) ? regions.slice(0, 100) : [];
+  }
 
   // SAFETY: Batch map to avoid stack overflow (regions should be small, but batch to be safe)
   const regionTableData = [];
@@ -654,13 +673,31 @@ export const generateComprehensiveReportPDF = async (
     // Sort by AWS cost and show all services (only if we have costEstimates)
     let sortedCostEstimates = [];
     if (hasCostEstimates) {
-      // FIX: Avoid stack overflow with large arrays - use Array.from() instead of spread operator
-      sortedCostEstimates = Array.from(costEstimates)
-        .sort((a, b) => {
-          const costA = a.costEstimate?.awsCost || 0;
-          const costB = b.costEstimate?.awsCost || 0;
-          return costB - costA;
+      // SAFETY: Safe array conversion and sort with error handling
+      try {
+        sortedCostEstimates = Array.from(costEstimates);
+        // SAFETY: Limit before sorting
+        if (sortedCostEstimates.length > 10000) {
+          console.warn(`[reportPdfGenerator] Too many cost estimates (${sortedCostEstimates.length}), limiting to 10000`);
+          sortedCostEstimates = sortedCostEstimates.slice(0, 10000);
+        }
+        sortedCostEstimates.sort((a, b) => {
+          try {
+            const costA = typeof a?.costEstimate?.awsCost === 'number' 
+              ? a.costEstimate.awsCost 
+              : parseFloat(a?.costEstimate?.awsCost) || 0;
+            const costB = typeof b?.costEstimate?.awsCost === 'number'
+              ? b.costEstimate.awsCost
+              : parseFloat(b?.costEstimate?.awsCost) || 0;
+            return costB - costA;
+          } catch (e) {
+            return 0; // Keep order if sort fails
+          }
         });
+      } catch (sortError) {
+        console.error('[reportPdfGenerator] Error sorting cost estimates:', sortError);
+        sortedCostEstimates = Array.isArray(costEstimates) ? costEstimates.slice(0, 1000) : [];
+      }
     }
     
     if (hasCostEstimates) {
@@ -1063,9 +1100,28 @@ export const generateComprehensiveReportPDF = async (
       
       console.log(`PDF Generator - Processing ${plans.length} migration plans (should match total workloads ~19.5k)`);
       
-      // SAFETY: serviceMap should be small (number of unique services), so operations are safe
-      const serviceValues = Array.from(serviceMap.values());
-      serviceValues.sort((a, b) => b.count - a.count);
+      // SAFETY: serviceMap should be small (number of unique services), but add error handling
+      let serviceValues = [];
+      try {
+        serviceValues = Array.from(serviceMap.values());
+        // Limit to 1000 services
+        if (serviceValues.length > 1000) {
+          console.warn(`[reportPdfGenerator] Too many services (${serviceValues.length}), limiting to 1000`);
+          serviceValues = serviceValues.slice(0, 1000);
+        }
+        serviceValues.sort((a, b) => {
+          try {
+            const countA = typeof a?.count === 'number' ? a.count : parseInt(a?.count) || 0;
+            const countB = typeof b?.count === 'number' ? b.count : parseInt(b?.count) || 0;
+            return countB - countA;
+          } catch (e) {
+            return 0; // Keep order if sort fails
+          }
+        });
+      } catch (sortError) {
+        console.error('[reportPdfGenerator] Error processing service values:', sortError);
+        serviceValues = [];
+      }
       
       // SAFETY: Use loop instead of map for extra safety
       const allMappings = [];
@@ -1160,7 +1216,24 @@ export const generateComprehensiveReportPDF = async (
   
   // Calculate top 5 services percentage (for recommendation)
   const top5Services = allServicesList.slice(0, 5);
-  const top5Cost = top5Services.reduce((sum, s) => sum + (s?.totalCost || 0), 0);
+  // SAFETY: Safe reduce with error handling
+  let top5Cost = 0;
+  try {
+    if (top5Services && top5Services.length > 0) {
+      top5Cost = top5Services.reduce((sum, s) => {
+        try {
+          const cost = s?.totalCost || 0;
+          const numCost = typeof cost === 'number' ? cost : parseFloat(cost) || 0;
+          return sum + numCost;
+        } catch (e) {
+          return sum; // Skip invalid entries
+        }
+      }, 0);
+    }
+  } catch (reduceError) {
+    console.warn('[reportPdfGenerator] Error calculating top5Cost:', reduceError);
+    top5Cost = 0;
+  }
   const top5Percentage = totalMonthlyCost > 0 ? ((top5Cost / totalMonthlyCost) * 100).toFixed(1) : '0.0';
   
   const recommendations = [];

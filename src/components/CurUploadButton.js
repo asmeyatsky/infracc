@@ -20,52 +20,88 @@ class FileUploadManager {
   constructor(workloadRepository) {
     this.workloadRepository = workloadRepository;
     this.largeFileThreshold = 50 * 1024 * 1024; // 50MB
+    this._isProcessing = false; // Guard against concurrent processing
   }
 
   async processFiles(files, onProgress) {
-    let totalWorkloadsSaved = 0;
-    const dedupeMap = new Map();
-    const savedDedupeKeys = new Set();
+    // SAFETY: Guard against concurrent processing
+    if (this._isProcessing) {
+      throw new Error('File processing already in progress. Please wait for current operation to complete.');
+    }
+    
+    this._isProcessing = true;
+    const processingStartTime = Date.now();
+    const MAX_PROCESSING_TIME_MS = 1800000; // 30 minutes max
+    
+    try {
+      let totalWorkloadsSaved = 0;
+      const dedupeMap = new Map();
+      const savedDedupeKeys = new Set();
 
-    console.log(`[FileUploadManager] Processing ${files.length} file(s)`);
+      console.log(`[FileUploadManager] Processing ${files.length} file(s)`);
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      console.log(`[FileUploadManager] Processing file ${i + 1}/${files.length}: ${file.name} (${(file.size / 1024).toFixed(1)}KB)`);
-      
-      onProgress({
-        current: i + 1,
-        total: files.length,
-        currentFile: file.name,
-        status: `Processing ${file.name}...`,
-        percent: Math.round((i / files.length) * 100),
-      });
-
-      try {
-        const workloads = await this._processFile(file);
-        console.log(`[FileUploadManager] File ${file.name}: Parsed ${workloads.length} workloads`);
-        
-        if (workloads.length === 0) {
-          console.warn(`[FileUploadManager] WARNING: File ${file.name} produced 0 workloads. Check file format.`);
-          console.log(`[FileUploadManager] File size: ${file.size} bytes, type: ${file.type}`);
+      for (let i = 0; i < files.length; i++) {
+        // SAFETY: Check for timeout
+        if (Date.now() - processingStartTime > MAX_PROCESSING_TIME_MS) {
+          throw new Error(`File processing exceeded maximum time (${MAX_PROCESSING_TIME_MS}ms). Please try with fewer files.`);
         }
         
-        const { newWorkloads, updatedWorkloads } = await this._deduplicateAndSave(workloads, dedupeMap, savedDedupeKeys, onProgress);
-        console.log(`[FileUploadManager] File ${file.name}: Saved ${newWorkloads} new, ${updatedWorkloads} updated workloads`);
-        totalWorkloadsSaved += newWorkloads;
-      } catch (error) {
-        console.error(`[FileUploadManager] Error processing ${file.name}:`, error);
-        console.error(`[FileUploadManager] Error stack:`, error.stack);
-        toast.error(`Error processing ${file.name}: ${error.message}`);
+        const file = files[i];
+        
+        // SAFETY: Validate file
+        if (!file || !file.name) {
+          console.warn(`[FileUploadManager] Skipping invalid file at index ${i}`);
+          continue;
+        }
+        
+        console.log(`[FileUploadManager] Processing file ${i + 1}/${files.length}: ${file.name} (${(file.size / 1024).toFixed(1)}KB)`);
+        
+        try {
+          onProgress({
+            current: i + 1,
+            total: files.length,
+            currentFile: file.name,
+            status: `Processing ${file.name}...`,
+            percent: Math.round((i / files.length) * 100),
+          });
+        } catch (progressError) {
+          console.warn('[FileUploadManager] Error calling onProgress:', progressError);
+          // Continue processing even if progress callback fails
+        }
+
+        try {
+          const workloads = await this._processFile(file);
+          console.log(`[FileUploadManager] File ${file.name}: Parsed ${workloads.length} workloads`);
+          
+          if (workloads.length === 0) {
+            console.warn(`[FileUploadManager] WARNING: File ${file.name} produced 0 workloads. Check file format.`);
+            console.log(`[FileUploadManager] File size: ${file.size} bytes, type: ${file.type}`);
+          }
+          
+          const { newWorkloads, updatedWorkloads } = await this._deduplicateAndSave(workloads, dedupeMap, savedDedupeKeys, onProgress);
+          console.log(`[FileUploadManager] File ${file.name}: Saved ${newWorkloads} new, ${updatedWorkloads} updated workloads`);
+          totalWorkloadsSaved += newWorkloads;
+        } catch (error) {
+          console.error(`[FileUploadManager] Error processing ${file.name}:`, error);
+          console.error(`[FileUploadManager] Error stack:`, error.stack);
+          try {
+            toast.error(`Error processing ${file.name}: ${error.message}`);
+          } catch (toastError) {
+            // Ignore toast errors
+          }
+          // Continue with next file instead of stopping
+        }
       }
+
+      console.log(`[FileUploadManager] Total: ${totalWorkloadsSaved} new workloads saved, ${dedupeMap.size} unique workloads`);
+
+      return {
+        totalWorkloadsSaved,
+        uniqueWorkloads: dedupeMap.size,
+      };
+    } finally {
+      this._isProcessing = false;
     }
-
-    console.log(`[FileUploadManager] Total: ${totalWorkloadsSaved} new workloads saved, ${dedupeMap.size} unique workloads`);
-
-    return {
-      totalWorkloadsSaved,
-      uniqueWorkloads: dedupeMap.size,
-    };
   }
 
   async _processFile(file) {
@@ -88,10 +124,21 @@ class FileUploadManager {
     }
 
     return new Promise((resolve, reject) => {
+      // SAFETY: Add timeout to prevent hanging forever
+      const FILE_READ_TIMEOUT_MS = 60000; // 60 seconds max
+      const timeoutId = setTimeout(() => {
+        reject(new Error(`File read timeout after ${FILE_READ_TIMEOUT_MS}ms. File may be too large or corrupted: ${file.name}`));
+      }, FILE_READ_TIMEOUT_MS);
+      
       const reader = new FileReader();
       reader.onload = async (e) => {
+        clearTimeout(timeoutId);
         try {
           const csvText = e.target.result;
+          if (!csvText || csvText.length === 0) {
+            reject(new Error(`File is empty: ${file.name}`));
+            return;
+          }
           let importedData = [];
           if (awsBomFormat === 'cur') {
             importedData = parseAwsCur(csvText);
@@ -103,7 +150,14 @@ class FileUploadManager {
           reject(error);
         }
       };
-      reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
+      reader.onerror = () => {
+        clearTimeout(timeoutId);
+        reject(new Error(`Failed to read file: ${file.name}`));
+      };
+      reader.onabort = () => {
+        clearTimeout(timeoutId);
+        reject(new Error(`File read was aborted: ${file.name}`));
+      };
       reader.readAsText(file);
     });
   }

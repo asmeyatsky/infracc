@@ -181,9 +181,19 @@ export class ReportDataAggregator {
     const result = [];
     for (const serviceData of serviceMap.values()) {
       let averageComplexity = null;
-      if (serviceData.complexities.length > 0) {
-        // Use reduce safely (complexities array is per-service, so should be small)
-        averageComplexity = serviceData.complexities.reduce((a, b) => a + b, 0) / serviceData.complexities.length;
+      if (serviceData.complexities && serviceData.complexities.length > 0) {
+        // SAFETY: Use reduce safely with error handling
+        try {
+          const sum = serviceData.complexities.reduce((a, b) => {
+            const numA = typeof a === 'number' ? a : 0;
+            const numB = typeof b === 'number' ? (b || 0) : 0;
+            return numA + numB;
+          }, 0);
+          averageComplexity = sum / serviceData.complexities.length;
+        } catch (reduceError) {
+          console.warn('[ReportDataAggregator] Error calculating average complexity:', reduceError);
+          averageComplexity = null;
+        }
       }
       result.push({
         service: serviceData.service,
@@ -294,9 +304,19 @@ export class ReportDataAggregator {
       }
 
       let averageComplexity = null;
-      if (regionData.complexities.length > 0) {
-        // Use reduce safely (complexities array is per-region, should be manageable)
-        averageComplexity = regionData.complexities.reduce((a, b) => a + b, 0) / regionData.complexities.length;
+      if (regionData.complexities && regionData.complexities.length > 0) {
+        // SAFETY: Use reduce safely with error handling
+        try {
+          const sum = regionData.complexities.reduce((a, b) => {
+            const numA = typeof a === 'number' ? a : 0;
+            const numB = typeof b === 'number' ? (b || 0) : 0;
+            return numA + numB;
+          }, 0);
+          averageComplexity = sum / regionData.complexities.length;
+        } catch (reduceError) {
+          console.warn('[ReportDataAggregator] Error calculating average complexity for region:', reduceError);
+          averageComplexity = null;
+        }
       }
 
       result.push({
@@ -700,7 +720,19 @@ export class ReportDataAggregator {
     }
 
     const averageComplexity = complexities.length > 0
-      ? complexities.reduce((a, b) => a + b, 0) / complexities.length
+      ? (() => {
+          try {
+            const sum = complexities.reduce((a, b) => {
+              const numA = typeof a === 'number' ? a : 0;
+              const numB = typeof b === 'number' ? (b || 0) : 0;
+              return numA + numB;
+            }, 0);
+            return sum / complexities.length;
+          } catch (reduceError) {
+            console.warn('[ReportDataAggregator] Error calculating average complexity:', reduceError);
+            return null;
+          }
+        })()
       : null;
 
       return {

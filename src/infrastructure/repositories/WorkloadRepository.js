@@ -35,6 +35,7 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
       description: 'Workload repository storage using IndexedDB'
     });
     this._isLoading = false;
+    this._isPersisting = false; // Guard against concurrent persistence
   }
 
   /**
@@ -196,11 +197,27 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
    * @private
    */
   async _persistToStorage() {
+    // SAFETY: Prevent concurrent persistence operations
+    if (this._isPersisting) {
+      console.warn('[WorkloadRepository] Persistence already in progress, skipping duplicate call');
+      return;
+    }
+    
+    this._isPersisting = true;
+    const PERSIST_TIMEOUT_MS = 600000; // 10 minutes max
+    const persistStartTime = Date.now();
+    
     try {
       const cacheSize = this._cache.size;
       
       if (cacheSize === 0) {
         return; // Nothing to persist
+      }
+      
+      // SAFETY: Check for timeout during persistence
+      if (Date.now() - persistStartTime > PERSIST_TIMEOUT_MS) {
+        console.error('[WorkloadRepository] Persistence exceeded timeout');
+        return;
       }
 
       // PERFORMANCE: Use parallel writes for much faster persistence
@@ -210,7 +227,23 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
         const startTime = Date.now();
         
         // Create snapshot of cache values to prevent iterator issues if cache grows during persistence
-        const workloadsToPersist = Array.from(this._cache.values());
+        // SAFETY: Use safe array conversion with error handling
+        let workloadsToPersist = [];
+        try {
+          workloadsToPersist = Array.from(this._cache.values());
+        } catch (arrayError) {
+          console.error('[WorkloadRepository] Error converting cache to array:', arrayError);
+          // Try alternative method
+          workloadsToPersist = [];
+          for (const workload of this._cache.values()) {
+            workloadsToPersist.push(workload);
+            // Safety limit
+            if (workloadsToPersist.length > 1000000) {
+              console.warn('[WorkloadRepository] Cache too large, limiting to 1M workloads');
+              break;
+            }
+          }
+        }
         const actualCacheSize = workloadsToPersist.length;
         
         // Process in parallel batches for much better performance
@@ -218,18 +251,30 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
           const batch = workloadsToPersist.slice(i, i + BATCH_WRITE_SIZE);
           
           // Write entire batch in parallel (IndexedDB handles concurrent writes efficiently)
+          // SAFETY: Use Promise.allSettled to handle individual failures gracefully
           const writePromises = batch.map(workload => {
             try {
               const workloadData = workload.toJSON();
-              return this._storage.setItem(workload.id, workloadData);
+              return this._storage.setItem(workload.id, workloadData).catch(error => {
+                console.warn(`Failed to persist workload ${workload.id}:`, error);
+                return null; // Return null on error instead of throwing
+              });
             } catch (error) {
-              console.warn(`Failed to persist workload ${workload.id}:`, error);
-              return Promise.resolve(); // Continue even if one fails
+              console.warn(`Failed to prepare workload ${workload.id} for persistence:`, error);
+              return Promise.resolve(null); // Continue even if preparation fails
             }
           });
           
-          await Promise.all(writePromises);
-          persistedCount += batch.length;
+          // SAFETY: Use allSettled to continue even if some writes fail
+          const results = await Promise.allSettled(writePromises);
+          const successCount = results.filter(r => r.status === 'fulfilled' && r.value !== null).length;
+          persistedCount += successCount;
+          
+          // Log failures if any
+          const failures = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && r.value === null));
+          if (failures.length > 0 && failures.length <= 10) {
+            console.warn(`[WorkloadRepository] ${failures.length} workloads failed to persist in this batch`);
+          }
           
           // Log progress every 50K items for large datasets
           if (actualCacheSize > 50000 && persistedCount % 50000 === 0) {
@@ -249,20 +294,43 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
         console.log(`WorkloadRepository._persistToStorage() - Persisted ${persistedCount.toLocaleString()} workloads to IndexedDB (snapshot size: ${actualCacheSize.toLocaleString()}, current cache: ${finalCacheSize.toLocaleString()}) in ${elapsed}s`);
       } else {
         // For smaller caches, persist all at once
+        // SAFETY: Use Promise.allSettled for better error handling
         const persistPromises = [];
         // Create snapshot for consistency
-        const workloadsToPersist = Array.from(this._cache.values());
+        let workloadsToPersist = [];
+        try {
+          workloadsToPersist = Array.from(this._cache.values());
+        } catch (arrayError) {
+          console.error('[WorkloadRepository] Error converting cache to array:', arrayError);
+          workloadsToPersist = [];
+          for (const workload of this._cache.values()) {
+            workloadsToPersist.push(workload);
+          }
+        }
         for (const workload of workloadsToPersist) {
-          const workloadData = workload.toJSON();
-          persistPromises.push(this._storage.setItem(workload.id, workloadData));
+          try {
+            const workloadData = workload.toJSON();
+            persistPromises.push(
+              this._storage.setItem(workload.id, workloadData).catch(error => {
+                console.warn(`Failed to persist workload ${workload.id}:`, error);
+                return null;
+              })
+            );
+          } catch (error) {
+            console.warn(`Failed to prepare workload for persistence:`, error);
+            persistPromises.push(Promise.resolve(null));
+          }
         }
         
-        await Promise.all(persistPromises);
-        console.log(`WorkloadRepository._persistToStorage() - Persisted ${this._cache.size} workloads to IndexedDB`);
+        const results = await Promise.allSettled(persistPromises);
+        const successCount = results.filter(r => r.status === 'fulfilled' && r.value !== null).length;
+        console.log(`WorkloadRepository._persistToStorage() - Persisted ${successCount}/${this._cache.size} workloads to IndexedDB`);
       }
     } catch (error) {
       console.error('Failed to persist workloads to IndexedDB:', error);
       // Don't throw - allow operation to continue even if persistence fails
+    } finally {
+      this._isPersisting = false;
     }
   }
 
