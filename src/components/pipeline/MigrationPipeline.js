@@ -296,7 +296,15 @@ export default function MigrationPipeline() {
       window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: outputFormat:', outputFormat);
     }
     console.log('[MigrationPipeline] handlePipelineComplete: ENTERING');
-    console.log('[MigrationPipeline] handlePipelineComplete: outputs:', outputs);
+    // CRITICAL: Don't log entire outputs object - it contains 599K workloads and will crash browser
+    console.log('[MigrationPipeline] handlePipelineComplete: outputs summary:', {
+      hasDiscovery: !!outputs?.discovery,
+      hasAssessment: !!outputs?.assessment,
+      hasStrategy: !!outputs?.strategy,
+      hasCost: !!outputs?.cost,
+      discoveryWorkloads: outputs?.discovery?.workloads?.length || 0,
+      assessmentResults: outputs?.assessment?.results?.length || 0
+    });
     
     try {
       // CRITICAL: For PDF format, defer state updates until AFTER PDF generation
@@ -336,15 +344,24 @@ export default function MigrationPipeline() {
           }
           console.log('[MigrationPipeline] PDF generation complete - stored in ref, avoiding React state update');
           
-          // Show success message directly without triggering React state
-          toast.success('PDF report generated and downloaded successfully!', { 
-            autoClose: 5000,
-            position: 'top-center'
-          });
+          // CRITICAL: Use minimal state update ONLY to trigger UI re-render for success message
+          // This is the ONLY state update for PDF format - just a boolean flag
+          // We use a separate state variable to avoid any chance of processing large objects
+          setPipelineComplete(true);
           
-          // CRITICAL: Do NOT call setPipelineComplete or setPipelineOutputs
-          // This completely avoids React re-renders that could cause browser crashes
-          // The PDF is already downloaded, so we don't need React state at all
+          // Show success message - toast might serialize something, so use minimal message
+          try {
+            toast.success('PDF report generated and downloaded!', { 
+              autoClose: 5000,
+              position: 'top-center'
+            });
+          } catch (toastErr) {
+            // If toast fails, just log - don't crash
+            console.log('[MigrationPipeline] PDF generated successfully (toast failed)');
+          }
+          
+          // CRITICAL: Do NOT call setPipelineOutputs - this would store 599K workloads in state
+          // The PDF is already downloaded, so we don't need outputs in state
           
         } catch (err) {
           // Reset guard flag on error
@@ -1341,7 +1358,8 @@ export default function MigrationPipeline() {
       )}
       
       {/* Show PDF success message if PDF format was selected and PDF was generated */}
-      {pdfGeneratedRef.current && (
+      {/* Use both ref AND pipelineComplete to ensure message shows after state update */}
+      {outputFormat === 'pdf' && (pdfGeneratedRef.current || pipelineComplete) && (
         <div className="mt-3 mb-3">
           <div className="alert alert-success text-center">
             <h4>✅ PDF Report Generated Successfully!</h4>
