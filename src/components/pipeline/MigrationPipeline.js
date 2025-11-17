@@ -357,31 +357,9 @@ export default function MigrationPipeline() {
           throw err;
         }
         
-        // Save completion status to pipeline state
-        if (fileUUID) {
-          if (typeof window !== 'undefined' && window.persistentLog) {
-            window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: About to save pipeline state...');
-          }
-          console.log('[MigrationPipeline] handlePipelineComplete: About to save pipeline state...');
-          try {
-            await savePipelineState(fileUUID, {
-              outputFormat,
-              pipelineComplete: true,
-              filesCount: files?.length || 0,
-              fileNames: files?.map(f => f.name) || []
-            });
-            if (typeof window !== 'undefined' && window.persistentLog) {
-              window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: Pipeline state saved');
-            }
-            console.log('[MigrationPipeline] handlePipelineComplete: Pipeline state saved');
-          } catch (saveErr) {
-            if (typeof window !== 'undefined' && window.persistentLog) {
-              window.persistentLog('ERROR', '[MigrationPipeline] handlePipelineComplete: Error saving state:', saveErr.message);
-            }
-            console.error('[MigrationPipeline] handlePipelineComplete: Error saving state:', saveErr);
-            // Don't throw - continue even if state save fails
-          }
-        }
+        // CRITICAL: Don't save pipeline state for PDF format - it might trigger serialization issues
+        // The PDF is already generated and downloaded, we don't need to persist state
+        // This avoids any potential crashes from trying to serialize large objects
         
         if (typeof window !== 'undefined' && window.persistentLog) {
           window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: COMPLETED SUCCESSFULLY (PDF)');
@@ -431,50 +409,8 @@ export default function MigrationPipeline() {
           // Don't throw - continue even if state save fails
         }
       }
-
-      // If PDF format was selected, generate PDF immediately
-      if (outputFormat === 'pdf') {
-        if (typeof window !== 'undefined' && window.persistentLog) {
-          window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: PDF format selected, about to generate PDF...');
-        }
-        console.log('[PDF] PDF format selected, auto-generating PDF...');
-        try {
-          if (typeof window !== 'undefined' && window.persistentLog) {
-            window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: Calling generatePDFReport...');
-          }
-          await generatePDFReport(outputs);
-          if (typeof window !== 'undefined' && window.persistentLog) {
-            window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: PDF generation completed successfully');
-          }
-          console.log('[PDF] Auto-generation completed');
-        } catch (err) {
-          if (typeof window !== 'undefined' && window.persistentLog) {
-            window.persistentLog('ERROR', '[MigrationPipeline] handlePipelineComplete: PDF generation error:', err.message);
-            window.persistentLog('ERROR', '[MigrationPipeline] handlePipelineComplete: PDF error stack:', err.stack);
-          }
-          console.error('[PDF] Error auto-generating PDF:', err);
-          console.error('[PDF] Error name:', err?.name);
-          console.error('[PDF] Error message:', err?.message);
-          console.error('[PDF] Error stack:', err?.stack);
-          
-          // Check for stack overflow
-          if (err instanceof RangeError || (err?.message && err.message.includes('Maximum call stack size exceeded'))) {
-            if (typeof window !== 'undefined' && window.persistentLog) {
-              window.persistentLog('CRITICAL', '[MigrationPipeline] handlePipelineComplete: STACK OVERFLOW in PDF generation!');
-            }
-            console.error('[PDF] STACK OVERFLOW in PDF generation!');
-          }
-          
-          toast.error(`Failed to generate PDF report: ${err.message}`, { autoClose: 10000 });
-          // Don't reset state on PDF error - keep pipeline complete so user can retry
-          // The pipeline completed successfully, PDF generation is separate
-        }
-      } else {
-        if (typeof window !== 'undefined' && window.persistentLog) {
-          window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: Screen format, skipping PDF generation');
-        }
-        console.log('[MigrationPipeline] handlePipelineComplete: Screen format, skipping PDF generation');
-      }
+      
+      // Screen format path - PDF format already handled above with early return
       
       if (typeof window !== 'undefined' && window.persistentLog) {
         window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: COMPLETED SUCCESSFULLY');
@@ -1405,16 +1341,14 @@ export default function MigrationPipeline() {
       )}
       
       {/* Show PDF success message if PDF format was selected and PDF was generated */}
-      {(pdfGeneratedRef.current || (pipelineComplete && outputFormat === 'pdf')) && (
+      {pdfGeneratedRef.current && (
         <div className="mt-3 mb-3">
           <div className="alert alert-success text-center">
             <h4>✅ PDF Report Generated Successfully!</h4>
             <p className="mb-0">Your migration assessment PDF has been downloaded.</p>
-            {pdfGeneratedRef.current && (
-              <p className="text-muted mt-2 mb-0">
-                <small>Report contains {599276} workloads analyzed across all migration phases.</small>
-              </p>
-            )}
+            <p className="text-muted mt-2 mb-0">
+              <small>Report contains all workloads analyzed across all migration phases.</small>
+            </p>
           </div>
         </div>
       )}
