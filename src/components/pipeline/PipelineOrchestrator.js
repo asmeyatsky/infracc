@@ -268,9 +268,9 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
             
             console.log(`[PIPELINE] State restoration (propFileUUID): requested index ${requestedIndex}, validated to ${validIndex}, cached agents: ${cachedAgents.join(', ')}`);
             setCurrentAgentIndex(validIndex);
-            setOverallProgress(savedState.overallProgress || 0);
-            setAgentProgress(savedState.agentProgress || 0);
-            setAgentStatus(savedState.agentStatus || 'pending');
+            safeSetOverallProgress(savedState.overallProgress || 0);
+            safeSetAgentProgress(savedState.agentProgress || 0);
+            safeSetAgentStatus(savedState.agentStatus || 'pending');
             
             // Check which agents need rerun and which are completed (cachedAgents already declared above)
             setCompletedAgents(cachedAgents);
@@ -333,9 +333,9 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
             
             console.log(`[PIPELINE] State restoration: requested index ${requestedIndex}, validated to ${validIndex}, cached agents: ${cachedAgents.join(', ')}`);
             setCurrentAgentIndex(validIndex);
-            setOverallProgress(savedState.overallProgress || 0);
-            setAgentProgress(savedState.agentProgress || 0);
-            setAgentStatus(savedState.agentStatus || 'pending');
+            safeSetOverallProgress(savedState.overallProgress || 0);
+            safeSetAgentProgress(savedState.agentProgress || 0);
+            safeSetAgentStatus(savedState.agentStatus || 'pending');
             
             // Check which agents need rerun and which are completed (cachedAgents already declared above)
             setCompletedAgents(cachedAgents);
@@ -966,6 +966,8 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
 
   // Execute Strategy Agent
   const executeStrategyAgent = useCallback(async (assessmentOutput) => {
+    let progressInterval = null; // Track interval for cleanup
+    
     if (!assessmentOutput || !assessmentOutput.results) {
       throw new Error('Assessment output required for strategy');
     }
@@ -983,9 +985,17 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
 
     try {
       // Simulate progress for strategy agent
-      const progressInterval = setInterval(() => {
-        safeSetAgentProgress(prev => Math.min(prev + 2, 100));
-        safeSetOverallProgress(Math.round((3 / AGENTS.length) * 100));
+      progressInterval = setInterval(() => {
+        if (isMountedRef.current) {
+          try {
+            safeSetAgentProgress(prev => Math.min(prev + 2, 100));
+            safeSetOverallProgress(Math.round((3 / AGENTS.length) * 100));
+          } catch (e) {
+            // Ignore errors in interval
+          }
+        } else {
+          clearInterval(progressInterval);
+        }
       }, 200);
 
       // Extract workloadIds from assessment results
@@ -1027,6 +1037,10 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
           useAI: true
         });
       } catch (error) {
+        // SAFETY: Clear interval on error
+        if (progressInterval) {
+          clearInterval(progressInterval);
+        }
         // If error is about no valid workloads, try fallback: load all workloads from repository
         if (error.message && error.message.includes('No valid workloads found')) {
           console.warn('[DEBUG] Strategy Agent: No workloads found by ID. Attempting fallback: load all workloads from repository.');
@@ -1114,7 +1128,9 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         }
       }
 
-      clearInterval(progressInterval);
+      if (progressInterval) {
+        clearInterval(progressInterval);
+      }
       safeSetAgentProgress(100);
       safeSetOverallProgress(Math.round((4 / AGENTS.length) * 100));
 
@@ -1143,6 +1159,10 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
 
       return output;
     } catch (error) {
+      // SAFETY: Clear interval on error
+      if (progressInterval) {
+        clearInterval(progressInterval);
+      }
       console.error('✗ Strategy Agent failed:', error.message);
       throw error;
     }
@@ -1150,6 +1170,8 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
 
   // Execute Cost Agent
   const executeCostAgent = useCallback(async (strategyOutput, assessmentOutput, discoveryOutput) => {
+    let progressInterval = null; // Track interval for cleanup
+    
     // Check cache first
     const cached = await getAgentOutput(fileUUID, 'cost');
     if (cached) {
@@ -1220,12 +1242,22 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
     safeSetAgentProgress(0);
 
     try {
-      const progressInterval = setInterval(() => {
-        setAgentProgress(prev => {
-          const newProgress = Math.min(prev + 5, 100);
-          setOverallProgress(Math.round((4 / AGENTS.length) * 100 + (newProgress / AGENTS.length)));
-          return newProgress;
-        });
+      progressInterval = setInterval(() => {
+        if (isMountedRef.current) {
+          try {
+            safeSetAgentProgress(prev => {
+              const newProgress = Math.min(prev + 5, 100);
+              safeSetOverallProgress(Math.round((4 / AGENTS.length) * 100 + (newProgress / AGENTS.length)));
+              return newProgress;
+            });
+          } catch (e) {
+            // Ignore errors in interval
+          }
+        } else {
+          if (progressInterval) {
+            clearInterval(progressInterval);
+          }
+        }
       }, 300);
 
       // Execute Cost Analysis Agent (for TCO, insights, optimizations)
@@ -1427,9 +1459,11 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         throw new Error(errorMsg);
       }
 
-      clearInterval(progressInterval);
+      if (progressInterval) {
+        clearInterval(progressInterval);
+      }
       safeSetAgentProgress(100);
-      setOverallProgress(100);
+      safeSetOverallProgress(100);
 
       // Combine both outputs: costResult (TCO, insights) + costEstimates (for PDF)
       const output = {
@@ -1443,6 +1477,10 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
 
       return output;
     } catch (error) {
+      // SAFETY: Clear interval on error
+      if (progressInterval) {
+        clearInterval(progressInterval);
+      }
       console.error('✗ Cost Agent failed:', error.message);
       throw error;
     }
