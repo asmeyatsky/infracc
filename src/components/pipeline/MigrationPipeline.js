@@ -24,6 +24,7 @@ export default function MigrationPipeline() {
   const [outputFormat, setOutputFormat] = useState(null); // 'screen' | 'pdf' | null
   const [pipelineComplete, setPipelineComplete] = useState(false);
   const [pipelineOutputs, setPipelineOutputs] = useState(null);
+  const isProcessingPDFRef = useRef(false); // Guard against duplicate PDF generation
   const [fileUUID, setFileUUID] = useState(null);
   const [error, setError] = useState(null);
   const [isRestoring, setIsRestoring] = useState(true);
@@ -275,6 +276,15 @@ export default function MigrationPipeline() {
   };
 
   const handlePipelineComplete = async (outputs) => {
+    // GUARD: Prevent duplicate processing if already handling completion
+    if (isProcessingPDFRef.current) {
+      if (typeof window !== 'undefined' && window.persistentLog) {
+        window.persistentLog('WARN', '[MigrationPipeline] handlePipelineComplete: Already processing, ignoring duplicate call');
+      }
+      console.warn('[MigrationPipeline] handlePipelineComplete: Already processing, ignoring duplicate call');
+      return;
+    }
+    
     if (typeof window !== 'undefined' && window.persistentLog) {
       window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: ENTERING');
       window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: outputs type:', typeof outputs);
@@ -291,6 +301,8 @@ export default function MigrationPipeline() {
       // CRITICAL: For PDF format, defer state updates until AFTER PDF generation
       // This prevents React from trying to re-render with massive state objects
       if (outputFormat === 'pdf') {
+        // Set guard flag to prevent duplicate processing
+        isProcessingPDFRef.current = true;
         if (typeof window !== 'undefined' && window.persistentLog) {
           window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: PDF format - deferring state updates');
         }
@@ -356,6 +368,8 @@ export default function MigrationPipeline() {
           }, 100);
           
         } catch (err) {
+          // Reset guard flag on error
+          isProcessingPDFRef.current = false;
           if (typeof window !== 'undefined' && window.persistentLog) {
             window.persistentLog('ERROR', '[MigrationPipeline] handlePipelineComplete: PDF generation error:', err.message);
             window.persistentLog('ERROR', '[MigrationPipeline] handlePipelineComplete: PDF error stack:', err.stack);
@@ -394,6 +408,9 @@ export default function MigrationPipeline() {
           window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: COMPLETED SUCCESSFULLY (PDF)');
         }
         console.log('[MigrationPipeline] handlePipelineComplete: COMPLETED SUCCESSFULLY (PDF)');
+        
+        // Reset guard flag after completion
+        isProcessingPDFRef.current = false;
         return; // Exit early for PDF format
       }
       
