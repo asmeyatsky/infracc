@@ -1385,12 +1385,53 @@ export default function MigrationPipeline() {
                 📄 Generate PDF Report
               </button>
             </div>
-            <ReportSummaryView
-              workloads={pipelineOutputs.discovery?.workloads || []}
-              assessmentResults={pipelineOutputs.assessment || null}
-              strategyResults={pipelineOutputs.strategy || null}
-              uploadSummary={pipelineOutputs.discovery?.summary || null}
-            />
+            {/* SAFETY: Prevent rendering screen view with too many workloads (causes browser crash) */}
+            {(() => {
+              const workloadCount = pipelineOutputs.discovery?.workloads?.length || 0;
+              const MAX_SCREEN_WORKLOADS = 100000; // Limit screen rendering to 100K workloads
+              
+              if (workloadCount > MAX_SCREEN_WORKLOADS) {
+                return (
+                  <div className="alert alert-warning" style={{ marginTop: '20px' }}>
+                    <h4>⚠️ Too Many Workloads for Screen Display</h4>
+                    <p>
+                      Your dataset contains <strong>{workloadCount.toLocaleString()} workloads</strong>, which is too large to display on screen safely.
+                    </p>
+                    <p>
+                      <strong>Please use PDF format instead</strong> - it can handle datasets of any size and provides a comprehensive report.
+                    </p>
+                    <p>
+                      <button
+                        className="btn btn-primary btn-lg"
+                        onClick={async () => {
+                          try {
+                            await generatePDFReport(pipelineOutputs);
+                          } catch (error) {
+                            console.error('[PDF] Error generating PDF:', error);
+                            toast.error(`Failed to generate PDF: ${error.message}`, { autoClose: 10000 });
+                          }
+                        }}
+                      >
+                        📄 Generate PDF Report Now
+                      </button>
+                    </p>
+                    <p className="text-muted small mt-3">
+                      Screen display is limited to {MAX_SCREEN_WORKLOADS.toLocaleString()} workloads to prevent browser crashes.
+                      PDF generation can handle datasets of any size.
+                    </p>
+                  </div>
+                );
+              }
+              
+              return (
+                <ReportSummaryView
+                  workloads={pipelineOutputs.discovery?.workloads || []}
+                  assessmentResults={pipelineOutputs.assessment || null}
+                  strategyResults={pipelineOutputs.strategy || null}
+                  uploadSummary={pipelineOutputs.discovery?.summary || null}
+                />
+              );
+            })()}
           </div>
         </div>
       )}
