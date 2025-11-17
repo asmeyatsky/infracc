@@ -326,37 +326,21 @@ export default function MigrationPipeline() {
           }
           console.log('[PDF] Auto-generation completed');
           
-          // NOW update state after PDF is generated and downloaded
-          // Use setTimeout to defer React state update to next tick, preventing synchronous crash
-          setTimeout(() => {
+          // CRITICAL: For PDF format, we don't need to store outputs in state at all
+          // The PDF is already generated and downloaded. Just mark as complete.
+          // Using requestAnimationFrame for better browser integration and to avoid setTimeout issues
+          requestAnimationFrame(() => {
             try {
               if (typeof window !== 'undefined' && window.persistentLog) {
-                window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: PDF complete - now updating state');
+                window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: PDF complete - marking pipeline complete');
               }
+              // Only set pipelineComplete flag - don't store outputs for PDF format
+              // This completely avoids React processing any large objects
               setPipelineComplete(true);
-              // CRITICAL: Don't store full outputs in state for PDF format - just store metadata
-              // This prevents React from trying to process 599K workloads in state
-              setPipelineOutputs({
-                discovery: outputs.discovery ? {
-                  summary: outputs.discovery.summary,
-                  workloadCount: outputs.discovery.workloads?.length || 0
-                } : null,
-                assessment: outputs.assessment ? {
-                  resultCount: outputs.assessment.results?.length || 0
-                } : null,
-                strategy: outputs.strategy ? {
-                  wavePlan: outputs.strategy.wavePlan ? {
-                    wave1Count: outputs.strategy.wavePlan.wave1?.length || 0,
-                    wave2Count: outputs.strategy.wavePlan.wave2?.length || 0,
-                    wave3Count: outputs.strategy.wavePlan.wave3?.length || 0
-                  } : null
-                } : null,
-                cost: outputs.cost ? {
-                  costEstimatesCount: outputs.cost.costEstimates?.length || 0
-                } : null
-              });
+              // Set minimal outputs to prevent UI errors, but keep it tiny
+              setPipelineOutputs({ pdfGenerated: true });
               if (typeof window !== 'undefined' && window.persistentLog) {
-                window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: State updated with metadata only');
+                window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: Pipeline marked complete (no outputs stored for PDF)');
               }
             } catch (stateErr) {
               if (typeof window !== 'undefined' && window.persistentLog) {
@@ -365,7 +349,7 @@ export default function MigrationPipeline() {
               }
               console.error('[MigrationPipeline] Error updating state after PDF:', stateErr);
             }
-          }, 100);
+          });
           
         } catch (err) {
           // Reset guard flag on error
