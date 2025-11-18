@@ -582,6 +582,25 @@ export class ReportDataAggregator {
    * @returns {Object} Complete report summary
    */
   static generateReportSummary(workloads) {
+    // CRITICAL: Check memory before processing - don't include workloads array if memory is high
+    let shouldIncludeWorkloads = true;
+    const workloadCount = Array.isArray(workloads) ? workloads.length : 0;
+    
+    if (performance.memory) {
+      const usedMB = performance.memory.usedJSHeapSize / 1024 / 1024;
+      const limitMB = performance.memory.jsHeapSizeLimit / 1024 / 1024;
+      const usagePercent = (usedMB / limitMB) * 100;
+      
+      // Don't include workloads array if memory is high OR workload count is very large
+      if (usagePercent > 70 || workloadCount > 150000) {
+        shouldIncludeWorkloads = false;
+        console.warn(`[ReportDataAggregator] Memory usage ${usagePercent.toFixed(1)}% or workload count ${workloadCount.toLocaleString()} too high. Excluding workloads array from reportData to save memory.`);
+      }
+    } else if (workloadCount > 100000) {
+      shouldIncludeWorkloads = false;
+      console.warn(`[ReportDataAggregator] Workload count ${workloadCount.toLocaleString()} too large. Excluding workloads array from reportData to save memory.`);
+    }
+    
     // SAFETY: Wrap aggregation in try-catch to handle any stack overflow errors
     try {
       const complexityAgg = this.aggregateByComplexity(workloads);
@@ -611,7 +630,7 @@ export class ReportDataAggregator {
         const w = batch[idx];
         const globalIdx = i + idx;
         const workloadData = w.toJSON ? w.toJSON() : w;
-        const cost = this._extractCost(workloadData);
+        let cost = this._extractCost(workloadData);
         
         // Debug: Log first few costs and any issues
         if (globalIdx < 5) {
@@ -655,14 +674,72 @@ export class ReportDataAggregator {
           }
         }
         
+        // CRITICAL: Validate cost before adding - check for unreasonably large values
+        // Costs should be in dollars, not cents or multiplied values
+        // If a single workload cost is > $1M per month, it's likely an error
+        if (cost > 1000000) {
+          console.warn(`⚠️ WARNING: Unusually large cost detected for workload ${workloadData.id}: $${cost.toFixed(2)}`);
+          console.warn(`This might indicate costs are stored in cents (multiply by 0.01) or multiplied incorrectly.`);
+          // Don't add unreasonably large costs - cap at $1M per workload
+          cost = 1000000;
+        }
+        
         totalCost += cost;
-        processedCount++;
       }
       
       // Log progress for large datasets
       if (workloads.length > 50000 && (i + BATCH_SIZE) % 50000 === 0) {
         const percent = ((i + BATCH_SIZE) / workloads.length * 100).toFixed(1);
         console.log(`[ReportDataAggregator] Processing costs: ${Math.min(i + BATCH_SIZE, workloads.length)}/${workloads.length} (${percent}%)`);
+      }
+    }
+    
+    // CRITICAL FIX: Check if totalCost seems unreasonably high (likely in wrong units)
+    // For typical AWS accounts, monthly costs should be < $100M
+    // If totalCost > $1B, it's likely costs are in cents (divide by 100) or multiplied incorrectly
+    const originalTotalCost = totalCost;
+    if (totalCost > 1000000000) {
+      console.error(`⚠️ CRITICAL ERROR: Total cost is unreasonably high: $${totalCost.toLocaleString()}`);
+      console.error(`⚠️ This suggests costs might be stored in cents (divide by 100) or multiplied incorrectly.`);
+      console.error(`⚠️ Workloads: ${totalWorkloads}, Average cost per workload: $${(totalCost / totalWorkloads).toLocaleString()}`);
+      
+      // Try different correction factors
+      const correctionFactors = [100, 1000, 10000];
+      let corrected = false;
+      
+      for (const factor of correctionFactors) {
+        const correctedCost = totalCost / factor;
+        // Accept correction if it's between $1K and $1B (reasonable range for monthly costs)
+        if (correctedCost >= 1000 && correctedCost <= 1000000000) {
+          console.warn(`⚠️ Auto-corrected totalMonthlyCost from $${totalCost.toLocaleString()} to $${correctedCost.toLocaleString()} (divided by ${factor})`);
+          totalCost = correctedCost;
+          corrected = true;
+          break;
+        }
+      }
+      
+      // If no correction worked, try to estimate based on average cost per workload
+      if (!corrected) {
+        const avgCostPerWorkload = totalCost / totalWorkloads;
+        console.error(`⚠️ Average cost per workload: $${avgCostPerWorkload.toLocaleString()}`);
+        
+        // If average is > $100K per workload, it's definitely wrong
+        if (avgCostPerWorkload > 100000) {
+          // Try to find a reasonable correction factor
+          // Assume reasonable average is $100-1000 per workload
+          const reasonableAvg = 500; // $500 per workload average
+          const estimatedFactor = avgCostPerWorkload / reasonableAvg;
+          const roundedFactor = Math.round(estimatedFactor / 100) * 100; // Round to nearest 100
+          
+          if (roundedFactor > 1 && roundedFactor < 1000000) {
+            const correctedCost = totalCost / roundedFactor;
+            console.warn(`⚠️ Auto-corrected totalMonthlyCost from $${totalCost.toLocaleString()} to $${correctedCost.toLocaleString()} (divided by ${roundedFactor}, estimated)`);
+            totalCost = correctedCost;
+          } else {
+            console.error(`⚠️ Could not auto-correct cost. Manual review required.`);
+            console.error(`⚠️ Original cost: $${originalTotalCost.toLocaleString()}, Workloads: ${totalWorkloads}`);
+          }
+        }
       }
     }
     

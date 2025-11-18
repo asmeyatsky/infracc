@@ -10,7 +10,7 @@
  * - PDF Download
  */
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { ReportDataAggregator } from '../../domain/services/ReportDataAggregator.js';
 import { Bar, Doughnut } from 'react-chartjs-2';
 import {
@@ -149,184 +149,184 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
             // Continue with next batch
           }
         }
-      
-      // Debug logging
-      if (validAssessmentsCount > 0) {
-        console.log(`ReportSummaryView: Found ${validAssessmentsCount.toLocaleString()} valid assessments`);
-        console.log(`ReportSummaryView: ${assessmentsWithComplexityCount.toLocaleString()} assessments have complexityScore`);
         
-        // Sample first few assessments to verify structure
-        const sampleAssessments = assessmentResults.results.slice(0, 3).filter(a => a && !a.error);
-        sampleAssessments.forEach((assessment, idx) => {
-          const assessmentObj = assessment.toJSON ? assessment.toJSON() : assessment;
-          console.log(`Sample assessment ${idx + 1}:`, {
-            workloadId: assessmentObj.workloadId || assessment.workloadId,
-            complexityScore: assessmentObj.complexityScore,
-            hasToJSON: typeof assessment.toJSON === 'function',
-            keys: Object.keys(assessmentObj)
+        // Debug logging
+        if (validAssessmentsCount > 0) {
+          console.log(`ReportSummaryView: Found ${validAssessmentsCount.toLocaleString()} valid assessments`);
+          console.log(`ReportSummaryView: ${assessmentsWithComplexityCount.toLocaleString()} assessments have complexityScore`);
+          
+          // Sample first few assessments to verify structure
+          const sampleAssessments = assessmentResults.results.slice(0, 3).filter(a => a && !a.error);
+          sampleAssessments.forEach((assessment, idx) => {
+            const assessmentObj = assessment.toJSON ? assessment.toJSON() : assessment;
+            console.log(`Sample assessment ${idx + 1}:`, {
+              workloadId: assessmentObj.workloadId || assessment.workloadId,
+              complexityScore: assessmentObj.complexityScore,
+              hasToJSON: typeof assessment.toJSON === 'function',
+              keys: Object.keys(assessmentObj)
+            });
           });
-        });
+        } else {
+          console.warn('⚠️ ReportSummaryView: No valid assessments found in assessmentResults.results');
+          console.log('assessmentResults structure:', {
+            hasResults: !!assessmentResults.results,
+            resultsLength: assessmentResults.results?.length,
+            resultsType: Array.isArray(assessmentResults.results) ? 'array' : typeof assessmentResults.results
+          });
+        }
       } else {
-        console.warn('⚠️ ReportSummaryView: No valid assessments found in assessmentResults.results');
-        console.log('assessmentResults structure:', {
-          hasResults: !!assessmentResults.results,
-          resultsLength: assessmentResults.results?.length,
-          resultsType: Array.isArray(assessmentResults.results) ? 'array' : typeof assessmentResults.results
-        });
+        console.warn('⚠️ ReportSummaryView: assessmentResults is null or has no results property');
+        console.log('assessmentResults:', assessmentResults);
       }
-    } else {
-      console.warn('⚠️ ReportSummaryView: assessmentResults is null or has no results property');
-      console.log('assessmentResults:', assessmentResults);
-    }
     
     // Merge assessments into workloads
     let mergedCount = 0;
     let mergedWithComplexityCount = 0;
     let fromWorkloadAssessmentCount = 0;
     
-        // SAFETY: Batch map to avoid stack overflow with large datasets
-        const merged = [];
-        const WORKLOAD_BATCH_SIZE = 10000;
-        const safeWorkloadCount = safeWorkloads.length;
+    // SAFETY: Batch map to avoid stack overflow with large datasets
+    const merged = [];
+    const WORKLOAD_BATCH_SIZE = 10000;
+    const safeWorkloadCount = safeWorkloads.length;
+    
+    for (let i = 0; i < safeWorkloadCount; i += WORKLOAD_BATCH_SIZE) {
+      try {
+        const batchEnd = Math.min(i + WORKLOAD_BATCH_SIZE, safeWorkloadCount);
+        const batch = safeWorkloads.slice(i, batchEnd);
         
-        for (let i = 0; i < safeWorkloadCount; i += WORKLOAD_BATCH_SIZE) {
+        for (const workload of batch) {
           try {
-            const batchEnd = Math.min(i + WORKLOAD_BATCH_SIZE, safeWorkloadCount);
-            const batch = safeWorkloads.slice(i, batchEnd);
+            const workloadData = workload.toJSON ? workload.toJSON() : workload;
             
-            for (const workload of batch) {
-              try {
-                const workloadData = workload.toJSON ? workload.toJSON() : workload;
-                
-                // First, try to get assessment from assessmentResults
-                let assessment = assessmentMap.get(workloadData.id);
-                
-                // Fallback: Check if workload already has assessment stored on it
-                if (!assessment && workloadData.assessment) {
-                  assessment = workloadData.assessment;
-                  fromWorkloadAssessmentCount++;
-                }
-                
-                if (assessment) {
-                  mergedCount++;
-                  
-                  // Merge assessment data into workload
-                  // Handle both Assessment entity (with methods) and plain objects
-                  let assessmentObj = assessment.toJSON ? assessment.toJSON() : assessment;
-                  
-                  // If assessment is already a plain object with complexityScore at root, use it directly
-                  // This handles the case where assessments were serialized in PipelineOrchestrator
-                  if (assessmentObj.complexityScore !== undefined && assessmentObj.complexityScore !== null) {
-                    // Already has complexityScore at root - good!
-                  } else if (assessment && typeof assessment.complexityScore === 'number') {
-                    // Assessment entity with getter
-                    assessmentObj = { ...assessmentObj, complexityScore: assessment.complexityScore };
-                  }
-                  
-                  // Extract complexityScore - check multiple possible locations
-                  let complexityScore = null;
-                  
-                  // Try in order of preference:
-                  // 1. assessmentObj.complexityScore (from toJSON)
-                  if (assessmentObj.complexityScore !== undefined && assessmentObj.complexityScore !== null) {
-                    complexityScore = parseFloat(assessmentObj.complexityScore);
-                  }
-                  // 2. assessment.complexityScore (direct getter)
-                  else if (assessment.complexityScore !== undefined && assessment.complexityScore !== null) {
-                    complexityScore = parseFloat(assessment.complexityScore);
-                  }
-                  // 3. assessmentObj.infrastructureAssessment.complexityScore
-                  else if (assessmentObj.infrastructureAssessment?.complexityScore !== undefined && 
-                           assessmentObj.infrastructureAssessment.complexityScore !== null) {
-                    complexityScore = parseFloat(assessmentObj.infrastructureAssessment.complexityScore);
-                  }
-                  // 4. assessment.infrastructureAssessment.complexityScore
-                  else if (assessment.infrastructureAssessment?.complexityScore !== undefined && 
-                           assessment.infrastructureAssessment.complexityScore !== null) {
-                    complexityScore = parseFloat(assessment.infrastructureAssessment.complexityScore);
-                  }
-                  // 5. Fallback to complexity (if exists)
-                  else if (assessmentObj.complexity !== undefined && assessmentObj.complexity !== null) {
-                    complexityScore = parseFloat(assessmentObj.complexity);
-                  }
-                  
-                  if (complexityScore !== null && complexityScore !== undefined && !isNaN(complexityScore)) {
-                    mergedWithComplexityCount++;
-                  } else {
-                    console.warn(`⚠️ No complexity score found for workload ${workloadData.id}`, {
-                      hasAssessment: !!assessment,
-                      hasToJSON: typeof assessment.toJSON === 'function',
-                      assessmentObjKeys: Object.keys(assessmentObj),
-                      infrastructureAssessment: assessmentObj.infrastructureAssessment
-                    });
-                  }
-                  
-                  // Extract readinessScore - use Assessment entity method if available
-                  let readinessScore = null;
-                  
-                  // 1. Try getReadinessScore method (best - uses proper calculation)
-                  if (assessment && typeof assessment.getReadinessScore === 'function') {
-                    readinessScore = assessment.getReadinessScore();
-                  }
-                  // 2. Try assessmentObj.readinessScore (from toJSON)
-                  else if (assessmentObj.readinessScore !== undefined && assessmentObj.readinessScore !== null) {
-                    readinessScore = parseFloat(assessmentObj.readinessScore);
-                  }
-                  // 3. Calculate from complexity and risk factors
-                  else if (complexityScore !== null && complexityScore !== undefined && !isNaN(complexityScore)) {
-                    const riskFactors = assessmentObj.riskFactors || assessment.riskFactors || [];
-                    const riskCount = Array.isArray(riskFactors) ? riskFactors.length : 0;
-                    
-                    // Use same formula as Assessment.getReadinessScore()
-                    let score = 100;
-                    score -= (complexityScore - 1) * 5; // Deduct for complexity (0-45 points)
-                    score -= riskCount * 10; // Deduct for risk factors (0-50 points)
-                    
-                    // Bonus for comprehensive assessment
-                    if (assessmentObj.infrastructureAssessment && assessmentObj.applicationAssessment) {
-                      score += 10;
-                    }
-                    
-                    readinessScore = Math.max(0, Math.min(100, Math.round(score)));
-                  }
-                  
-                  merged.push({
-                    ...workloadData,
-                    assessment: {
-                      complexityScore: complexityScore,
-                      readinessScore: readinessScore,
-                      riskFactors: assessmentObj.riskFactors || assessment.riskFactors || [],
-                      infrastructureAssessment: assessmentObj.infrastructureAssessment || assessment.infrastructureAssessment,
-                      applicationAssessment: assessmentObj.applicationAssessment || assessment.applicationAssessment
-                    }
-                  });
-                } else {
-                  merged.push(workloadData);
-                }
-              } catch (workloadError) {
-                console.warn('[ReportSummaryView] Error processing workload:', workloadError);
-                // Continue with next workload
-              }
+            // First, try to get assessment from assessmentResults
+            let assessment = assessmentMap.get(workloadData.id);
+            
+            // Fallback: Check if workload already has assessment stored on it
+            if (!assessment && workloadData.assessment) {
+              assessment = workloadData.assessment;
+              fromWorkloadAssessmentCount++;
             }
-          } catch (batchError) {
-            console.error(`[ReportSummaryView] Error processing workload batch ${i}:`, batchError);
-            // Continue with next batch
+            
+            if (assessment) {
+              mergedCount++;
+              
+              // Merge assessment data into workload
+              // Handle both Assessment entity (with methods) and plain objects
+              let assessmentObj = assessment.toJSON ? assessment.toJSON() : assessment;
+              
+              // If assessment is already a plain object with complexityScore at root, use it directly
+              // This handles the case where assessments were serialized in PipelineOrchestrator
+              if (assessmentObj.complexityScore !== undefined && assessmentObj.complexityScore !== null) {
+                // Already has complexityScore at root - good!
+              } else if (assessment && typeof assessment.complexityScore === 'number') {
+                // Assessment entity with getter
+                assessmentObj = { ...assessmentObj, complexityScore: assessment.complexityScore };
+              }
+              
+              // Extract complexityScore - check multiple possible locations
+              let complexityScore = null;
+              
+              // Try in order of preference:
+              // 1. assessmentObj.complexityScore (from toJSON)
+              if (assessmentObj.complexityScore !== undefined && assessmentObj.complexityScore !== null) {
+                complexityScore = parseFloat(assessmentObj.complexityScore);
+              }
+              // 2. assessment.complexityScore (direct getter)
+              else if (assessment.complexityScore !== undefined && assessment.complexityScore !== null) {
+                complexityScore = parseFloat(assessment.complexityScore);
+              }
+              // 3. assessmentObj.infrastructureAssessment.complexityScore
+              else if (assessmentObj.infrastructureAssessment?.complexityScore !== undefined && 
+                       assessmentObj.infrastructureAssessment.complexityScore !== null) {
+                complexityScore = parseFloat(assessmentObj.infrastructureAssessment.complexityScore);
+              }
+              // 4. assessment.infrastructureAssessment.complexityScore
+              else if (assessment.infrastructureAssessment?.complexityScore !== undefined && 
+                       assessment.infrastructureAssessment.complexityScore !== null) {
+                complexityScore = parseFloat(assessment.infrastructureAssessment.complexityScore);
+              }
+              // 5. Fallback to complexity (if exists)
+              else if (assessmentObj.complexity !== undefined && assessmentObj.complexity !== null) {
+                complexityScore = parseFloat(assessmentObj.complexity);
+              }
+              
+              if (complexityScore !== null && complexityScore !== undefined && !isNaN(complexityScore)) {
+                mergedWithComplexityCount++;
+              } else {
+                console.warn(`⚠️ No complexity score found for workload ${workloadData.id}`, {
+                  hasAssessment: !!assessment,
+                  hasToJSON: typeof assessment.toJSON === 'function',
+                  assessmentObjKeys: Object.keys(assessmentObj),
+                  infrastructureAssessment: assessmentObj.infrastructureAssessment
+                });
+              }
+              
+              // Extract readinessScore - use Assessment entity method if available
+              let readinessScore = null;
+              
+              // 1. Try getReadinessScore method (best - uses proper calculation)
+              if (assessment && typeof assessment.getReadinessScore === 'function') {
+                readinessScore = assessment.getReadinessScore();
+              }
+              // 2. Try assessmentObj.readinessScore (from toJSON)
+              else if (assessmentObj.readinessScore !== undefined && assessmentObj.readinessScore !== null) {
+                readinessScore = parseFloat(assessmentObj.readinessScore);
+              }
+              // 3. Calculate from complexity and risk factors
+              else if (complexityScore !== null && complexityScore !== undefined && !isNaN(complexityScore)) {
+                const riskFactors = assessmentObj.riskFactors || assessment.riskFactors || [];
+                const riskCount = Array.isArray(riskFactors) ? riskFactors.length : 0;
+                
+                // Use same formula as Assessment.getReadinessScore()
+                let score = 100;
+                score -= (complexityScore - 1) * 5; // Deduct for complexity (0-45 points)
+                score -= riskCount * 10; // Deduct for risk factors (0-50 points)
+                
+                // Bonus for comprehensive assessment
+                if (assessmentObj.infrastructureAssessment && assessmentObj.applicationAssessment) {
+                  score += 10;
+                }
+                
+                readinessScore = Math.max(0, Math.min(100, Math.round(score)));
+              }
+              
+              merged.push({
+                ...workloadData,
+                assessment: {
+                  complexityScore: complexityScore,
+                  readinessScore: readinessScore,
+                  riskFactors: assessmentObj.riskFactors || assessment.riskFactors || [],
+                  infrastructureAssessment: assessmentObj.infrastructureAssessment || assessment.infrastructureAssessment,
+                  applicationAssessment: assessmentObj.applicationAssessment || assessment.applicationAssessment
+                }
+              });
+            } else {
+              merged.push(workloadData);
+            }
+          } catch (workloadError) {
+            console.warn('[ReportSummaryView] Error processing workload:', workloadError);
+            // Continue with next workload
           }
         }
-        
-        console.log(`ReportSummaryView: Merged ${mergedCount.toLocaleString()}/${safeWorkloadCount.toLocaleString()} workloads with assessments`);
-        console.log(`ReportSummaryView: ${mergedWithComplexityCount.toLocaleString()} merged workloads have complexityScore`);
-        if (fromWorkloadAssessmentCount > 0) {
-          console.log(`ReportSummaryView: ${fromWorkloadAssessmentCount.toLocaleString()} assessments loaded from workload.assessment property`);
-        }
-        
-        return merged;
-      } catch (error) {
-        console.error('[ReportSummaryView] Fatal error in workloadsWithAssessments:', error);
-        // Return empty array on error to prevent crash
-        return [];
+      } catch (batchError) {
+        console.error(`[ReportSummaryView] Error processing workload batch ${i}:`, batchError);
+        // Continue with next batch
       }
+    }
     
+    console.log(`ReportSummaryView: Merged ${mergedCount.toLocaleString()}/${safeWorkloadCount.toLocaleString()} workloads with assessments`);
+    console.log(`ReportSummaryView: ${mergedWithComplexityCount.toLocaleString()} merged workloads have complexityScore`);
+    if (fromWorkloadAssessmentCount > 0) {
+      console.log(`ReportSummaryView: ${fromWorkloadAssessmentCount.toLocaleString()} assessments loaded from workload.assessment property`);
+    }
+    
+    return merged;
+    } catch (error) {
+      console.error('[ReportSummaryView] Fatal error in workloadsWithAssessments:', error);
+      // Return empty array on error to prevent crash
+      return [];
+    }
+  }, [workloads, assessmentResults]);
 
   // Calculate report data using ReportDataAggregator with merged assessments
   const reportDataMemo = useMemo(() => {
@@ -362,7 +362,7 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
   }, [reportDataMemo]);
 
   // Handle PDF generation
-  const handleGeneratePDF = async () => {
+  const handleGeneratePDF = useCallback(async () => {
     try {
       const reportData = ReportDataAggregator.generateReportSummary(workloads);
       const serviceAggregation = ReportDataAggregator.aggregateByService(workloads);
@@ -429,7 +429,17 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
       }
       
       // CRITICAL FIX: Override totalMonthlyCost and scale service costs in reportData
+      // MEMORY-SAFE: Don't include workloads array in finalReportData to save memory
       const finalReportData = { ...reportData };
+      
+      // CRITICAL: Remove workloads array if present to prevent memory issues during PDF generation
+      if (finalReportData.workloads) {
+        const workloadCount = Array.isArray(finalReportData.workloads) ? finalReportData.workloads.length : 0;
+        if (workloadCount > 100000 || (performance.memory && (performance.memory.usedJSHeapSize / performance.memory.jsHeapSizeLimit) > 0.7)) {
+          console.warn(`[ReportSummaryView] Removing workloads array (${workloadCount.toLocaleString()} workloads) from reportData to save memory for PDF generation`);
+          delete finalReportData.workloads;
+        }
+      }
       if (uploadSummary && uploadSummary.totalMonthlyCost) {
         const targetTotal = uploadSummary.totalMonthlyCost;
         finalReportData.summary = {
@@ -512,6 +522,19 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
         console.log(`ReportSummaryView - Overriding totalMonthlyCost to $${targetTotal.toFixed(2)} for PDF`);
       }
       
+      // CRITICAL: Log memory before PDF generation
+      if (performance.memory) {
+        const usedMB = performance.memory.usedJSHeapSize / 1024 / 1024;
+        const limitMB = performance.memory.jsHeapSizeLimit / 1024 / 1024;
+        const usagePercent = (usedMB / limitMB) * 100;
+        console.log(`[ReportSummaryView] Memory before PDF generation: ${usedMB.toFixed(1)}MB / ${limitMB.toFixed(1)}MB (${usagePercent.toFixed(1)}%)`);
+        console.log(`[ReportSummaryView] PDF generation data sizes:`, {
+          reportDataWorkloads: finalReportData.workloads ? finalReportData.workloads.length : 0,
+          costEstimatesCount: estimates ? estimates.length : 0,
+          strategyPlanItems: strategyResults?.migrationPlan?.planItems ? strategyResults.migrationPlan.planItems.length : 0
+        });
+      }
+      
       await generateComprehensiveReportPDF(
         finalReportData,
         estimates,
@@ -522,11 +545,43 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
           targetRegion
         }
       );
+      
+      // Log success
+      console.log('[ReportSummaryView] PDF generation completed successfully');
     } catch (error) {
-      console.error('PDF generation failed:', error);
-      alert(`PDF generation failed: ${error.message}`);
+      // CRITICAL: Log memory and error details for debugging
+      let memoryInfo = 'N/A';
+      if (performance.memory) {
+        const usedMB = performance.memory.usedJSHeapSize / 1024 / 1024;
+        const limitMB = performance.memory.jsHeapSizeLimit / 1024 / 1024;
+        const usagePercent = (usedMB / limitMB) * 100;
+        memoryInfo = `${usedMB.toFixed(1)}MB / ${limitMB.toFixed(1)}MB (${usagePercent.toFixed(1)}%)`;
+      }
+      
+      const errorDetails = {
+        message: error.message,
+        stack: error.stack,
+        memory: memoryInfo,
+        timestamp: new Date().toISOString()
+      };
+      
+      console.error('[ReportSummaryView] PDF generation failed:', errorDetails);
+      
+      // Save to localStorage for crash recovery
+      try {
+        const crashLogs = JSON.parse(localStorage.getItem('crashLogs') || '[]');
+        crashLogs.push({
+          type: 'PDF_GENERATION_ERROR',
+          ...errorDetails
+        });
+        localStorage.setItem('crashLogs', JSON.stringify(crashLogs.slice(-10))); // Keep last 10
+      } catch (e) {
+        console.error('[ReportSummaryView] Failed to save crash log:', e);
+      }
+      
+      alert(`PDF generation failed: ${error.message}\n\nMemory: ${memoryInfo}\n\nCheck console for details.`);
     }
-  };
+  }, [workloads, uploadSummary, targetRegion, strategyResults, assessmentResults]);
 
   if (!reportData) {
     return (
@@ -536,6 +591,7 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
       </div>
     );
   }
+  
 
   const formatCurrency = (value) => {
     return new Intl.NumberFormat('en-US', {
@@ -630,7 +686,8 @@ const ReportSummaryView = ({ workloads = [], assessmentResults = null, strategyR
     wave2: 0,
     wave3: 0
   };
-
+  
+  // Close any unclosed blocks
   return (
     <div className="container-fluid">
       {/* Header */}

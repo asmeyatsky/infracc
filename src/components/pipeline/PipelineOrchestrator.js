@@ -225,6 +225,7 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
   const agenticContainer = useRef(null);
   const container = useRef(null);
   const workloadRepository = useRef(null);
+  const onCompleteCalledRef = useRef(false); // Prevent duplicate onComplete calls
 
   // Initialize containers
   useEffect(() => {
@@ -238,7 +239,57 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         console.warn('[PipelineOrchestrator] Failed to pre-load workloads:', err);
       });
     }
-  }, []);
+    
+    // CRITICAL: Add beforeunload handler to catch browser crashes
+    const beforeUnloadHandler = (event) => {
+      // Save current pipeline state before crash
+      if (fileUUID && agentStatus === 'running') {
+        try {
+          const crashState = {
+            timestamp: new Date().toISOString(),
+            agent: AGENTS[currentAgentIndex]?.name || 'Unknown',
+            agentId: AGENTS[currentAgentIndex]?.id || 'unknown',
+            agentStatus: agentStatus,
+            overallProgress: overallProgress,
+            agentProgress: agentProgress,
+            fileUUID: fileUUID,
+            memory: performance.memory ? {
+              usedMB: (performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(1),
+              limitMB: (performance.memory.jsHeapSizeLimit / 1024 / 1024).toFixed(1),
+              usagePercent: ((performance.memory.usedJSHeapSize / performance.memory.jsHeapSizeLimit) * 100).toFixed(1)
+            } : null
+          };
+          
+          const crashLog = `[${crashState.timestamp}] Pipeline Browser Crash: ${crashState.agent} was running\nMemory: ${crashState.memory ? `${crashState.memory.usedMB}MB / ${crashState.memory.limitMB}MB (${crashState.memory.usagePercent}%)` : 'N/A'}\nProgress: ${crashState.overallProgress}% overall, ${crashState.agentProgress}% agent`;
+          
+          const existingLogs = JSON.parse(localStorage.getItem('crashLogs') || '[]');
+          existingLogs.push(crashLog);
+          if (existingLogs.length > 100) {
+            existingLogs.shift();
+          }
+          localStorage.setItem('crashLogs', JSON.stringify(existingLogs));
+          
+          // Save pipeline state
+          savePipelineState(fileUUID, {
+            currentAgentIndex,
+            overallProgress,
+            agentProgress,
+            agentStatus: 'crashed'
+          }).catch(e => {
+            console.error('[Pipeline] Failed to save state on beforeunload:', e);
+          });
+        } catch (e) {
+          // Ignore errors during crash save
+        }
+      }
+    };
+    
+    window.addEventListener('beforeunload', beforeUnloadHandler);
+    
+    return () => {
+      window.removeEventListener('beforeunload', beforeUnloadHandler);
+    };
+  }, [fileUUID, agentStatus, currentAgentIndex, overallProgress, agentProgress]);
 
   // Generate or retrieve file UUID (if not provided as prop)
   useEffect(() => {
@@ -580,13 +631,48 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
         console.warn(`[PipelineOrchestrator] Limiting output workloads from ${workloads.length} to ${MAX_OUTPUT_WORKLOADS} to prevent memory issues`);
       }
       
+      // CRITICAL: Use totalRawCost from CSV parser if available (correct cost before aggregation)
+      // This is stored in sessionStorage by MigrationPipeline when files are uploaded
+      let totalMonthlyCost = 0;
+      try {
+        const storedTotalRawCost = sessionStorage.getItem('csvParserTotalRawCost');
+        if (storedTotalRawCost) {
+          totalMonthlyCost = parseFloat(storedTotalRawCost);
+          
+          // CRITICAL: Validate cost is reasonable
+          if (isNaN(totalMonthlyCost) || totalMonthlyCost < 0) {
+            console.error(`[PipelineOrchestrator] Invalid stored totalRawCost: ${storedTotalRawCost}`);
+            totalMonthlyCost = 0;
+          } else if (totalMonthlyCost > 10000000) { // > $10M per month is suspicious
+            console.warn(`[PipelineOrchestrator] WARNING: Stored totalRawCost seems very high: $${totalMonthlyCost.toLocaleString()}. Please verify CSV data.`);
+            console.warn(`[PipelineOrchestrator] Raw stored value: "${storedTotalRawCost}"`);
+          }
+          
+          console.log(`[PipelineOrchestrator] Using totalRawCost from CSV parser: $${totalMonthlyCost.toFixed(2)}`);
+        } else {
+          // Fallback: Calculate from workloads (may be wrong due to deduplication)
+          console.warn('[PipelineOrchestrator] No totalRawCost found in sessionStorage, calculating from workloads (may be inaccurate)');
+          const BATCH_SIZE = 1000;
+          for (let i = 0; i < workloads.length; i += BATCH_SIZE) {
+            const batch = workloads.slice(i, Math.min(i + BATCH_SIZE, workloads.length));
+            for (const w of batch) {
+              const cost = w.monthlyCost || 0;
+              totalMonthlyCost += typeof cost === 'number' ? cost : parseFloat(cost) || 0;
+            }
+          }
+        }
+      } catch (costError) {
+        console.warn('[PipelineOrchestrator] Error getting/calculating totalMonthlyCost:', costError);
+      }
+      
       const output = {
         workloads: outputWorkloads, // Limited array
         workloadIds, // Full list of IDs
         workloadCount: workloads.length, // Actual count
         summary: {
           uniqueWorkloads: workloads.length, // Actual count
-          totalRegions: regions.size
+          totalRegions: regions.size,
+          totalMonthlyCost: totalMonthlyCost // CRITICAL: Use totalRawCost from CSV parser (correct cost)
         },
         timestamp: new Date().toISOString()
       };
@@ -1496,7 +1582,19 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
     const agent = AGENTS[currentAgentIndex];
     if (!agent) return;
 
+    // CRITICAL: Log agent execution start for crash tracking
+    const agentStartTime = Date.now();
+    const agentStartMemory = performance.memory ? {
+      usedMB: (performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(1),
+      limitMB: (performance.memory.jsHeapSizeLimit / 1024 / 1024).toFixed(1),
+      usagePercent: ((performance.memory.usedJSHeapSize / performance.memory.jsHeapSizeLimit) * 100).toFixed(1)
+    } : null;
+    
     try {
+      if (typeof window !== 'undefined' && window.persistentLog) {
+        window.persistentLog('INFO', `[Pipeline] Starting ${agent.name} execution`, `Memory: ${agentStartMemory ? `${agentStartMemory.usedMB}MB / ${agentStartMemory.limitMB}MB (${agentStartMemory.usagePercent}%)` : 'N/A'}`);
+      }
+      
       safeSetAgentStatus('running');
       safeSetAgentProgress(0);
 
@@ -1647,6 +1745,12 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
           cost: await getAgentOutput(fileUUID, 'cost')
         };
         
+        // CRITICAL: Prevent duplicate onComplete calls
+        if (onCompleteCalledRef.current) {
+          console.warn('[PIPELINE] onComplete already called, skipping duplicate call');
+          return;
+        }
+        
         console.log('[PIPELINE] Calling onComplete with all outputs:', {
           hasDiscovery: !!allOutputs.discovery,
           hasAssessment: !!allOutputs.assessment,
@@ -1654,9 +1758,18 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
           hasCost: !!allOutputs.cost
         });
         
+        onCompleteCalledRef.current = true;
         onComplete?.(allOutputs);
       }
     } catch (error) {
+      const agentEndTime = Date.now();
+      const agentDuration = ((agentEndTime - agentStartTime) / 1000).toFixed(1);
+      const agentEndMemory = performance.memory ? {
+        usedMB: (performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(1),
+        limitMB: (performance.memory.jsHeapSizeLimit / 1024 / 1024).toFixed(1),
+        usagePercent: ((performance.memory.usedJSHeapSize / performance.memory.jsHeapSizeLimit) * 100).toFixed(1)
+      } : null;
+      
       // SAFETY: Check for stack overflow and provide recovery guidance
       let errorToReport = error;
       if (error instanceof RangeError && (error.message.includes('Maximum call stack size exceeded') || error.message.includes('stack'))) {
@@ -1669,23 +1782,92 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
           `The operation needs to be batched. Please check the console for details.`
         );
         stackOverflowError.originalError = error;
-        // Use a new variable instead of reassigning error parameter
         errorToReport = stackOverflowError;
       }
+      
+      // CRITICAL: Log crash to localStorage (works even if console is locked)
+      const crashLog = {
+        timestamp: new Date().toISOString(),
+        agent: agent.name,
+        agentId: agent.id,
+        error: errorToReport.message,
+        stack: errorToReport.stack,
+        name: errorToReport.name,
+        duration: `${agentDuration}s`,
+        memoryStart: agentStartMemory,
+        memoryEnd: agentEndMemory,
+        fileUUID: fileUUID,
+        currentAgentIndex: currentAgentIndex
+      };
+      
+      try {
+        // Save to crashLogs array in localStorage
+        const existingLogs = JSON.parse(localStorage.getItem('crashLogs') || '[]');
+        const logMessage = `[${crashLog.timestamp}] Pipeline Crash: ${agent.name} failed\nError: ${errorToReport.message}\nDuration: ${agentDuration}s\nMemory: ${agentEndMemory ? `${agentEndMemory.usedMB}MB / ${agentEndMemory.limitMB}MB (${agentEndMemory.usagePercent}%)` : 'N/A'}\nStack: ${errorToReport.stack || 'No stack trace'}`;
+        existingLogs.push(logMessage);
+        if (existingLogs.length > 100) {
+          existingLogs.shift();
+        }
+        localStorage.setItem('crashLogs', JSON.stringify(existingLogs));
+        
+        // Also save structured crash data
+        try {
+          const crashData = JSON.parse(localStorage.getItem('pipelineCrashData') || '[]');
+          crashData.push(crashLog);
+          if (crashData.length > 20) {
+            crashData.shift();
+          }
+          localStorage.setItem('pipelineCrashData', JSON.stringify(crashData));
+        } catch (e) {
+          // Ignore structured data save errors
+        }
+        
+        // Update UI crash log count
+        try {
+          const countEl = document.getElementById('crash-logs-count');
+          if (countEl) {
+            countEl.textContent = existingLogs.length;
+          }
+        } catch (e) {
+          // Ignore UI update errors
+        }
+      } catch (logError) {
+        // Last resort: try simple string save
+        try {
+          const simpleLog = `[${new Date().toISOString()}] Pipeline Crash: ${agent.name} - ${errorToReport.message}`;
+          const existing = JSON.parse(localStorage.getItem('crashLogs') || '[]');
+          existing.push(simpleLog);
+          localStorage.setItem('crashLogs', JSON.stringify(existing.slice(-100)));
+        } catch (e2) {
+          // All logging failed - at least try console
+          console.error('[Pipeline] CRITICAL: Failed to save crash log to localStorage:', e2);
+        }
+      }
+      
       console.error(`✗ ${agent.name} failed:`, errorToReport.message);
       console.error('Full error:', errorToReport);
       console.error('Stack trace:', errorToReport.stack);
+      console.error('Crash log saved to localStorage["crashLogs"]');
+      
+      if (typeof window !== 'undefined' && window.persistentLog) {
+        window.persistentLog('CRITICAL', `[Pipeline] ${agent.name} CRASHED`, errorToReport.message, `Duration: ${agentDuration}s`, `Memory: ${agentEndMemory ? `${agentEndMemory.usagePercent}%` : 'N/A'}`);
+      }
+      
       setAgentStatus('failed');
       safeSetAgentProgress(0);
       onError?.(errorToReport, agent.id);
       
       // Save failed state so user can resume
-      await savePipelineState(fileUUID, {
-        currentAgentIndex,
-        overallProgress: Math.round((currentAgentIndex / AGENTS.length) * 100),
-        agentProgress: 0,
-        agentStatus: 'failed'
-      });
+      try {
+        await savePipelineState(fileUUID, {
+          currentAgentIndex,
+          overallProgress: Math.round((currentAgentIndex / AGENTS.length) * 100),
+          agentProgress: 0,
+          agentStatus: 'failed'
+        });
+      } catch (stateError) {
+        console.error('[Pipeline] Failed to save pipeline state:', stateError);
+      }
       
       // Mark agent as needing rerun
       setNeedsRerun(prev => {
@@ -1696,7 +1878,7 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
       });
       
       // Don't auto-advance on failure - let user decide what to do
-      toast.error(`${agent.name} failed. Previous steps completed successfully. You can restart from any point.`);
+      toast.error(`${agent.name} failed. Check crash logs for details. You can restart from any point.`);
     }
   }, [currentAgentIndex, fileUUID, executeDiscoveryAgent, executeAssessmentAgent, executeStrategyAgent, executeCostAgent, onComplete, onError]);
 
@@ -1816,12 +1998,20 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
                 strategy: await getAgentOutput(fileUUID, 'strategy'),
                 cost: await getAgentOutput(fileUUID, 'cost')
               };
+              // CRITICAL: Prevent duplicate onComplete calls
+              if (onCompleteCalledRef.current) {
+                console.warn('[PIPELINE] onComplete already called (cached agents), skipping duplicate call');
+                return;
+              }
+              
               console.log('[PIPELINE] All cached agents complete: Calling onComplete with all outputs:', {
                 hasDiscovery: !!allOutputs.discovery,
                 hasAssessment: !!allOutputs.assessment,
                 hasStrategy: !!allOutputs.strategy,
                 hasCost: !!allOutputs.cost
               });
+              
+              onCompleteCalledRef.current = true;
               onComplete?.(allOutputs);
             }, 100);
           }
@@ -1848,7 +2038,14 @@ export default function PipelineOrchestrator({ files, fileUUID: propFileUUID, on
               strategy: await getAgentOutput(fileUUID, 'strategy'),
               cost: await getAgentOutput(fileUUID, 'cost')
             };
+            // CRITICAL: Prevent duplicate onComplete calls
+            if (onCompleteCalledRef.current) {
+              console.warn('[PIPELINE] onComplete already called (last cached agent), skipping duplicate call');
+              return;
+            }
+            
             console.log('[PIPELINE] Last cached agent: Calling onComplete with all outputs');
+            onCompleteCalledRef.current = true;
             onComplete?.(allOutputs);
           }, 200);
         }

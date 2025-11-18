@@ -13,6 +13,18 @@
 
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import {
+  calculateKeyInsights,
+  calculateCostBreakdown,
+  getTopExpensiveWorkloads,
+  detectCostAnomalies,
+  calculateRiskAssessment,
+  calculateReadinessScorecard,
+  calculateGCPProjections,
+  calculatePrioritizedActions,
+  calculateQuickWins,
+  calculateDataQuality
+} from './reportEnhancements';
 
 /**
  * Generate comprehensive migration assessment PDF report
@@ -37,6 +49,32 @@ export const generateComprehensiveReportPDF = async (
     window.persistentLog('INFO', '[PDF Generator] costEstimates length:', Array.isArray(costEstimates) ? costEstimates.length : 'N/A');
   }
   console.log('[PDF Generator] generateComprehensiveReportPDF: ENTERING');
+  
+  // CRITICAL: Check memory before starting PDF generation
+  if (performance.memory) {
+    const usedMB = performance.memory.usedJSHeapSize / 1024 / 1024;
+    const limitMB = performance.memory.jsHeapSizeLimit / 1024 / 1024;
+    const usagePercent = (usedMB / limitMB) * 100;
+    console.log(`[PDF Generator] Memory usage at start: ${usedMB.toFixed(1)}MB / ${limitMB.toFixed(1)}MB (${usagePercent.toFixed(1)}%)`);
+    
+    if (usagePercent > 85) {
+      console.warn(`[PDF Generator] WARNING: Memory usage is already high (${usagePercent.toFixed(1)}%). PDF generation may skip some sections.`);
+    }
+    
+    // CRITICAL: Remove workloads array from reportData if memory is high to prevent crashes
+    if (usagePercent > 70 && reportData?.workloads) {
+      const workloadCount = Array.isArray(reportData.workloads) ? reportData.workloads.length : 0;
+      console.warn(`[PDF Generator] Memory usage ${usagePercent.toFixed(1)}% - Removing workloads array (${workloadCount.toLocaleString()} workloads) from reportData`);
+      delete reportData.workloads;
+    }
+  }
+  
+  // CRITICAL: Also check workload count - remove if too large regardless of memory
+  const workloadCount = reportData?.summary?.totalWorkloads || 0;
+  if (workloadCount > 150000 && reportData?.workloads) {
+    console.warn(`[PDF Generator] Large dataset (${workloadCount.toLocaleString()} workloads) - Removing workloads array from reportData`);
+    delete reportData.workloads;
+  }
   
   // CRITICAL: Cost estimates are required for PDF generation
   if (!costEstimates) {
@@ -63,6 +101,8 @@ export const generateComprehensiveReportPDF = async (
     throw new Error(errorMsg);
   }
   
+  // Note: Use costEstimates directly - don't create unnecessary copies that increase memory usage
+  
   if (typeof window !== 'undefined' && window.persistentLog) {
     window.persistentLog('INFO', '[PDF Generator] Cost estimates validated, proceeding with PDF generation...');
   }
@@ -85,16 +125,23 @@ export const generateComprehensiveReportPDF = async (
     });
   }
   
-  // Debug: Check if workloads have costs
-  if (reportData?.workloads && Array.isArray(reportData.workloads)) {
-    const sampleWorkloads = reportData.workloads.slice(0, 5);
-    console.log('PDF Generator - Sample workload costs:', sampleWorkloads.map(w => ({
-      id: w.id,
-      name: w.name,
-      monthlyCost: w.monthlyCost,
-      monthlyCostType: typeof w.monthlyCost,
-      hasAssessment: !!w.assessment
-    })));
+  // Debug: Check if workloads have costs (MEMORY-SAFE: Only check if array is small)
+  // CRITICAL: Don't access workloads array if it's too large - just check summary
+  // Note: workloadCount already declared above
+  if (workloadCount > 0 && workloadCount < 10000) {
+    // Only log sample for small datasets to avoid memory issues
+    if (reportData?.workloads && Array.isArray(reportData.workloads)) {
+      const sampleWorkloads = reportData.workloads.slice(0, 5);
+      console.log('PDF Generator - Sample workload costs:', sampleWorkloads.map(w => ({
+        id: w.id,
+        name: w.name,
+        monthlyCost: w.monthlyCost,
+        monthlyCostType: typeof w.monthlyCost,
+        hasAssessment: !!w.assessment
+      })));
+    }
+  } else if (workloadCount > 10000) {
+    console.log(`PDF Generator - Large dataset detected (${workloadCount.toLocaleString()} workloads). Skipping sample workload logging to save memory.`);
   }
   
   const {
@@ -316,11 +363,20 @@ export const generateComprehensiveReportPDF = async (
   
   const tocItems = [
     'Executive Summary',
+    'Executive Dashboard',
+    'Key Insights',
     'Assessment Agent Summary',
-    'Strategy Agent Summary',
     'Cost Analysis Agent Summary',
+    'Cost Breakdown & Anomalies',
+    'GCP Cost Projections',
+    'Strategy Agent Summary',
+    'Migration Wave Details',
+    'Risk Assessment',
     'Migration Timeline Summary',
+    'Prioritized Action Items',
+    'Quick Wins',
     'Key Recommendations',
+    'Data Quality & Validation',
     'Appendices'
   ];
 
@@ -445,6 +501,240 @@ export const generateComprehensiveReportPDF = async (
   });
 
   yPos = getLastAutoTable().finalY + SPACING.XL;
+
+  // Migration Readiness Scorecard
+  checkPageBreak(SPACING.XXL);
+  setFont(FONT_SIZE.XL, FONT_BOLD);
+  doc.setTextColor(0, 102, 204);
+  doc.text('Migration Readiness Scorecard', margin, yPos);
+  yPos += SPACING.MD;
+
+  try {
+    const scorecard = calculateReadinessScorecard(readiness);
+    if (scorecard) {
+      // Overall status indicator box
+      doc.setFillColor(scorecard.statusColor[0], scorecard.statusColor[1], scorecard.statusColor[2]);
+      doc.setDrawColor(scorecard.statusColor[0], scorecard.statusColor[1], scorecard.statusColor[2]);
+      doc.roundedRect(margin, yPos, contentWidth, 20, 3, 3, 'FD');
+      
+      doc.setTextColor(255, 255, 255);
+      setFont(FONT_SIZE.LG, FONT_BOLD);
+      doc.text(`Overall Status: ${scorecard.overallStatus}`, margin + 5, yPos + 12);
+      yPos += 25;
+      
+      doc.setTextColor(0, 0, 0);
+      setFont(FONT_SIZE.BASE, FONT_NORMAL);
+      const scorecardData = [
+        ['Ready', `${formatNumber(scorecard.readyCount)} (${scorecard.readyPercentage}%)`, formatCurrency(readiness.ready?.totalCost || 0)],
+        ['Conditional', `${formatNumber(scorecard.conditionalCount)} (${scorecard.conditionalPercentage}%)`, formatCurrency(readiness.conditional?.totalCost || 0)],
+        ['Not Ready', `${formatNumber(scorecard.notReadyCount)} (${scorecard.notReadyPercentage}%)`, formatCurrency(readiness.notReady?.totalCost || 0)]
+      ];
+
+      callAutoTable({
+        startY: yPos,
+        head: [['Status', 'Workloads', 'Monthly Cost']],
+        body: scorecardData,
+        theme: 'grid',
+        headStyles: { fillColor: [0, 102, 204], fontStyle: FONT_BOLD, font: FONT_FAMILY },
+        margin: { left: margin, right: margin },
+        styles: { fontSize: FONT_SIZE.MD, font: FONT_FAMILY }
+      });
+
+      yPos = getLastAutoTable().finalY + SPACING.LG;
+      
+      // Action items for not-ready workloads
+      if (scorecard.notReadyCount > 0) {
+        setFont(FONT_SIZE.BASE, FONT_NORMAL);
+        doc.setTextColor(200, 0, 0);
+        doc.text(`⚠️ Action Required: ${scorecard.notReadyCount.toLocaleString()} workloads need attention before migration`, margin, yPos, { maxWidth: contentWidth });
+        doc.setTextColor(0, 0, 0);
+        yPos += SPACING.MD;
+      }
+    }
+  } catch (error) {
+    console.error('[PDF Generator] Error calculating scorecard:', error);
+  }
+
+  yPos += SPACING.XL;
+
+  // ==========================================
+  // EXECUTIVE DASHBOARD
+  // ==========================================
+  doc.addPage();
+  yPos = margin;
+  addSectionHeader('Executive Dashboard', [0, 102, 204]);
+  
+  setFont(FONT_SIZE.BASE, FONT_NORMAL);
+  doc.setTextColor(0, 0, 0);
+  doc.text('At-a-glance view of key migration metrics and status indicators.', margin, yPos, { maxWidth: contentWidth });
+  yPos += SPACING.LG;
+
+  // KPI Cards
+  const kpiCards = [
+    { label: 'Total Workloads', value: formatNumber(summary.totalWorkloads || 0), color: [0, 102, 204] },
+    { label: 'Monthly Cost', value: formatCurrency(summary.totalMonthlyCost || 0), color: [40, 167, 69] },
+    { label: 'Avg Complexity', value: summary.averageComplexity ? summary.averageComplexity.toFixed(1) : 'N/A', color: [255, 193, 7] },
+    { label: 'AWS Services', value: formatNumber(summary.totalServices || 0), color: [108, 117, 125] }
+  ];
+
+  const cardWidth = (contentWidth - SPACING.MD) / 2;
+  const cardHeight = 25;
+  let cardX = margin;
+  let cardY = yPos;
+
+  kpiCards.forEach((card, index) => {
+    if (index > 0 && index % 2 === 0) {
+      cardY += cardHeight + SPACING.SM;
+      cardX = margin;
+    } else if (index > 0) {
+      cardX = margin + cardWidth + SPACING.MD;
+    }
+
+    // Card background
+    doc.setFillColor(card.color[0], card.color[1], card.color[2]);
+    doc.roundedRect(cardX, cardY, cardWidth, cardHeight, 3, 3, 'F');
+    
+    // Card text
+    doc.setTextColor(255, 255, 255);
+    setFont(FONT_SIZE.SM, FONT_NORMAL);
+    doc.text(card.label, cardX + 5, cardY + 8);
+    setFont(FONT_SIZE.LG, FONT_BOLD);
+    doc.text(card.value, cardX + 5, cardY + 18);
+  });
+
+  yPos = cardY + cardHeight + SPACING.XL;
+
+  // Cost Breakdown by Category
+  try {
+    const costBreakdown = calculateCostBreakdown(reportData?.services?.topServices || []);
+    if (costBreakdown.length > 0) {
+      checkPageBreak(SPACING.XXL);
+      setFont(FONT_SIZE.XL, FONT_BOLD);
+      doc.setTextColor(0, 102, 204);
+      doc.text('Cost Breakdown by Category', margin, yPos);
+      yPos += SPACING.MD;
+
+      const breakdownData = costBreakdown.map(cat => [
+        cat.name,
+        formatCurrency(cat.cost),
+        formatNumber(cat.services.length) + ' services'
+      ]);
+
+      callAutoTable({
+        startY: yPos,
+        head: [['Category', 'Monthly Cost', 'Services']],
+        body: breakdownData,
+        theme: 'grid',
+        headStyles: { fillColor: [0, 102, 204], fontStyle: FONT_BOLD, font: FONT_FAMILY },
+        margin: { left: margin, right: margin },
+        styles: { fontSize: FONT_SIZE.MD, font: FONT_FAMILY }
+      });
+
+      yPos = getLastAutoTable().finalY + SPACING.XL;
+    }
+  } catch (error) {
+    console.error('[PDF Generator] Error calculating cost breakdown:', error);
+  }
+
+  // ==========================================
+  // KEY INSIGHTS SECTION
+  // ==========================================
+  checkPageBreak(SPACING.XXL);
+  addSectionHeader('Key Insights', [0, 102, 204]);
+  
+  setFont(FONT_SIZE.BASE, FONT_NORMAL);
+  doc.setTextColor(0, 0, 0);
+  
+  try {
+    const insights = calculateKeyInsights(reportData, costEstimates, strategyResults);
+    
+    // Top Cost Drivers
+    if (insights.topCostDrivers.length > 0) {
+      setFont(FONT_SIZE.XL, FONT_BOLD);
+      doc.setTextColor(0, 102, 204);
+      doc.text('Top Cost Drivers', margin, yPos);
+      yPos += SPACING.MD;
+      
+      const costDriversData = insights.topCostDrivers.map(driver => [
+        driver.service,
+        formatCurrency(driver.cost),
+        `${driver.percentage}%`
+      ]);
+      
+      callAutoTable({
+        startY: yPos,
+        head: [['Service', 'Monthly Cost', 'Percentage']],
+        body: costDriversData,
+        theme: 'grid',
+        headStyles: { fillColor: [0, 102, 204], fontStyle: FONT_BOLD, font: FONT_FAMILY },
+        margin: { left: margin, right: margin },
+        styles: { fontSize: FONT_SIZE.MD, font: FONT_FAMILY }
+      });
+      
+      yPos = getLastAutoTable().finalY + SPACING.LG;
+    }
+    
+    // Quick Wins
+    if (insights.quickWins.length > 0) {
+      checkPageBreak(SPACING.XXL);
+      setFont(FONT_SIZE.XL, FONT_BOLD);
+      doc.setTextColor(40, 167, 69);
+      doc.text('Quick Wins', margin, yPos);
+      yPos += SPACING.MD;
+      
+      setFont(FONT_SIZE.BASE, FONT_NORMAL);
+      doc.setTextColor(0, 0, 0);
+      insights.quickWins.forEach(win => {
+        checkPageBreak(SPACING.MD);
+        doc.text(`• ${win.description}`, margin + 5, yPos, { maxWidth: contentWidth - 10 });
+        yPos += SPACING.SM;
+        doc.text(`  ${formatNumber(win.count)} workloads, ${formatCurrency(win.cost)} monthly`, margin + 10, yPos, { maxWidth: contentWidth - 15 });
+        yPos += SPACING.MD;
+      });
+      yPos += SPACING.LG;
+    }
+    
+    // Risk Areas
+    if (insights.riskAreas.length > 0) {
+      checkPageBreak(SPACING.XXL);
+      setFont(FONT_SIZE.XL, FONT_BOLD);
+      doc.setTextColor(200, 0, 0);
+      doc.text('Risk Areas Requiring Attention', margin, yPos);
+      yPos += SPACING.MD;
+      
+      setFont(FONT_SIZE.BASE, FONT_NORMAL);
+      doc.setTextColor(0, 0, 0);
+      insights.riskAreas.forEach(risk => {
+        checkPageBreak(SPACING.MD);
+        doc.text(`• ${risk.description}`, margin + 5, yPos, { maxWidth: contentWidth - 10 });
+        yPos += SPACING.SM;
+        doc.text(`  Impact: ${formatCurrency(risk.cost)} monthly`, margin + 10, yPos, { maxWidth: contentWidth - 15 });
+        yPos += SPACING.MD;
+      });
+      yPos += SPACING.LG;
+    }
+    
+    // Migration Opportunities
+    if (insights.migrationOpportunities.length > 0) {
+      checkPageBreak(SPACING.XXL);
+      setFont(FONT_SIZE.XL, FONT_BOLD);
+      doc.setTextColor(40, 167, 69);
+      doc.text('Migration Opportunities', margin, yPos);
+      yPos += SPACING.MD;
+      
+      setFont(FONT_SIZE.BASE, FONT_NORMAL);
+      doc.setTextColor(0, 0, 0);
+      insights.migrationOpportunities.forEach(opp => {
+        checkPageBreak(SPACING.MD);
+        doc.text(`• ${opp.description}`, margin + 5, yPos, { maxWidth: contentWidth - 10 });
+        yPos += SPACING.SM;
+        doc.text(`  Potential value: ${formatCurrency(opp.cost)} monthly`, margin + 10, yPos, { maxWidth: contentWidth - 15 });
+        yPos += SPACING.MD;
+      });
+    }
+  } catch (error) {
+    console.error('[PDF Generator] Error calculating insights:', error);
+  }
 
   // ==========================================
   // ASSESSMENT AGENT SUMMARY
@@ -676,7 +966,7 @@ export const generateComprehensiveReportPDF = async (
       // SAFETY: Safe array conversion and sort with error handling
       try {
         sortedCostEstimates = Array.from(costEstimates);
-        // SAFETY: Limit before sorting
+        // SAFETY: Limit before sorting to avoid memory issues
         if (sortedCostEstimates.length > 10000) {
           console.warn(`[reportPdfGenerator] Too many cost estimates (${sortedCostEstimates.length}), limiting to 10000`);
           sortedCostEstimates = sortedCostEstimates.slice(0, 10000);
@@ -978,6 +1268,301 @@ export const generateComprehensiveReportPDF = async (
   }
 
   // ==========================================
+  // COST BREAKDOWN & ANOMALIES
+  // ==========================================
+  doc.addPage();
+  yPos = margin;
+  addSectionHeader('Cost Breakdown & Anomalies', [40, 167, 69]);
+  
+  setFont(FONT_SIZE.BASE, FONT_NORMAL);
+  doc.setTextColor(0, 0, 0);
+  doc.text('Detailed cost analysis including top expensive workloads and cost optimization opportunities.', margin, yPos, { maxWidth: contentWidth });
+  yPos += SPACING.LG;
+
+  // Top 10 Expensive Workloads
+  try {
+    // CRITICAL: Check memory and workload count BEFORE accessing workloads array
+    let shouldProcessWorkloads = false;
+    const workloadCount = reportData?.summary?.totalWorkloads || 0;
+    
+    // CRITICAL: Check memory first, then decide if we can safely access workloads array
+    if (performance.memory) {
+      const usedMB = performance.memory.usedJSHeapSize / 1024 / 1024;
+      const limitMB = performance.memory.jsHeapSizeLimit / 1024 / 1024;
+      const usagePercent = (usedMB / limitMB) * 100;
+      
+      // Only process if memory is low AND workload count is reasonable
+      if (usagePercent < 70 && workloadCount > 0 && workloadCount < 150000) {
+        shouldProcessWorkloads = true;
+      } else {
+        if (usagePercent >= 70) {
+          console.warn(`[PDF Generator] Memory usage high (${usagePercent.toFixed(1)}%), skipping workload processing`);
+        }
+        if (workloadCount >= 150000) {
+          console.warn(`[PDF Generator] Workload count too large (${workloadCount.toLocaleString()}), skipping detailed workload analysis`);
+        }
+      }
+    } else {
+      // If no memory API, only process if workload count is small
+      shouldProcessWorkloads = workloadCount > 0 && workloadCount < 100000;
+    }
+    
+    // CRITICAL: Only access workloads array if we're going to use it AND it exists
+    let topWorkloads = [];
+    if (shouldProcessWorkloads) {
+      // Double-check memory before accessing
+      if (performance.memory) {
+        const usedMB = performance.memory.usedJSHeapSize / 1024 / 1024;
+        const limitMB = performance.memory.jsHeapSizeLimit / 1024 / 1024;
+        const usagePercent = (usedMB / limitMB) * 100;
+        if (usagePercent < 70 && reportData?.workloads) {
+          const workloads = reportData.workloads;
+          topWorkloads = Array.isArray(workloads) && workloads.length > 0 ? getTopExpensiveWorkloads(workloads, 10) : [];
+        }
+      } else if (reportData?.workloads) {
+        const workloads = reportData.workloads;
+        topWorkloads = Array.isArray(workloads) && workloads.length > 0 ? getTopExpensiveWorkloads(workloads, 10) : [];
+      }
+    }
+    
+    if (!shouldProcessWorkloads && workloadCount > 0) {
+      // Show message that workload details were skipped
+      setFont(FONT_SIZE.BASE, FONT_NORMAL);
+      doc.setTextColor(200, 0, 0);
+      doc.text(`Note: Detailed workload analysis skipped due to large dataset (${workloadCount.toLocaleString()} workloads). Summary data is still included.`, margin, yPos, { maxWidth: contentWidth });
+      doc.setTextColor(0, 0, 0);
+      yPos += SPACING.LG;
+    }
+    
+    if (topWorkloads.length > 0) {
+      setFont(FONT_SIZE.XL, FONT_BOLD);
+      doc.setTextColor(0, 102, 204);
+      doc.text('Top 10 Most Expensive Workloads', margin, yPos);
+      yPos += SPACING.MD;
+
+      // SAFETY: Batch map to avoid stack overflow with large arrays
+      const topWorkloadsData = [];
+      const MAX_TOP_WORKLOADS = Math.min(topWorkloads.length, 10);
+      for (let idx = 0; idx < MAX_TOP_WORKLOADS; idx++) {
+        const w = topWorkloads[idx];
+        if (!w) continue;
+        topWorkloadsData.push([
+          (idx + 1).toString(),
+          (w.name || 'Unknown').substring(0, 40) + ((w.name || '').length > 40 ? '...' : ''),
+          w.service || 'Unknown',
+          w.region || 'Unknown',
+          formatCurrency(w.cost || 0),
+          (w.complexity || 'N/A').toString()
+        ]);
+      }
+
+      callAutoTable({
+        startY: yPos,
+        head: [['#', 'Workload Name', 'Service', 'Region', 'Monthly Cost', 'Complexity']],
+        body: topWorkloadsData,
+        theme: 'grid',
+        headStyles: { fillColor: [0, 102, 204], fontStyle: FONT_BOLD, font: FONT_FAMILY },
+        margin: { left: margin, right: margin },
+        styles: { fontSize: FONT_SIZE.XS, font: FONT_FAMILY },
+        columnStyles: {
+          0: { cellWidth: 10 },
+          1: { cellWidth: 60 },
+          2: { cellWidth: 30 },
+          3: { cellWidth: 25 },
+          4: { cellWidth: 30, halign: 'right' },
+          5: { cellWidth: 20, halign: 'center' }
+        }
+      });
+
+      yPos = getLastAutoTable().finalY + SPACING.LG;
+    }
+  } catch (error) {
+    console.error('[PDF Generator] Error getting top workloads:', error);
+  }
+
+  // Cost Anomalies
+  try {
+    // CRITICAL: Check memory BEFORE accessing workloads array
+    let shouldProcessAnomalies = false;
+    const workloadCount = reportData?.summary?.totalWorkloads || 0;
+    
+    // CRITICAL: Only process anomalies if memory is low AND workload count is reasonable
+    if (performance.memory) {
+      const usedMB = performance.memory.usedJSHeapSize / 1024 / 1024;
+      const limitMB = performance.memory.jsHeapSizeLimit / 1024 / 1024;
+      const usagePercent = (usedMB / limitMB) * 100;
+      
+      if (usagePercent < 70 && workloadCount > 0 && workloadCount < 150000) {
+        shouldProcessAnomalies = true;
+      } else {
+        if (usagePercent >= 70) {
+          console.warn(`[PDF Generator] Memory usage high (${usagePercent.toFixed(1)}%), skipping anomaly detection`);
+        }
+        if (workloadCount >= 150000) {
+          console.warn(`[PDF Generator] Workload count too large (${workloadCount.toLocaleString()}), skipping anomaly detection`);
+        }
+      }
+    } else {
+      shouldProcessAnomalies = workloadCount > 0 && workloadCount < 100000;
+    }
+    
+    // CRITICAL: Only access workloads array if we're going to use it AND memory allows
+    let anomalies = { highCostWorkloads: [], costSpikes: [], optimizationOpportunities: [] };
+    if (shouldProcessAnomalies) {
+      // Double-check memory before accessing
+      if (performance.memory) {
+        const usedMB = performance.memory.usedJSHeapSize / 1024 / 1024;
+        const limitMB = performance.memory.jsHeapSizeLimit / 1024 / 1024;
+        const usagePercent = (usedMB / limitMB) * 100;
+        if (usagePercent < 70 && reportData?.workloads) {
+          const workloads = reportData.workloads;
+          const services = reportData?.services?.topServices || [];
+          anomalies = Array.isArray(workloads) && workloads.length > 0 ? detectCostAnomalies(workloads, services) : anomalies;
+        }
+      } else if (reportData?.workloads) {
+        const workloads = reportData.workloads;
+        const services = reportData?.services?.topServices || [];
+        anomalies = Array.isArray(workloads) && workloads.length > 0 ? detectCostAnomalies(workloads, services) : anomalies;
+      }
+    }
+    
+    if (anomalies.highCostWorkloads.length > 0) {
+      checkPageBreak(SPACING.XXL);
+      setFont(FONT_SIZE.XL, FONT_BOLD);
+      doc.setTextColor(200, 0, 0);
+      doc.text('High-Cost Anomalies', margin, yPos);
+      yPos += SPACING.MD;
+
+      setFont(FONT_SIZE.BASE, FONT_NORMAL);
+      doc.setTextColor(0, 0, 0);
+      doc.text('The following workloads have unusually high costs and should be reviewed:', margin, yPos, { maxWidth: contentWidth });
+      yPos += SPACING.MD;
+
+      // SAFETY: Batch map to avoid stack overflow
+      const anomaliesData = [];
+      const MAX_ANOMALIES = Math.min(anomalies.highCostWorkloads.length, 10);
+      for (let i = 0; i < MAX_ANOMALIES; i++) {
+        const w = anomalies.highCostWorkloads[i];
+        if (!w) continue;
+        anomaliesData.push([
+          (w.name || 'Unknown').substring(0, 40) + ((w.name || '').length > 40 ? '...' : ''),
+          formatCurrency(w.cost || 0),
+          (w.deviation || '0%') + ' above average'
+        ]);
+      }
+
+      callAutoTable({
+        startY: yPos,
+        head: [['Workload', 'Monthly Cost', 'Deviation']],
+        body: anomaliesData,
+        theme: 'grid',
+        headStyles: { fillColor: [200, 0, 0], fontStyle: FONT_BOLD, font: FONT_FAMILY },
+        margin: { left: margin, right: margin },
+        styles: { fontSize: FONT_SIZE.SM, font: FONT_FAMILY }
+      });
+
+      yPos = getLastAutoTable().finalY + SPACING.LG;
+    }
+
+    // Optimization Opportunities
+    if (anomalies.optimizationOpportunities.length > 0) {
+      checkPageBreak(SPACING.XXL);
+      setFont(FONT_SIZE.XL, FONT_BOLD);
+      doc.setTextColor(40, 167, 69);
+      doc.text('Cost Optimization Opportunities', margin, yPos);
+      yPos += SPACING.MD;
+
+      // SAFETY: Batch map to avoid stack overflow
+      const optData = [];
+      const MAX_OPT = Math.min(anomalies.optimizationOpportunities.length, 10);
+      for (let i = 0; i < MAX_OPT; i++) {
+        const w = anomalies.optimizationOpportunities[i];
+        if (!w) continue;
+        optData.push([
+          (w.name || 'Unknown').substring(0, 40) + ((w.name || '').length > 40 ? '...' : ''),
+          formatCurrency(w.cost || 0),
+          (w.complexity || 'N/A').toString(),
+          formatCurrency(w.potentialSavings || 0)
+        ]);
+      }
+
+      callAutoTable({
+        startY: yPos,
+        head: [['Workload', 'Current Cost', 'Complexity', 'Potential Savings']],
+        body: optData,
+        theme: 'grid',
+        headStyles: { fillColor: [40, 167, 69], fontStyle: FONT_BOLD, font: FONT_FAMILY },
+        margin: { left: margin, right: margin },
+        styles: { fontSize: FONT_SIZE.SM, font: FONT_FAMILY }
+      });
+
+      yPos = getLastAutoTable().finalY + SPACING.XL;
+    }
+  } catch (error) {
+    console.error('[PDF Generator] Error detecting anomalies:', error);
+  }
+
+  // ==========================================
+  // GCP COST PROJECTIONS
+  // ==========================================
+  doc.addPage();
+  yPos = margin;
+  addSectionHeader('GCP Cost Projections', [40, 167, 69]);
+  
+  setFont(FONT_SIZE.BASE, FONT_NORMAL);
+  doc.setTextColor(0, 0, 0);
+  
+  try {
+    const awsTotalCost = reportData?.summary?.totalMonthlyCost || 0;
+    const projections = calculateGCPProjections(costEstimates, awsTotalCost);
+    
+    if (projections) {
+      doc.text('Comprehensive cost comparison between AWS and GCP with 3-year projections.', margin, yPos, { maxWidth: contentWidth });
+      yPos += SPACING.LG;
+
+      // Side-by-side comparison
+      setFont(FONT_SIZE.XL, FONT_BOLD);
+      doc.setTextColor(0, 102, 204);
+      doc.text('AWS vs GCP Cost Comparison', margin, yPos);
+      yPos += SPACING.MD;
+
+      const comparisonData = [
+        ['Monthly Cost', formatCurrency(projections.awsMonthly), formatCurrency(projections.gcpMonthly), formatCurrency(projections.monthlySavings), `${projections.savingsPercentage}%`],
+        ['3-Year Total (On-Demand)', formatCurrency(projections.aws3Year), formatCurrency(projections.gcp3Year), formatCurrency(projections.aws3Year - projections.gcp3Year), 'N/A'],
+        ['3-Year Total (with CUD)', formatCurrency(projections.aws3Year), formatCurrency(projections.gcp3YearCUD), formatCurrency(projections.threeYearSavings), `${((projections.threeYearSavings / projections.aws3Year) * 100).toFixed(1)}%`]
+      ];
+
+      callAutoTable({
+        startY: yPos,
+        head: [['Period', 'AWS Cost', 'GCP Cost', 'Savings', 'Savings %']],
+        body: comparisonData,
+        theme: 'grid',
+        headStyles: { fillColor: [0, 102, 204], fontStyle: FONT_BOLD, font: FONT_FAMILY },
+        margin: { left: margin, right: margin },
+        styles: { fontSize: FONT_SIZE.MD, font: FONT_FAMILY }
+      });
+
+      yPos = getLastAutoTable().finalY + SPACING.LG;
+
+      // Key insights
+      if (projections.monthlySavings > 0) {
+        setFont(FONT_SIZE.BASE, FONT_NORMAL);
+        doc.setTextColor(40, 167, 69);
+        doc.text(`✓ Potential monthly savings: ${formatCurrency(projections.monthlySavings)} (${projections.savingsPercentage}%)`, margin, yPos, { maxWidth: contentWidth });
+        yPos += SPACING.MD;
+        doc.text(`✓ Potential 3-year savings (with CUD): ${formatCurrency(projections.threeYearSavings)}`, margin, yPos, { maxWidth: contentWidth });
+        yPos += SPACING.LG;
+        doc.setTextColor(0, 0, 0);
+      }
+    } else {
+      doc.text('GCP cost projections require cost estimates from Cost Agent.', margin, yPos, { maxWidth: contentWidth });
+    }
+  } catch (error) {
+    console.error('[PDF Generator] Error calculating GCP projections:', error);
+    doc.text('Error calculating GCP cost projections.', margin, yPos, { maxWidth: contentWidth });
+  }
+
+  // ==========================================
   // STRATEGY AGENT SUMMARY
   // ==========================================
   doc.addPage();
@@ -1038,123 +1623,197 @@ export const generateComprehensiveReportPDF = async (
     
     // CRITICAL FIX: Convert planItems to plans format if needed
     // The migrationPlan may have planItems instead of plans
+    // MEMORY-SAFE: Check memory and planItems size before processing
     let plans = strategyResults.migrationPlan.plans;
-    if (!plans && strategyResults.migrationPlan.planItems) {
-      // SAFETY: Batch planItems mapping to avoid stack overflow with large datasets
-      const planItems = strategyResults.migrationPlan.planItems;
-      plans = [];
-      const PLAN_BATCH_SIZE = 10000; // Process 10K plan items at a time
+    let shouldProcessPlanItems = true;
+    
+    // CRITICAL: Check memory before processing planItems
+    if (performance.memory) {
+      const usedMB = performance.memory.usedJSHeapSize / 1024 / 1024;
+      const limitMB = performance.memory.jsHeapSizeLimit / 1024 / 1024;
+      const usagePercent = (usedMB / limitMB) * 100;
       
-      for (let i = 0; i < planItems.length; i += PLAN_BATCH_SIZE) {
-        const batch = planItems.slice(i, Math.min(i + PLAN_BATCH_SIZE, planItems.length));
-        // SAFETY: Use explicit loop instead of map to avoid any potential stack issues
-        for (const item of batch) {
-          plans.push({
-            workloadId: item.workloadId,
-            workload: { id: item.workloadId, name: item.workloadName },
-            sourceService: item.sourceService,
-            service: item.sourceService,
-            targetGcpService: item.serviceMapping?.gcpService || 'N/A',
-            gcpService: item.serviceMapping?.gcpService || 'N/A',
-            gcpApi: item.serviceMapping?.gcpApi || 'N/A',
-            strategy: item.serviceMapping?.migrationStrategy || 'N/A',
-            effort: item.serviceMapping?.effort?.level || 'N/A',
-            wave: item.migrationWave || 'N/A'
-          });
-        }
+      if (usagePercent > 70) {
+        console.warn(`[PDF Generator] Memory usage ${usagePercent.toFixed(1)}% - Skipping planItems conversion to prevent crash`);
+        shouldProcessPlanItems = false;
       }
+    }
+    
+    if (!plans && strategyResults.migrationPlan.planItems && shouldProcessPlanItems) {
+      const planItems = strategyResults.migrationPlan.planItems;
+      const planItemsCount = Array.isArray(planItems) ? planItems.length : 0;
       
-      console.log(`PDF Generator - Converted ${plans.length} planItems to plans format (should be ALL workloads, not limited)`);
+      // CRITICAL: Skip conversion if planItems is too large (>100K) to prevent memory crash
+      if (planItemsCount > 100000) {
+        console.warn(`[PDF Generator] planItems too large (${planItemsCount.toLocaleString()} items) - Skipping conversion to prevent crash`);
+        shouldProcessPlanItems = false;
+        plans = null; // Don't process plans
+      } else {
+        // SAFETY: Batch planItems mapping to avoid stack overflow with large datasets
+        plans = [];
+        const PLAN_BATCH_SIZE = 10000; // Process 10K plan items at a time
+        
+        for (let i = 0; i < planItems.length; i += PLAN_BATCH_SIZE) {
+          // CRITICAL: Check memory during processing
+          if (performance.memory) {
+            const usedMB = performance.memory.usedJSHeapSize / 1024 / 1024;
+            const limitMB = performance.memory.jsHeapSizeLimit / 1024 / 1024;
+            const usagePercent = (usedMB / limitMB) * 100;
+            if (usagePercent > 75) {
+              console.warn(`[PDF Generator] Memory usage ${usagePercent.toFixed(1)}% during planItems conversion - Stopping early`);
+              break; // Stop processing if memory gets too high
+            }
+          }
+          
+          const batch = planItems.slice(i, Math.min(i + PLAN_BATCH_SIZE, planItems.length));
+          // SAFETY: Use explicit loop instead of map to avoid any potential stack issues
+          for (const item of batch) {
+            plans.push({
+              workloadId: item.workloadId,
+              workload: { id: item.workloadId, name: item.workloadName },
+              sourceService: item.sourceService,
+              service: item.sourceService,
+              targetGcpService: item.serviceMapping?.gcpService || 'N/A',
+              gcpService: item.serviceMapping?.gcpService || 'N/A',
+              gcpApi: item.serviceMapping?.gcpApi || 'N/A',
+              strategy: item.serviceMapping?.migrationStrategy || 'N/A',
+              effort: item.serviceMapping?.effort?.level || 'N/A',
+              wave: item.migrationWave || 'N/A'
+            });
+          }
+        }
+        
+        console.log(`PDF Generator - Converted ${plans.length} planItems to plans format`);
+      }
     }
     
     // Complete Service Mappings Summary - Show ALL services (not limited)
-    if (plans && plans.length > 0) {
-      checkPageBreak(30);
-      setFont(FONT_SIZE.XL, FONT_BOLD);
-      doc.setTextColor(0, 102, 204);
-      doc.text('Complete Service Mappings', margin, yPos);
-      yPos += SPACING.MD;
-      
-      // Group by service and show all mappings (ALL workloads, not limited)
-      // SAFETY: Batch forEach to avoid stack overflow with large datasets
-      const serviceMap = new Map();
-      const PLANS_BATCH_SIZE = 10000; // Process 10K plans at a time
-      
-      for (let i = 0; i < plans.length; i += PLANS_BATCH_SIZE) {
-        const batch = plans.slice(i, Math.min(i + PLANS_BATCH_SIZE, plans.length));
-        for (const plan of batch) {
-          const service = plan.sourceService || plan.service || 'Unknown';
-          if (!serviceMap.has(service)) {
-            serviceMap.set(service, {
-              service,
-              gcpService: plan.targetGcpService || plan.gcpService || 'N/A',
-              gcpApi: plan.gcpApi || 'N/A',
-              strategy: plan.strategy || 'N/A',
-              effort: plan.effort || 'N/A',
-              count: 0
-            });
-          }
-          serviceMap.get(service).count++;
+    // CRITICAL: Only process if we have plans and memory allows
+    if (plans && plans.length > 0 && shouldProcessPlanItems) {
+      // CRITICAL: Check memory again before processing plans
+      let canProcessPlans = true;
+      if (performance.memory) {
+        const usedMB = performance.memory.usedJSHeapSize / 1024 / 1024;
+        const limitMB = performance.memory.jsHeapSizeLimit / 1024 / 1024;
+        const usagePercent = (usedMB / limitMB) * 100;
+        if (usagePercent > 70) {
+          console.warn(`[PDF Generator] Memory usage ${usagePercent.toFixed(1)}% - Skipping service mappings processing`);
+          canProcessPlans = false;
         }
       }
       
-      console.log(`PDF Generator - Processing ${plans.length} migration plans (should match total workloads ~19.5k)`);
+      if (canProcessPlans && plans.length > 100000) {
+        console.warn(`[PDF Generator] Plans array too large (${plans.length.toLocaleString()} items) - Skipping service mappings`);
+        canProcessPlans = false;
+      }
       
-      // SAFETY: serviceMap should be small (number of unique services), but add error handling
-      let serviceValues = [];
-      try {
-        serviceValues = Array.from(serviceMap.values());
-        // Limit to 1000 services
-        if (serviceValues.length > 1000) {
-          console.warn(`[reportPdfGenerator] Too many services (${serviceValues.length}), limiting to 1000`);
-          serviceValues = serviceValues.slice(0, 1000);
+      if (canProcessPlans) {
+        checkPageBreak(30);
+        setFont(FONT_SIZE.XL, FONT_BOLD);
+        doc.setTextColor(0, 102, 204);
+        doc.text('Complete Service Mappings', margin, yPos);
+        yPos += SPACING.MD;
+        
+        // Group by service and show all mappings (ALL workloads, not limited)
+        // SAFETY: Process planItems directly without creating full plans array if possible
+        const serviceMap = new Map();
+        const PLANS_BATCH_SIZE = 10000; // Process 10K plans at a time
+        
+        for (let i = 0; i < plans.length; i += PLANS_BATCH_SIZE) {
+          // CRITICAL: Check memory during processing
+          if (performance.memory) {
+            const usedMB = performance.memory.usedJSHeapSize / 1024 / 1024;
+            const limitMB = performance.memory.jsHeapSizeLimit / 1024 / 1024;
+            const usagePercent = (usedMB / limitMB) * 100;
+            if (usagePercent > 75) {
+              console.warn(`[PDF Generator] Memory usage ${usagePercent.toFixed(1)}% during service mapping - Stopping early`);
+              break; // Stop processing if memory gets too high
+            }
+          }
+          
+          const batch = plans.slice(i, Math.min(i + PLANS_BATCH_SIZE, plans.length));
+          for (const plan of batch) {
+            const service = plan.sourceService || plan.service || 'Unknown';
+            if (!serviceMap.has(service)) {
+              serviceMap.set(service, {
+                service,
+                gcpService: plan.targetGcpService || plan.gcpService || 'N/A',
+                gcpApi: plan.gcpApi || 'N/A',
+                strategy: plan.strategy || 'N/A',
+                effort: plan.effort || 'N/A',
+                count: 0
+              });
+            }
+            serviceMap.get(service).count++;
+          }
         }
-        serviceValues.sort((a, b) => {
-          try {
-            const countA = typeof a?.count === 'number' ? a.count : parseInt(a?.count) || 0;
-            const countB = typeof b?.count === 'number' ? b.count : parseInt(b?.count) || 0;
-            return countB - countA;
-          } catch (e) {
-            return 0; // Keep order if sort fails
+        
+        console.log(`PDF Generator - Processing ${plans.length} migration plans`);
+        
+        // SAFETY: serviceMap should be small (number of unique services), but add error handling
+        let serviceValues = [];
+        try {
+          serviceValues = Array.from(serviceMap.values());
+          // Limit to 1000 services
+          if (serviceValues.length > 1000) {
+            console.warn(`[reportPdfGenerator] Too many services (${serviceValues.length}), limiting to 1000`);
+            serviceValues = serviceValues.slice(0, 1000);
+          }
+          serviceValues.sort((a, b) => {
+            try {
+              const countA = typeof a?.count === 'number' ? a.count : parseInt(a?.count) || 0;
+              const countB = typeof b?.count === 'number' ? b.count : parseInt(b?.count) || 0;
+              return countB - countA;
+            } catch (e) {
+              return 0; // Keep order if sort fails
+            }
+          });
+        } catch (sortError) {
+          console.error('[reportPdfGenerator] Error processing service values:', sortError);
+          serviceValues = [];
+        }
+        
+        // SAFETY: Use loop instead of map for extra safety
+        const allMappings = [];
+        for (const m of serviceValues) {
+          allMappings.push([
+            m.service,
+            m.gcpService,
+            m.gcpApi,
+            m.strategy,
+            m.effort,
+            formatNumber(m.count)
+          ]);
+        }
+        
+        callAutoTable({
+          startY: yPos,
+          head: [['AWS Service', 'GCP Service', 'GCP API', 'Strategy', 'Effort', 'Workloads']],
+          body: allMappings,
+          theme: 'grid',
+          headStyles: { fillColor: [0, 102, 204], fontStyle: FONT_BOLD, font: FONT_FAMILY },
+          margin: { left: margin, right: margin },
+          styles: { fontSize: FONT_SIZE.SM, font: FONT_FAMILY },
+          columnStyles: {
+            0: { cellWidth: 35 },
+            1: { cellWidth: 40 },
+            2: { cellWidth: 40 },
+            3: { cellWidth: 25 },
+            4: { cellWidth: 20 },
+            5: { cellWidth: 20, halign: 'center' }
           }
         });
-      } catch (sortError) {
-        console.error('[reportPdfGenerator] Error processing service values:', sortError);
-        serviceValues = [];
+        
+        yPos = getLastAutoTable().finalY + SPACING.XL;
+      } else {
+        // Memory too high or plans too large - show message instead
+        checkPageBreak(30);
+        setFont(FONT_SIZE.BASE, FONT_NORMAL);
+        doc.setTextColor(150, 150, 150);
+        const planItemsCount = strategyResults.migrationPlan.planItems?.length || plans?.length || 0;
+        doc.text(`Service mappings skipped due to ${planItemsCount > 100000 ? 'large dataset' : 'high memory usage'} (${planItemsCount.toLocaleString()} items). Summary data is still included.`, margin, yPos, { maxWidth: contentWidth });
+        yPos += SPACING.XL;
       }
-      
-      // SAFETY: Use loop instead of map for extra safety
-      const allMappings = [];
-      for (const m of serviceValues) {
-        allMappings.push([
-          m.service,
-          m.gcpService,
-          m.gcpApi,
-          m.strategy,
-          m.effort,
-          formatNumber(m.count)
-        ]);
-      }
-      
-      callAutoTable({
-        startY: yPos,
-        head: [['AWS Service', 'GCP Service', 'GCP API', 'Strategy', 'Effort', 'Workloads']],
-        body: allMappings,
-        theme: 'grid',
-        headStyles: { fillColor: [0, 102, 204], fontStyle: FONT_BOLD, font: FONT_FAMILY },
-        margin: { left: margin, right: margin },
-        styles: { fontSize: FONT_SIZE.SM, font: FONT_FAMILY },
-        columnStyles: {
-          0: { cellWidth: 35 },
-          1: { cellWidth: 40 },
-          2: { cellWidth: 40 },
-          3: { cellWidth: 25 },
-          4: { cellWidth: 20 },
-          5: { cellWidth: 20, halign: 'center' }
-        }
-      });
-      
-      yPos = getLastAutoTable().finalY + SPACING.XL;
     }
   }
   
@@ -1170,11 +1829,21 @@ export const generateComprehensiveReportPDF = async (
     const wave2Count = strategyResults.wavePlan.wave2?.length || 0;
     const wave3Count = strategyResults.wavePlan.wave3?.length || 0;
     
-    // Estimate durations (3 weeks landing zone + wave durations)
+    // Estimate durations based on parallel migration capacity (not sequential per-workload)
+    // Assumes parallel migration teams working simultaneously
     const landingZoneWeeks = 3;
-    const wave1Weeks = Math.max(2, Math.ceil(wave1Count * 0.5)); // ~0.5 weeks per workload, min 2
-    const wave2Weeks = Math.max(4, Math.ceil(wave2Count * 0.75)); // ~0.75 weeks per workload, min 4
-    const wave3Weeks = Math.max(6, Math.ceil(wave3Count * 1.0)); // ~1 week per workload, min 6
+    
+    // Parallel migration capacity: workloads per week per team
+    // Wave 1 (low complexity): 500-1000 workloads/week per team, assume 2 teams = 1000-2000/week
+    // Wave 2 (medium complexity): 200-500 workloads/week per team, assume 2 teams = 400-1000/week  
+    // Wave 3 (high complexity): 50-200 workloads/week per team, assume 2 teams = 100-400/week
+    const WAVE1_WORKLOADS_PER_WEEK = 1500; // Low complexity - high throughput
+    const WAVE2_WORKLOADS_PER_WEEK = 600;  // Medium complexity - moderate throughput
+    const WAVE3_WORKLOADS_PER_WEEK = 200; // High complexity - lower throughput
+    
+    const wave1Weeks = Math.max(2, Math.ceil(wave1Count / WAVE1_WORKLOADS_PER_WEEK));
+    const wave2Weeks = Math.max(4, Math.ceil(wave2Count / WAVE2_WORKLOADS_PER_WEEK));
+    const wave3Weeks = Math.max(6, Math.ceil(wave3Count / WAVE3_WORKLOADS_PER_WEEK));
     const totalWeeks = landingZoneWeeks + wave1Weeks + wave2Weeks + wave3Weeks;
     
     const timelineData = [
@@ -1197,6 +1866,320 @@ export const generateComprehensiveReportPDF = async (
     });
     
     yPos = getLastAutoTable().finalY + SPACING.XL;
+  }
+
+  // ==========================================
+  // MIGRATION WAVE DETAILS
+  // ==========================================
+  if (strategyResults && strategyResults.wavePlan) {
+    doc.addPage();
+    yPos = margin;
+    addSectionHeader('Migration Wave Details', [255, 193, 7]);
+    
+    setFont(FONT_SIZE.BASE, FONT_NORMAL);
+    doc.setTextColor(0, 0, 0);
+    doc.text('Detailed breakdown of migration waves with effort estimates, dependencies, and risk assessment.', margin, yPos, { maxWidth: contentWidth });
+    yPos += SPACING.LG;
+
+    const wave1Count = strategyResults.wavePlan.wave1?.length || 0;
+    const wave2Count = strategyResults.wavePlan.wave2?.length || 0;
+    const wave3Count = strategyResults.wavePlan.wave3?.length || 0;
+
+    // Wave details table
+    const waveDetailsData = [
+      ['Wave 1 - Quick Wins', formatNumber(wave1Count), 'Low', '2-4 weeks', 'Low', 'High'],
+      ['Wave 2 - Standard', formatNumber(wave2Count), 'Medium', '4-8 weeks', 'Medium', 'Medium'],
+      ['Wave 3 - Complex', formatNumber(wave3Count), 'High', '8-12 weeks', 'High', 'Low']
+    ];
+
+    callAutoTable({
+      startY: yPos,
+      head: [['Wave', 'Workloads', 'Complexity', 'Estimated Duration', 'Risk Level', 'Priority']],
+      body: waveDetailsData,
+      theme: 'grid',
+      headStyles: { fillColor: [255, 193, 7], fontStyle: FONT_BOLD, font: FONT_FAMILY },
+      margin: { left: margin, right: margin },
+      styles: { fontSize: FONT_SIZE.MD, font: FONT_FAMILY }
+    });
+
+    yPos = getLastAutoTable().finalY + SPACING.LG;
+
+    // Wave sequencing rationale
+    setFont(FONT_SIZE.XL, FONT_BOLD);
+    doc.setTextColor(0, 102, 204);
+    doc.text('Wave Sequencing Rationale', margin, yPos);
+    yPos += SPACING.MD;
+
+    setFont(FONT_SIZE.BASE, FONT_NORMAL);
+    doc.setTextColor(0, 0, 0);
+    doc.text('• Wave 1: Low-complexity workloads for quick wins and early value realization', margin + 5, yPos, { maxWidth: contentWidth - 10 });
+    yPos += SPACING.SM;
+    doc.text('• Wave 2: Standard complexity workloads building on Wave 1 experience', margin + 5, yPos, { maxWidth: contentWidth - 10 });
+    yPos += SPACING.SM;
+    doc.text('• Wave 3: High-complexity workloads requiring additional planning and resources', margin + 5, yPos, { maxWidth: contentWidth - 10 });
+    yPos += SPACING.XL;
+  }
+
+  // ==========================================
+  // RISK ASSESSMENT
+  // ==========================================
+  doc.addPage();
+  yPos = margin;
+  addSectionHeader('Risk Assessment', [200, 0, 0]);
+  
+  setFont(FONT_SIZE.BASE, FONT_NORMAL);
+  doc.setTextColor(0, 0, 0);
+  doc.text('Comprehensive risk analysis with likelihood, impact, and mitigation strategies.', margin, yPos, { maxWidth: contentWidth });
+  yPos += SPACING.LG;
+
+  try {
+    const risks = calculateRiskAssessment(reportData, strategyResults);
+    
+    if (risks.length > 0) {
+      // Risk matrix table
+      const riskData = risks.map(risk => [
+        risk.risk,
+        risk.likelihood,
+        risk.impact,
+        risk.description.substring(0, 60) + (risk.description.length > 60 ? '...' : ''),
+        risk.mitigation.substring(0, 50) + (risk.mitigation.length > 50 ? '...' : '')
+      ]);
+
+      callAutoTable({
+        startY: yPos,
+        head: [['Risk', 'Likelihood', 'Impact', 'Description', 'Mitigation']],
+        body: riskData,
+        theme: 'grid',
+        headStyles: { fillColor: [200, 0, 0], fontStyle: FONT_BOLD, font: FONT_FAMILY },
+        margin: { left: margin, right: margin },
+        styles: { fontSize: FONT_SIZE.XS, font: FONT_FAMILY },
+        columnStyles: {
+          0: { cellWidth: 50 },
+          1: { cellWidth: 25, halign: 'center' },
+          2: { cellWidth: 25, halign: 'center' },
+          3: { cellWidth: 60 },
+          4: { cellWidth: 50 }
+        }
+      });
+
+      yPos = getLastAutoTable().finalY + SPACING.XL;
+    } else {
+      doc.text('No significant risks identified. All workloads are assessed as low to medium risk.', margin, yPos, { maxWidth: contentWidth });
+      yPos += SPACING.LG;
+    }
+  } catch (error) {
+    console.error('[PDF Generator] Error calculating risks:', error);
+  }
+
+  // ==========================================
+  // PRIORITIZED ACTION ITEMS
+  // ==========================================
+  doc.addPage();
+  yPos = margin;
+  addSectionHeader('Prioritized Action Items', [0, 102, 204]);
+  
+  setFont(FONT_SIZE.BASE, FONT_NORMAL);
+  doc.setTextColor(0, 0, 0);
+  doc.text('Actionable items organized by priority with owners, timelines, and success metrics.', margin, yPos, { maxWidth: contentWidth });
+  yPos += SPACING.LG;
+
+  try {
+    const actions = calculatePrioritizedActions(reportData, strategyResults, costEstimates);
+    
+    // High Priority Actions
+    if (actions.high.length > 0) {
+      setFont(FONT_SIZE.XL, FONT_BOLD);
+      doc.setTextColor(200, 0, 0);
+      doc.text('High Priority', margin, yPos);
+      yPos += SPACING.MD;
+
+      const highPriorityData = actions.high.map(action => [
+        action.action,
+        action.owner,
+        action.timeline,
+        action.kpi
+      ]);
+
+      callAutoTable({
+        startY: yPos,
+        head: [['Action', 'Owner', 'Timeline', 'Success Metric']],
+        body: highPriorityData,
+        theme: 'grid',
+        headStyles: { fillColor: [200, 0, 0], fontStyle: FONT_BOLD, font: FONT_FAMILY },
+        margin: { left: margin, right: margin },
+        styles: { fontSize: FONT_SIZE.SM, font: FONT_FAMILY }
+      });
+
+      yPos = getLastAutoTable().finalY + SPACING.LG;
+    }
+
+    // Medium Priority Actions
+    if (actions.medium.length > 0) {
+      checkPageBreak(SPACING.XXL);
+      setFont(FONT_SIZE.XL, FONT_BOLD);
+      doc.setTextColor(255, 193, 7);
+      doc.text('Medium Priority', margin, yPos);
+      yPos += SPACING.MD;
+
+      const mediumPriorityData = actions.medium.map(action => [
+        action.action,
+        action.owner,
+        action.timeline,
+        action.kpi
+      ]);
+
+      callAutoTable({
+        startY: yPos,
+        head: [['Action', 'Owner', 'Timeline', 'Success Metric']],
+        body: mediumPriorityData,
+        theme: 'grid',
+        headStyles: { fillColor: [255, 193, 7], fontStyle: FONT_BOLD, font: FONT_FAMILY },
+        margin: { left: margin, right: margin },
+        styles: { fontSize: FONT_SIZE.SM, font: FONT_FAMILY }
+      });
+
+      yPos = getLastAutoTable().finalY + SPACING.LG;
+    }
+
+    // Low Priority Actions
+    if (actions.low.length > 0) {
+      checkPageBreak(SPACING.XXL);
+      setFont(FONT_SIZE.XL, FONT_BOLD);
+      doc.setTextColor(108, 117, 125);
+      doc.text('Low Priority', margin, yPos);
+      yPos += SPACING.MD;
+
+      const lowPriorityData = actions.low.map(action => [
+        action.action,
+        action.owner,
+        action.timeline,
+        action.kpi
+      ]);
+
+      callAutoTable({
+        startY: yPos,
+        head: [['Action', 'Owner', 'Timeline', 'Success Metric']],
+        body: lowPriorityData,
+        theme: 'grid',
+        headStyles: { fillColor: [108, 117, 125], fontStyle: FONT_BOLD, font: FONT_FAMILY },
+        margin: { left: margin, right: margin },
+        styles: { fontSize: FONT_SIZE.SM, font: FONT_FAMILY }
+      });
+
+      yPos = getLastAutoTable().finalY + SPACING.XL;
+    }
+  } catch (error) {
+    console.error('[PDF Generator] Error calculating actions:', error);
+  }
+
+  // ==========================================
+  // QUICK WINS
+  // ==========================================
+  doc.addPage();
+  yPos = margin;
+  addSectionHeader('Quick Wins', [40, 167, 69]);
+  
+  setFont(FONT_SIZE.BASE, FONT_NORMAL);
+  doc.setTextColor(0, 0, 0);
+  doc.text('Low-effort, high-impact opportunities for immediate value realization.', margin, yPos, { maxWidth: contentWidth });
+  yPos += SPACING.LG;
+
+  try {
+    const quickWins = calculateQuickWins(reportData);
+    
+    if (quickWins.length > 0) {
+      const quickWinsData = quickWins.map(win => [
+        win.title,
+        win.description,
+        win.impact,
+        win.effort,
+        win.cost ? formatCurrency(win.cost) : 'N/A',
+        win.savings ? formatCurrency(win.savings) : 'N/A'
+      ]);
+
+      callAutoTable({
+        startY: yPos,
+        head: [['Opportunity', 'Description', 'Impact', 'Effort', 'Current Cost', 'Potential Savings']],
+        body: quickWinsData,
+        theme: 'grid',
+        headStyles: { fillColor: [40, 167, 69], fontStyle: FONT_BOLD, font: FONT_FAMILY },
+        margin: { left: margin, right: margin },
+        styles: { fontSize: FONT_SIZE.SM, font: FONT_FAMILY }
+      });
+
+      yPos = getLastAutoTable().finalY + SPACING.XL;
+    } else {
+      doc.text('No quick wins identified. Review workload complexity and readiness scores.', margin, yPos, { maxWidth: contentWidth });
+      yPos += SPACING.LG;
+    }
+  } catch (error) {
+    console.error('[PDF Generator] Error calculating quick wins:', error);
+  }
+
+  // ==========================================
+  // DATA QUALITY & VALIDATION
+  // ==========================================
+  doc.addPage();
+  yPos = margin;
+  addSectionHeader('Data Quality & Validation', [108, 117, 125]);
+  
+  setFont(FONT_SIZE.BASE, FONT_NORMAL);
+  doc.setTextColor(0, 0, 0);
+  
+  try {
+    // CRITICAL: Check memory BEFORE accessing workloads array
+    let shouldCalculateQuality = false;
+    const workloadCount = reportData?.summary?.totalWorkloads || 0;
+    
+    // CRITICAL: Only calculate quality if memory is low
+    if (performance.memory) {
+      const usedMB = performance.memory.usedJSHeapSize / 1024 / 1024;
+      const limitMB = performance.memory.jsHeapSizeLimit / 1024 / 1024;
+      const usagePercent = (usedMB / limitMB) * 100;
+      if (usagePercent < 70 && workloadCount < 150000) {
+        shouldCalculateQuality = true;
+      }
+    } else {
+      shouldCalculateQuality = workloadCount < 100000;
+    }
+    
+    // CRITICAL: Only access workloads array if we're going to use it
+    // Use summary data instead of full workloads array for data quality
+    const dataQuality = calculateDataQuality(reportData, shouldCalculateQuality ? (reportData?.workloads || []) : []);
+    
+    doc.text('Data completeness and quality indicators for this assessment.', margin, yPos, { maxWidth: contentWidth });
+    yPos += SPACING.LG;
+
+    const qualityData = [
+      ['Data Completeness', `${dataQuality.completeness}%`],
+      ['Confidence Level', dataQuality.confidenceLevel],
+      ['Assessed Workloads', formatNumber(dataQuality.assessedWorkloads)],
+      ['Total Workloads', formatNumber(dataQuality.totalWorkloads)],
+      ['Data Freshness', dataQuality.dataFreshness]
+    ];
+
+    callAutoTable({
+      startY: yPos,
+      head: [['Metric', 'Value']],
+      body: qualityData,
+      theme: 'grid',
+      headStyles: { fillColor: [108, 117, 125], fontStyle: FONT_BOLD, font: FONT_FAMILY },
+      margin: { left: margin, right: margin },
+      styles: { fontSize: FONT_SIZE.MD, font: FONT_FAMILY }
+    });
+
+    yPos = getLastAutoTable().finalY + SPACING.LG;
+
+    // Validation warnings
+    if (parseFloat(dataQuality.completeness) < 80) {
+      setFont(FONT_SIZE.BASE, FONT_NORMAL);
+      doc.setTextColor(200, 0, 0);
+      doc.text(`⚠️ Warning: Data completeness is ${dataQuality.completeness}%. Consider running Assessment Agent to improve data quality.`, margin, yPos, { maxWidth: contentWidth });
+      yPos += SPACING.MD;
+      doc.setTextColor(0, 0, 0);
+    }
+  } catch (error) {
+    console.error('[PDF Generator] Error calculating data quality:', error);
   }
 
   // Recommendations text
@@ -1433,7 +2416,103 @@ export const generateComprehensiveReportPDF = async (
     '• Without ResourceId: One workload = one service per region\n' +
     '  (e.g., All S3 charges in us-east-1 = 1 S3 workload)\n' +
     '• Deduplication: Same resource across different dates/bills = 1 workload\n' +
-    '• Aggregation: All usage types (storage, requests, data transfer) combined per service+region',
+    '• Aggregation: All usage types (storage, requests, data transfer) combined per service+region'
+  );
+
+  // Appendix H: Glossary & Definitions
+  addAppendix(
+    'H',
+    'Glossary & Definitions',
+    'Migration Terminology:\n' +
+    '• Complexity Score: 1-10 scale rating workload migration difficulty\n' +
+    '• Readiness: Assessment of workload\'s preparedness for migration\n' +
+    '• Migration Wave: Grouped workloads migrated together in phases\n' +
+    '• Committed Use Discount (CUD): GCP discount for 1 or 3-year commitments\n' +
+    '• TCO: Total Cost of Ownership including migration and operational costs\n' +
+    '• Service Mapping: AWS to GCP service equivalent identification\n' +
+    '• Migration Strategy: Approach (Rehost, Refactor, Replatform, etc.)\n\n' +
+    'Complexity Levels:\n' +
+    '• Low (1-3): Simple, straightforward migrations\n' +
+    '• Medium (4-6): Moderate complexity requiring planning\n' +
+    '• High (7-10): Complex migrations needing extensive assessment\n\n' +
+    'Readiness Levels:\n' +
+    '• Ready: Can migrate immediately\n' +
+    '• Conditional: Can migrate with prerequisites met\n' +
+    '• Not Ready: Requires remediation before migration'
+  );
+
+  // Appendix I: Detailed Methodology
+  addAppendix(
+    'I',
+    'Assessment Methodology',
+    'How Complexity Scores are Calculated:\n' +
+    '• Service Type: Different services have base complexity levels\n' +
+    '• Dependencies: Inter-service dependencies increase complexity\n' +
+    '• Configuration: Custom configurations add complexity points\n' +
+    '• Data Volume: Large data volumes increase migration complexity\n' +
+    '• Custom Code: Application-specific code increases complexity\n\n' +
+    'How Readiness is Determined:\n' +
+    '• Complexity Score: Lower complexity = higher readiness\n' +
+    '• Risk Factors: Security, compliance, dependencies assessed\n' +
+    '• Data Residency: Geographic requirements considered\n' +
+    '• Service Availability: GCP equivalent availability verified\n\n' +
+    'How Cost Estimates are Derived:\n' +
+    '• AWS Costs: Extracted from Cost and Usage Reports (CUR)\n' +
+    '• GCP Pricing: Based on GCP Pricing API and service mappings\n' +
+    '• CUD Discounts: Applied based on commitment level (1 or 3 years)\n' +
+    '• Migration Costs: Estimated based on workload count and complexity\n\n' +
+    'Data Sources:\n' +
+    '• AWS Cost and Usage Reports (CUR)\n' +
+    '• GCP Pricing API\n' +
+    '• Service mapping database\n' +
+    '• Historical migration data (for effort estimation)\n\n' +
+    'Assumptions:\n' +
+    '• Workloads maintain similar usage patterns post-migration\n' +
+    '• GCP service equivalents provide similar functionality\n' +
+    '• Migration costs scale with workload count\n' +
+    '• CUD commitments are feasible for predictable workloads'
+  );
+
+  // Appendix J: Top 100 Workloads by Cost
+  addAppendix(
+    'J',
+    'Top 100 Workloads by Cost',
+    (() => {
+      try {
+        // CRITICAL: Check memory and workload count BEFORE accessing workloads array
+        const workloadCount = reportData?.summary?.totalWorkloads || 0;
+        
+        if (performance.memory) {
+          const usedMB = performance.memory.usedJSHeapSize / 1024 / 1024;
+          const limitMB = performance.memory.jsHeapSizeLimit / 1024 / 1024;
+          const usagePercent = (usedMB / limitMB) * 100;
+          if (usagePercent > 70 || workloadCount > 150000) {
+            return `Workload list generation skipped due to ${usagePercent > 70 ? 'high memory usage' : 'large dataset'} (${workloadCount.toLocaleString()} workloads). Use the web interface to view detailed workload data.`;
+          }
+        } else if (workloadCount > 100000) {
+          return `Workload list generation skipped due to large dataset (${workloadCount.toLocaleString()} workloads). Use the web interface to view detailed workload data.`;
+        }
+        
+        // CRITICAL: Only access workloads array if we passed all checks
+        const workloads = reportData?.workloads || [];
+        // CRITICAL: Limit to top 50 instead of 100 for memory efficiency
+        const topWorkloads = getTopExpensiveWorkloads(workloads, 50);
+        
+        if (topWorkloads.length === 0) {
+          return 'No workload cost data available.';
+        }
+        
+        let content = 'Top 100 most expensive workloads:\n\n';
+        topWorkloads.forEach((w, idx) => {
+          content += `${(idx + 1).toString().padStart(3, ' ')}. ${w.name.substring(0, 50)} | ${w.service} | ${w.region} | ${formatCurrency(w.cost)}\n`;
+        });
+        
+        return content;
+      } catch (error) {
+        console.error('[PDF Generator] Error generating top workloads:', error);
+        return 'Error generating workload list.';
+      }
+    })(),
     true // Last appendix
   );
 

@@ -182,6 +182,51 @@ export default function MigrationPipeline() {
     // CurUploadButton processes files and saves to repository
     if (uploadResult?.summary && uploadResult?.files) {
       try {
+        // CRITICAL: Clear old cost value before storing new one (prevent accumulation across multiple uploads)
+        try {
+          const oldValue = sessionStorage.getItem('csvParserTotalRawCost');
+          if (oldValue) {
+            console.log(`[PIPELINE] Clearing old totalRawCost: $${parseFloat(oldValue).toFixed(2)}`);
+            sessionStorage.removeItem('csvParserTotalRawCost');
+          }
+        } catch (e) {
+          // Ignore errors clearing old value
+        }
+        
+        // CRITICAL: Store totalRawCost from CSV parser (correct cost) for use in discovery summary
+        const totalRawCost = uploadResult.summary.totalRawCost || uploadResult.summary.totalMonthlyCost;
+        if (totalRawCost !== undefined && totalRawCost !== null) {
+          // CRITICAL: Validate cost is reasonable (not in millions unless truly huge)
+          const costValue = typeof totalRawCost === 'number' ? totalRawCost : parseFloat(totalRawCost);
+          if (isNaN(costValue)) {
+            console.error(`[PIPELINE] Invalid totalRawCost: ${totalRawCost} (type: ${typeof totalRawCost})`);
+            console.error(`[PIPELINE] Upload summary:`, uploadResult.summary);
+          } else if (costValue < 0) {
+            console.error(`[PIPELINE] Negative totalRawCost: $${costValue.toFixed(2)}`);
+          } else if (costValue > 10000000) { // > $10M per month is suspicious
+            console.error(`[PIPELINE] ERROR: totalRawCost seems very high: $${costValue.toLocaleString()}. This may indicate a calculation error.`);
+            console.error(`[PIPELINE] Upload summary:`, uploadResult.summary);
+            console.error(`[PIPELINE] Files uploaded: ${uploadResult.files?.length || 0}`);
+            console.error(`[PIPELINE] Workloads: ${uploadResult.summary?.uniqueWorkloads || 'unknown'}`);
+            // Still store it but log the error
+          }
+          
+          console.log(`[PIPELINE] Storing totalRawCost from CSV parser: $${costValue.toFixed(2)}`);
+          // Store in sessionStorage so discovery agent can access it
+          try {
+            sessionStorage.setItem('csvParserTotalRawCost', costValue.toString());
+            const verified = parseFloat(sessionStorage.getItem('csvParserTotalRawCost'));
+            console.log(`[PIPELINE] Verified stored value: $${verified.toFixed(2)}`);
+            if (Math.abs(verified - costValue) > 0.01) {
+              console.error(`[PIPELINE] ERROR: Stored value mismatch! Expected: $${costValue.toFixed(2)}, Got: $${verified.toFixed(2)}`);
+            }
+          } catch (e) {
+            console.warn('[PIPELINE] Failed to store totalRawCost:', e);
+          }
+        } else {
+          console.warn('[PIPELINE] No totalRawCost found in uploadResult.summary:', uploadResult.summary);
+        }
+        
         // CRITICAL FIX: Clear any previous state when uploading new files
         // This ensures we start fresh with new files
         if (fileUUID) {
@@ -296,14 +341,26 @@ export default function MigrationPipeline() {
   };
 
   const handlePipelineComplete = async (outputs) => {
-    // GUARD: Prevent duplicate processing if already handling completion
-    if (isProcessingPDFRef.current) {
+    // CRITICAL: Stronger guard to prevent duplicate PDF generation
+    // Check both the processing flag AND if PDF was already generated
+    // MUST check BEFORE any logging to prevent race conditions
+    if (isProcessingPDFRef.current || pdfGeneratedRef.current) {
       if (typeof window !== 'undefined' && window.persistentLog) {
-        window.persistentLog('WARN', '[MigrationPipeline] handlePipelineComplete: Already processing, ignoring duplicate call');
+        window.persistentLog('WARN', '[MigrationPipeline] handlePipelineComplete: Already processing or PDF already generated, ignoring duplicate call', {
+          isProcessing: isProcessingPDFRef.current,
+          pdfGenerated: pdfGeneratedRef.current
+        });
       }
-      console.warn('[MigrationPipeline] handlePipelineComplete: Already processing, ignoring duplicate call');
+      console.warn('[MigrationPipeline] handlePipelineComplete: Already processing or PDF already generated, ignoring duplicate call', {
+        isProcessing: isProcessingPDFRef.current,
+        pdfGenerated: pdfGeneratedRef.current
+      });
       return;
     }
+    
+    // CRITICAL: Set guard flag IMMEDIATELY to prevent race conditions
+    // Set it BEFORE any async operations or logging
+    isProcessingPDFRef.current = true;
     
     if (typeof window !== 'undefined' && window.persistentLog) {
       window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: ENTERING');
@@ -329,8 +386,7 @@ export default function MigrationPipeline() {
       // CRITICAL: For PDF format, defer state updates until AFTER PDF generation
       // This prevents React from trying to re-render with massive state objects
       if (outputFormat === 'pdf') {
-        // Set guard flag to prevent duplicate processing
-        isProcessingPDFRef.current = true;
+        // Guard flag already set above, just log
         if (typeof window !== 'undefined' && window.persistentLog) {
           window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: PDF format - deferring state updates');
         }
@@ -344,6 +400,13 @@ export default function MigrationPipeline() {
           }
           console.log('[PDF] PDF format selected, auto-generating PDF...');
           
+          // CRITICAL: Double-check guard before generating PDF (redundant but safe)
+          if (pdfGeneratedRef.current) {
+            console.warn('[PDF] PDF already generated, skipping duplicate generation');
+            isProcessingPDFRef.current = false; // Reset guard
+            return;
+          }
+          
           if (typeof window !== 'undefined' && window.persistentLog) {
             window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: Calling generatePDFReport...');
           }
@@ -356,16 +419,13 @@ export default function MigrationPipeline() {
           
           // CRITICAL ARCHITECTURE CHANGE: For PDF format, completely avoid React state updates
           // Store completion in ref only - this prevents ANY React re-renders that could crash
+          // Set flag IMMEDIATELY after PDF generation to prevent duplicates
           pdfGeneratedRef.current = true;
           
           if (typeof window !== 'undefined' && window.persistentLog) {
             window.persistentLog('INFO', '[MigrationPipeline] handlePipelineComplete: PDF complete - stored in ref (no React state update)');
           }
           console.log('[MigrationPipeline] PDF generation complete - stored in ref, avoiding React state update');
-          
-          // CRITICAL: Do NOT call setPipelineComplete - it triggers React re-render which crashes
-          // Instead, use DOM manipulation to show success message without React state
-          pdfGeneratedRef.current = true;
           
           // Use setTimeout to defer DOM manipulation to next tick, avoiding synchronous crash
           setTimeout(() => {
@@ -420,14 +480,15 @@ export default function MigrationPipeline() {
           // The PDF is already downloaded, so we don't need React state at all
           
         } catch (err) {
-          // Reset guard flag on error
+          // Reset guard flag on error (but keep pdfGeneratedRef to prevent retries)
           isProcessingPDFRef.current = false;
           if (typeof window !== 'undefined' && window.persistentLog) {
             window.persistentLog('ERROR', '[MigrationPipeline] handlePipelineComplete: PDF generation error:', err.message);
             window.persistentLog('ERROR', '[MigrationPipeline] handlePipelineComplete: PDF error stack:', err.stack);
           }
           console.error('[PDF] Error auto-generating PDF:', err);
-          throw err;
+          // Don't throw - just log the error to prevent cascading failures
+          // The PDF generation failed, but we don't want to crash the app
         }
         
         // CRITICAL: Don't save pipeline state for PDF format - it might trigger serialization issues
@@ -439,8 +500,12 @@ export default function MigrationPipeline() {
         }
         console.log('[MigrationPipeline] handlePipelineComplete: COMPLETED SUCCESSFULLY (PDF)');
         
-        // Reset guard flag after completion
-        isProcessingPDFRef.current = false;
+        // CRITICAL: Reset guard flag AFTER a delay to prevent rapid duplicate calls
+        // But keep pdfGeneratedRef.current = true to prevent any future calls
+        setTimeout(() => {
+          isProcessingPDFRef.current = false;
+        }, 2000); // 2 second delay to ensure no duplicate calls
+        
         return; // Exit early for PDF format
       }
       
@@ -826,9 +891,9 @@ export default function MigrationPipeline() {
             }
             
             // Check if this assessment has complexity score
-            const hasComplexity = assessmentObj.complexityScore !== undefined && assessmentObj.complexityScore !== null ||
-                                 assessment.complexityScore !== undefined && assessment.complexityScore !== null ||
-                                 assessmentObj.infrastructureAssessment?.complexityScore !== undefined;
+            const hasComplexity = (assessmentObj.complexityScore !== undefined && assessmentObj.complexityScore !== null) ||
+                                 (assessment.complexityScore !== undefined && assessment.complexityScore !== null) ||
+                                 (assessmentObj.infrastructureAssessment?.complexityScore !== undefined);
             
             if (hasComplexity) {
               assessmentsWithComplexity++;
@@ -941,7 +1006,7 @@ export default function MigrationPipeline() {
           // If still not found, try matching by iterating through assessments and comparing workloadIds
           // This handles cases where the workload.id format doesn't exactly match the assessment.workloadId format
           if (!assessment) {
-            for (const [mapKey, assessmentValue] of assessmentMap.entries()) {
+            for (const [, assessmentValue] of assessmentMap.entries()) {
               const assessmentObj = assessmentValue.toJSON ? assessmentValue.toJSON() : assessmentValue;
               const assessmentWorkloadId = assessmentObj.workloadId || assessmentValue.workloadId;
               
@@ -1106,9 +1171,36 @@ export default function MigrationPipeline() {
       
       let reportData;
       try {
+        // CRITICAL: Check memory before generating report summary
+        let shouldIncludeWorkloads = true;
+        const workloadCount = Array.isArray(workloads) ? workloads.length : 0;
+        
+        if (performance.memory) {
+          const usedMB = performance.memory.usedJSHeapSize / 1024 / 1024;
+          const limitMB = performance.memory.jsHeapSizeLimit / 1024 / 1024;
+          const usagePercent = (usedMB / limitMB) * 100;
+          
+          if (usagePercent > 70 || workloadCount > 150000) {
+            shouldIncludeWorkloads = false;
+            console.warn(`[MigrationPipeline] Memory ${usagePercent.toFixed(1)}% or workload count ${workloadCount.toLocaleString()} too high. ReportData will exclude workloads array.`);
+          }
+        } else if (workloadCount > 100000) {
+          shouldIncludeWorkloads = false;
+        }
+        
         reportData = await import('../../domain/services/ReportDataAggregator.js').then(m => 
           m.ReportDataAggregator.generateReportSummary(workloads)
         );
+        
+        // CRITICAL: Explicitly remove workloads array from reportData if memory is high
+        if (!shouldIncludeWorkloads && reportData.workloads) {
+          console.warn(`[MigrationPipeline] Removing workloads array from reportData to save memory`);
+          delete reportData.workloads;
+        } else if (reportData.workloads && workloadCount > 150000) {
+          // Also remove if workload count is very large, even if memory seems OK
+          console.warn(`[MigrationPipeline] Removing workloads array (${workloadCount.toLocaleString()} workloads) from reportData due to large dataset`);
+          delete reportData.workloads;
+        }
         
         if (typeof window !== 'undefined' && window.persistentLog) {
           window.persistentLog('INFO', '[PDF] generatePDFReport: Report summary generated successfully');
