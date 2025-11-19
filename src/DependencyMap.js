@@ -1,19 +1,27 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
 
+const getNodeColor = (node) => {
+  const colors = {
+    'vm': '#FF6384',
+    'database': '#36A2EB',
+    'storage': '#FFCE56',
+    'application': '#4BC0C0',
+    'container': '#9966FF',
+  };
+  return colors[node.type] || '#999';
+};
+
 function DependencyMap({ workloads }) {
-  const [graphData, setGraphData] = useState({ nodes: [], links: [] });
   const [selectedNode, setSelectedNode] = useState(null);
   const [highlightNodes, setHighlightNodes] = useState(new Set());
   const [highlightLinks, setHighlightLinks] = useState(new Set());
 
-  useEffect(() => {
+  const graphData = useMemo(() => {
     if (!workloads || workloads.length === 0) {
-      setGraphData({ nodes: [], links: [] });
-      return;
+      return { nodes: [], links: [] };
     }
 
-    // Build nodes from workloads
     const nodes = workloads.map(workload => ({
       id: workload.id,
       name: workload.name,
@@ -22,19 +30,16 @@ function DependencyMap({ workloads }) {
       cpu: workload.cpu,
       memory: workload.memory,
       storage: workload.storage,
-      val: Math.max(10, (workload.cpu + workload.memory / 4)), // Node size based on resources
+      val: Math.max(10, (workload.cpu + workload.memory / 4)),
     }));
 
-    // Build links from dependencies
+    const workloadMap = new Map(workloads.map(w => [w.name.toLowerCase(), w]));
     const links = [];
     workloads.forEach(workload => {
       if (workload.dependencies && workload.dependencies.trim()) {
-        const deps = workload.dependencies.split(',').map(d => d.trim());
+        const deps = workload.dependencies.split(',').map(d => d.trim().toLowerCase());
         deps.forEach(depName => {
-          const targetWorkload = workloads.find(w =>
-            w.name.toLowerCase().includes(depName.toLowerCase()) ||
-            depName.toLowerCase().includes(w.name.toLowerCase())
-          );
+          const targetWorkload = workloadMap.get(depName);
           if (targetWorkload && targetWorkload.id !== workload.id) {
             links.push({
               source: workload.id,
@@ -45,24 +50,12 @@ function DependencyMap({ workloads }) {
       }
     });
 
-    setGraphData({ nodes, links });
+    return { nodes, links };
   }, [workloads]);
-
-  const getNodeColor = (node) => {
-    const colors = {
-      'vm': '#FF6384',
-      'database': '#36A2EB',
-      'storage': '#FFCE56',
-      'application': '#4BC0C0',
-      'container': '#9966FF',
-    };
-    return colors[node.type] || '#999';
-  };
 
   const handleNodeClick = useCallback((node) => {
     setSelectedNode(node);
 
-    // Highlight connected nodes
     const neighbors = new Set();
     const links = new Set();
 
@@ -70,8 +63,7 @@ function DependencyMap({ workloads }) {
       if (link.source.id === node.id || link.source === node.id) {
         neighbors.add(link.target.id || link.target);
         links.add(link);
-      }
-      if (link.target.id === node.id || link.target === node.id) {
+      } else if (link.target.id === node.id || link.target === node.id) {
         neighbors.add(link.source.id || link.source);
         links.add(link);
       }
@@ -82,11 +74,11 @@ function DependencyMap({ workloads }) {
     setHighlightLinks(links);
   }, [graphData]);
 
-  const handleBackgroundClick = () => {
+  const handleBackgroundClick = useCallback(() => {
     setSelectedNode(null);
     setHighlightNodes(new Set());
     setHighlightLinks(new Set());
-  };
+  }, []);
 
   const paintNode = useCallback((node, ctx, globalScale) => {
     const label = node.name;
@@ -95,26 +87,22 @@ function DependencyMap({ workloads }) {
 
     const isHighlighted = highlightNodes.size === 0 || highlightNodes.has(node.id);
 
-    // Draw circle
     ctx.beginPath();
     ctx.arc(node.x, node.y, node.val, 0, 2 * Math.PI, false);
     ctx.fillStyle = isHighlighted ? getNodeColor(node) : '#ccc';
     ctx.fill();
 
-    // Draw border for selected node
     if (selectedNode && selectedNode.id === node.id) {
       ctx.lineWidth = 3 / globalScale;
       ctx.strokeStyle = '#000';
       ctx.stroke();
     }
 
-    // Draw label
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = isHighlighted ? '#000' : '#999';
     ctx.fillText(label, node.x, node.y + node.val + fontSize);
 
-    // Draw type icon/text
     ctx.font = `bold ${fontSize * 0.8}px Sans-Serif`;
     ctx.fillStyle = '#fff';
     ctx.fillText(node.type[0].toUpperCase(), node.x, node.y);
@@ -130,13 +118,10 @@ function DependencyMap({ workloads }) {
     ctx.strokeStyle = isHighlighted ? '#999' : '#ddd';
     ctx.stroke();
 
-    // Draw arrow
     if (isHighlighted) {
       const arrowLength = 10 / globalScale;
       const arrowWidth = 6 / globalScale;
-
       const angle = Math.atan2(link.target.y - link.source.y, link.target.x - link.source.x);
-
       const targetRadius = link.target.val || 5;
       const arrowX = link.target.x - targetRadius * Math.cos(angle);
       const arrowY = link.target.y - targetRadius * Math.sin(angle);

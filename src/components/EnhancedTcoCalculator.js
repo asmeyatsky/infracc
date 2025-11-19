@@ -3,7 +3,8 @@
  * Features real-time pricing, risk analysis, and predictive insights
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import debounce from '../utils/debounce';
 import CloudPricingAPI from '../utils/cloudPricingAPI';
 import AdvancedAnalytics from '../utils/advancedAnalytics';
 import {
@@ -119,48 +120,48 @@ const EnhancedTcoCalculator = ({ onCalculate, workloads = [] }) => {
   }, [workloads]);
 
 
+  // Debounce the calculation
+  const debouncedPerformCalculation = useCallback(
+    debounce(async (inputs) => {
+      setLoading(true);
+      try {
+        const tcoResults = CloudPricingAPI.calculateEnhancedTCO({
+          ...inputs,
+          cloudSelection: inputs.cloudSelection
+        });
+        
+        const analyticsResults = {
+          summary: AdvancedAnalytics.generateExecutiveSummary(inputs, tcoResults),
+          riskAdjusted: AdvancedAnalytics.riskAdjustedTCO(inputs, inputs.riskFactors),
+          sensitivity: {
+            onPremise: AdvancedAnalytics.sensitivityAnalysis(inputs, 'onPremiseCosts'),
+            cloud: AdvancedAnalytics.sensitivityAnalysis(inputs, 'cloudCosts'),
+            migration: AdvancedAnalytics.sensitivityAnalysis(inputs, 'migrationCosts')
+          },
+          forecast: AdvancedAnalytics.predictCostTrends(inputs),
+          footprint: AdvancedAnalytics.calculateCarbonFootprint(inputs),
+          breakdown: AdvancedAnalytics.generateCostBreakdown(inputs)
+        };
+
+        setResults(tcoResults);
+        setAnalytics(analyticsResults);
+
+        if (onCalculate) {
+          onCalculate(tcoResults);
+        }
+      } catch (error) {
+        console.error('Error calculating TCO:', error);
+      } finally {
+        setLoading(false);
+      }
+    }, 500), // 500ms debounce delay
+    [onCalculate]
+  );
+
   // Calculate TCO when inputs change
   useEffect(() => {
-    performCalculation();
-  }, [currentInputs]);
-
-  const performCalculation = async () => {
-    setLoading(true);
-    
-    try {
-      // Calculate base TCO
-      const tcoResults = CloudPricingAPI.calculateEnhancedTCO({
-        ...currentInputs,
-        cloudSelection: currentInputs.cloudSelection
-      });
-      
-      // Generate analytics
-      const analyticsResults = {
-        summary: AdvancedAnalytics.generateExecutiveSummary(currentInputs, tcoResults),
-        riskAdjusted: AdvancedAnalytics.riskAdjustedTCO(currentInputs, currentInputs.riskFactors),
-        sensitivity: {
-          onPremise: AdvancedAnalytics.sensitivityAnalysis(currentInputs, 'onPremiseCosts'),
-          cloud: AdvancedAnalytics.sensitivityAnalysis(currentInputs, 'cloudCosts'),
-          migration: AdvancedAnalytics.sensitivityAnalysis(currentInputs, 'migrationCosts')
-        },
-        forecast: AdvancedAnalytics.predictCostTrends(currentInputs),
-        footprint: AdvancedAnalytics.calculateCarbonFootprint(currentInputs),
-        breakdown: AdvancedAnalytics.generateCostBreakdown(currentInputs)
-      };
-
-      setResults(tcoResults);
-      setAnalytics(analyticsResults);
-
-      // Pass results to parent component
-      if (onCalculate) {
-        onCalculate(tcoResults);
-      }
-    } catch (error) {
-      console.error('Error calculating TCO:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    debouncedPerformCalculation(currentInputs);
+  }, [currentInputs, debouncedPerformCalculation]);
 
   const handleInputChange = (category, field, value) => {
     setCurrentInputs(prev => {
