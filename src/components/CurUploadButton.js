@@ -582,11 +582,25 @@ class FileUploadManager {
         }
       } else {
         try {
+          // CRITICAL FIX: Extract type properly - handle both WorkloadType objects and strings
+          let workloadType = 'vm'; // default
+          if (data.type) {
+            if (typeof data.type === 'string') {
+              workloadType = data.type;
+            } else if (data.type && typeof data.type === 'object' && 'type' in data.type) {
+              // It's a WorkloadType object - extract the string value
+              workloadType = data.type.type;
+            } else if (data.type && typeof data.type.toString === 'function') {
+              // Fallback: try toString() method
+              workloadType = data.type.toString();
+            }
+          }
+          
           const workloadData = {
             id: dedupeKey,
             name: data.name || resourceId.split('/').pop() || dedupeKey,
             service: data.service || 'EC2',
-            type: data.type || 'vm',
+            type: workloadType,
             sourceProvider: 'aws',
             cpu: data.cpu || 0,
             memory: data.memory || 0,

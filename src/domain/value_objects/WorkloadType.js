@@ -31,10 +31,27 @@ export class WorkloadType {
    * @throws {Error} If type is invalid
    */
   constructor(type) {
-    if (!Object.values(WorkloadTypeEnum).includes(type.toLowerCase())) {
-      throw new Error(`Invalid workload type: ${type}`);
+    // CRITICAL FIX: Handle both string and WorkloadType object inputs
+    let typeString = type;
+    if (type && typeof type !== 'string') {
+      // If it's a WorkloadType object, extract the string value
+      if (type.type && typeof type.type === 'string') {
+        typeString = type.type;
+      } else if (typeof type.toString === 'function') {
+        typeString = type.toString();
+      } else {
+        throw new Error(`Invalid workload type: ${type} (expected string or WorkloadType)`);
+      }
     }
-    const normalizedType = type.toLowerCase();
+    
+    if (!typeString || typeof typeString !== 'string') {
+      throw new Error(`Invalid workload type: ${type} (must be a string)`);
+    }
+    
+    if (!Object.values(WorkloadTypeEnum).includes(typeString.toLowerCase())) {
+      throw new Error(`Invalid workload type: ${typeString}. Valid types: ${Object.values(WorkloadTypeEnum).join(', ')}`);
+    }
+    const normalizedType = typeString.toLowerCase();
     Object.defineProperty(this, '_type', {
       value: normalizedType,
       writable: false,
