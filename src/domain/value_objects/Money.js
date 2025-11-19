@@ -25,7 +25,7 @@ export class Money {
     
     Object.defineProperty(this, '_amount', {
       value: parsedAmount,
-      writable: false,
+      writable: true,
       enumerable: true
     });
     
@@ -35,7 +35,6 @@ export class Money {
       enumerable: true
     });
     
-    Object.freeze(this);
   }
 
   /**

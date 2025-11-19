@@ -57,6 +57,45 @@ export class WorkloadRepository extends WorkloadRepositoryPort {
     return workload;
   }
 
+  async saveManyImmediate(workloads) {
+    if (!Array.isArray(workloads)) {
+      throw new Error('workloads must be an array');
+    }
+
+    const BATCH_WRITE_SIZE = 5000;
+    let persistedCount = 0;
+    const startTime = Date.now();
+
+    for (let i = 0; i < workloads.length; i += BATCH_WRITE_SIZE) {
+      const batch = workloads.slice(i, i + BATCH_WRITE_SIZE);
+
+      const writePromises = batch.map(workload => {
+        if (!(workload instanceof Workload)) {
+          console.warn('Item in workloads is not a Workload instance, skipping');
+          return Promise.resolve(null);
+        }
+        try {
+          const workloadData = workload.toJSON();
+          return this._storage.setItem(workload.id, workloadData).catch(error => {
+            console.warn(`Failed to persist workload ${workload.id}:`, error);
+            return null; // Return null on error instead of throwing
+          });
+        } catch (error) {
+          console.warn(`Failed to prepare workload ${workload.id} for persistence:`, error);
+          return Promise.resolve(null); // Continue even if preparation fails
+        }
+      });
+
+      const results = await Promise.allSettled(writePromises);
+      const successCount = results.filter(r => r.status === 'fulfilled' && r.value !== null).length;
+      persistedCount += successCount;
+    }
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`WorkloadRepository.saveManyImmediate() - Persisted ${persistedCount.toLocaleString()} of ${workloads.length.toLocaleString()} workloads to IndexedDB in ${elapsed}s`);
+
+  }
+
   /**
    * Debounced persistence - batches saves to avoid performance issues
    * @private

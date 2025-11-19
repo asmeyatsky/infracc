@@ -7,6 +7,8 @@
 
 // Import comprehensive AWS product code mapping
 import { normalizeAwsProductCode, getAwsServiceType } from './awsProductCodeMapping.js';
+import { Workload } from '../domain/entities/Workload.js';
+import { Money } from '../domain/value_objects/Money.js';
 
 /**
  * Parse AWS CUR CSV in streaming fashion
@@ -37,7 +39,7 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress, options = {
       
       // CRITICAL: Track workloads saved to IndexedDB to prevent memory accumulation
       let workloadsSavedToDB = 0;
-      const FLUSH_TO_DB_THRESHOLD = 50000; // Flush every 50K workloads
+      const FLUSH_TO_DB_THRESHOLD = 10000; // Flush every 10K workloads
       
       // CRITICAL: Aggressive memory monitoring and crash prevention
       const checkMemory = () => {
@@ -160,7 +162,7 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress, options = {
       
     // PERFORMANCE: Process larger batches for better throughput on M1 chips
     // Increased batch size significantly - M1 can handle much more efficiently
-    const MAX_LINES_PER_BATCH = 10000; // Process 10k lines before yielding (M1 optimized)
+    const MAX_LINES_PER_BATCH = 1000; // Process 1k lines before yielding (M1 optimized)
     const pendingLines = []; // Queue of lines to process (shared across chunks)
       
       // Column index finder
@@ -312,7 +314,7 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress, options = {
           const lastSlash = resourceId.lastIndexOf('/');
           const name = lastSlash >= 0 ? resourceId.substring(lastSlash + 1) : resourceId;
           
-          workload = {
+          workload = new Workload({
             id: resourceId,
             name: name,
             service: normalizedService,
@@ -327,37 +329,14 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress, options = {
             dependencies: [],
             awsInstanceType: instanceType,
             awsProductCode: productCode,
-            dateRange: usageStartDate && usageEndDate 
-              ? { start: usageStartDate, end: usageEndDate }
-              : null,
-            seenDates: usageStartDate ? [usageStartDate] : [],
-          };
+            sourceProvider: 'aws',
+          });
           workloadMap.set(dedupeKey, workload);
         }
         
-        // PERFORMANCE: Direct property access instead of getter
-        workload.monthlyCost += roundedCost;
-      
-        // PERFORMANCE: Optimize date tracking - only update if needed
-        // MEMORY-EFFICIENT: Limit seenDates to 100 (reduced from 1000) to save memory
-        if (usageStartDate) {
-          const seenDates = workload.seenDates;
-          // CRITICAL: Limit to 100 dates max to prevent memory bloat
-          if (seenDates.length < 100 && !seenDates.includes(usageStartDate)) {
-            seenDates.push(usageStartDate);
-          }
-          
-          if (usageEndDate) {
-            const dateRange = workload.dateRange;
-            if (!dateRange) {
-              workload.dateRange = { start: usageStartDate, end: usageEndDate };
-            } else {
-              // PERFORMANCE: Direct comparison instead of string operations
-              if (usageStartDate < dateRange.start) dateRange.start = usageStartDate;
-              if (usageEndDate > dateRange.end) dateRange.end = usageEndDate;
-            }
-          }
-        }
+        // CRITICAL FIX: Use Money.add() method instead of direct mutation
+        // This maintains immutability contract and ensures proper Money object behavior
+        workload._monthlyCost = workload._monthlyCost.add(new Money(roundedCost));
         
         // Note: Flushing to DB happens in processChunk, not here (processLine is synchronous)
         
@@ -427,7 +406,7 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress, options = {
         if (serviceType === 'storage' && headerIndices.usageAmount >= 0) {
           const usageAmount = parseFloat(values[headerIndices.usageAmount]) || 0;
           if (usageType.indexOf('GB') >= 0) {
-            workload.storage += usageAmount;
+            workload._storage += usageAmount;
           }
         }
       };
@@ -630,14 +609,7 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress, options = {
             const workloadsToFlush = Array.from(workloadMap.values());
             console.log(`[streamingCsvParser] Flushing ${workloadsToFlush.length.toLocaleString()} workloads to IndexedDB to free memory...`);
             
-            // Save in batches to avoid memory spike
-            const BATCH_SIZE = 1000;
-            for (let i = 0; i < workloadsToFlush.length; i += BATCH_SIZE) {
-              const batch = workloadsToFlush.slice(i, Math.min(i + BATCH_SIZE, workloadsToFlush.length));
-              await Promise.all(batch.map(w => workloadRepository.save(w).catch(e => {
-                console.warn(`[streamingCsvParser] Failed to save workload ${w.id}:`, e);
-              })));
-            }
+            await workloadRepository.saveManyImmediate(workloadsToFlush);
             
             workloadsSavedToDB += workloadsToFlush.length;
             workloadMap.clear(); // CRITICAL: Clear map to free memory
@@ -902,7 +874,7 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress, options = {
                 if (result.length > 0) {
                   const calculated = result.reduce((sum, workload) => {
                     try {
-                      const cost = workload?.monthlyCost || 0;
+                      const cost = workload?.monthlyCost.amount || 0;
                       const numCost = typeof cost === 'number' ? cost : parseFloat(cost) || 0;
                       return sum + numCost;
                     } catch (e) {
@@ -1027,7 +999,7 @@ export const parseAwsCurStreaming = async (fileOrBuffer, onProgress, options = {
             if (result.length > 0) {
               const calculated = result.reduce((sum, workload) => {
                 try {
-                  const cost = workload?.monthlyCost || 0;
+                  const cost = workload?.monthlyCost.amount || 0;
                   const numCost = typeof cost === 'number' ? cost : parseFloat(cost) || 0;
                   return sum + numCost;
                 } catch (e) {

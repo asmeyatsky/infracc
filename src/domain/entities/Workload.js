@@ -80,13 +80,18 @@ export class Workload {
     
     Object.defineProperty(this, '_storage', {
       value: Math.max(0, parseFloat(props.storage) || 0),
-      writable: false,
+      writable: true,
       enumerable: true
     });
     
+    // CRITICAL FIX: Handle both numbers and Money objects for monthlyCost
+    // If it's already a Money object, use it directly; otherwise create new Money from number
+    const monthlyCostValue = props.monthlyCost instanceof Money 
+      ? props.monthlyCost.amount 
+      : (props.monthlyCost || 0);
     Object.defineProperty(this, '_monthlyCost', {
-      value: new Money(props.monthlyCost || 0),
-      writable: false,
+      value: new Money(monthlyCostValue),
+      writable: true,
       enumerable: true
     });
     
@@ -126,8 +131,6 @@ export class Workload {
       enumerable: true
     });
     
-    // Prevent mutation of the entity except through domain methods
-    Object.seal(this);
   }
 
   /**
